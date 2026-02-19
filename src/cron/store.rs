@@ -6,10 +6,20 @@ use crate::cron::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
+use rusqlite::types::{FromSqlResult, ValueRef};
 use uuid::Uuid;
 
 const MAX_CRON_OUTPUT_BYTES: usize = 16 * 1024;
 const TRUNCATED_OUTPUT_MARKER: &str = "\n...[truncated]";
+
+impl rusqlite::types::FromSql for JobType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let text = value.as_str()?;
+        JobType::try_from(text).map_err(|e| {
+            rusqlite::types::FromSqlError::Other(e.into())
+        })
+    }
+}
 
 pub fn add_job(config: &Config, expression: &str, command: &str) -> Result<CronJob> {
     let schedule = Schedule::Cron {
@@ -224,7 +234,7 @@ pub fn update_job(config: &Config, job_id: &str, patch: CronJobPatch) -> Result<
                 job.expression,
                 job.command,
                 serde_json::to_string(&job.schedule)?,
-                job.job_type.as_str(),
+                <JobType as Into<&str>>::into(job.job_type).to_string(),
                 job.prompt,
                 job.name,
                 job.session_target.as_str(),
@@ -417,13 +427,13 @@ fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronJob> {
     let next_run_raw: String = row.get(13)?;
     let last_run_raw: Option<String> = row.get(14)?;
     let created_at_raw: String = row.get(12)?;
-
+    
     Ok(CronJob {
         id: row.get(0)?,
         expression,
         schedule,
         command: row.get(2)?,
-        job_type: JobType::parse(&row.get::<_, String>(4)?),
+        job_type:row.get(4)?,
         prompt: row.get(5)?,
         name: row.get(6)?,
         session_target: SessionTarget::parse(&row.get::<_, String>(7)?),
