@@ -909,7 +909,7 @@ fn default_http_timeout_secs() -> u64 {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WebSearchConfig {
     /// Enable `web_search_tool` for web searches
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enabled: bool,
     /// Search provider: "duckduckgo" (free, no API key) or "brave" (requires API key)
     #[serde(default = "default_web_search_provider")]
@@ -940,7 +940,7 @@ fn default_web_search_timeout_secs() -> u64 {
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             provider: default_web_search_provider(),
             brave_api_key: None,
             max_results: default_web_search_max_results(),
