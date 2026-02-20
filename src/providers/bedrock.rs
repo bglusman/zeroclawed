@@ -767,6 +767,7 @@ impl BedrockProvider {
                 Some(text_parts.join("\n"))
             },
             tool_calls,
+            usage: None,
         }
     }
 

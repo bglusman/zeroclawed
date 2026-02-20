@@ -650,6 +650,7 @@ mod tests {
                 return Ok(crate::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    usage: None,
                 });
             }
             Ok(guard.remove(0))
@@ -687,6 +688,7 @@ mod tests {
             responses: Mutex::new(vec![crate::providers::ChatResponse {
                 text: Some("hello".into()),
                 tool_calls: vec![],
+                usage: None,
             }]),
         });
 
@@ -725,10 +727,12 @@ mod tests {
                         name: "echo".into(),
                         arguments: "{}".into(),
                     }],
+                    usage: None,
                 },
                 crate::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    usage: None,
                 },
             ]),
         });
