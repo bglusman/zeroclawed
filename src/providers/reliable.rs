@@ -356,10 +356,12 @@ impl Provider for ReliableProvider {
                             // so the retry hits a different quota bucket.
                             if rate_limited && !non_retryable_rate_limit {
                                 if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
+                                    tracing::warn!(
                                         provider = provider_name,
                                         error = %error_detail,
-                                        "Rate limited, rotated API key (key ending ...{})",
+                                        "Rate limited; key rotation selected key ending ...{} \
+                                         but cannot apply (Provider trait has no set_api_key). \
+                                         Retrying with original key.",
                                         &new_key[new_key.len().saturating_sub(4)..]
                                     );
                                 }
@@ -472,10 +474,12 @@ impl Provider for ReliableProvider {
 
                             if rate_limited && !non_retryable_rate_limit {
                                 if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
+                                    tracing::warn!(
                                         provider = provider_name,
                                         error = %error_detail,
-                                        "Rate limited, rotated API key (key ending ...{})",
+                                        "Rate limited; key rotation selected key ending ...{} \
+                                         but cannot apply (Provider trait has no set_api_key). \
+                                         Retrying with original key.",
                                         &new_key[new_key.len().saturating_sub(4)..]
                                     );
                                 }
@@ -594,10 +598,12 @@ impl Provider for ReliableProvider {
 
                             if rate_limited && !non_retryable_rate_limit {
                                 if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
+                                    tracing::warn!(
                                         provider = provider_name,
                                         error = %error_detail,
-                                        "Rate limited, rotated API key (key ending ...{})",
+                                        "Rate limited; key rotation selected key ending ...{} \
+                                         but cannot apply (Provider trait has no set_api_key). \
+                                         Retrying with original key.",
                                         &new_key[new_key.len().saturating_sub(4)..]
                                     );
                                 }
