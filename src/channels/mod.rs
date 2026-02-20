@@ -101,6 +101,7 @@ const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
 const CHANNEL_TYPING_REFRESH_INTERVAL_SECS: u64 = 4;
+const CHANNEL_HEALTH_HEARTBEAT_SECS: u64 = 30;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_PREVIEW_LIMIT: usize = 10;
 const MEMORY_CONTEXT_MAX_ENTRIES: usize = 4;
@@ -998,6 +999,28 @@ fn spawn_supervised_listener(
     initial_backoff_secs: u64,
     max_backoff_secs: u64,
 ) -> tokio::task::JoinHandle<()> {
+    spawn_supervised_listener_with_health_interval(
+        ch,
+        tx,
+        initial_backoff_secs,
+        max_backoff_secs,
+        Duration::from_secs(CHANNEL_HEALTH_HEARTBEAT_SECS),
+    )
+}
+
+fn spawn_supervised_listener_with_health_interval(
+    ch: Arc<dyn Channel>,
+    tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
+    initial_backoff_secs: u64,
+    max_backoff_secs: u64,
+    health_interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    let health_interval = if health_interval.is_zero() {
+        Duration::from_secs(1)
+    } else {
+        health_interval
+    };
+
     tokio::spawn(async move {
         let component = format!("channel:{}", ch.name());
         let mut backoff = initial_backoff_secs.max(1);
@@ -1005,7 +1028,21 @@ fn spawn_supervised_listener(
 
         loop {
             crate::health::mark_component_ok(&component);
-            let result = ch.listen(tx.clone()).await;
+            let mut health = tokio::time::interval(health_interval);
+            health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let result = {
+                let listen_future = ch.listen(tx.clone());
+                tokio::pin!(listen_future);
+
+                loop {
+                    tokio::select! {
+                        _ = health.tick() => {
+                            crate::health::mark_component_ok(&component);
+                        }
+                        result = &mut listen_future => break result,
+                    }
+                }
+            };
 
             if tx.is_closed() {
                 break;
@@ -5049,6 +5086,11 @@ Mon Feb 20
         calls: Arc<AtomicUsize>,
     }
 
+    struct BlockUntilClosedChannel {
+        name: String,
+        calls: Arc<AtomicUsize>,
+    }
+
     #[async_trait::async_trait]
     impl Channel for AlwaysFailChannel {
         fn name(&self) -> &str {
@@ -5065,6 +5107,26 @@ Mon Feb 20
         ) -> anyhow::Result<()> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             anyhow::bail!("listen boom")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Channel for BlockUntilClosedChannel {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        async fn send(&self, _message: &SendMessage) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn listen(
+            &self,
+            tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
+        ) -> anyhow::Result<()> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            tx.closed().await;
+            Ok(())
         }
     }
 
@@ -5092,6 +5154,51 @@ Mon Feb 20
             .as_str()
             .unwrap_or("")
             .contains("listen boom"));
+        assert!(calls.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[tokio::test]
+    async fn supervised_listener_refreshes_health_while_running() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let channel_name = format!("test-supervised-heartbeat-{}", uuid::Uuid::new_v4());
+        let component_name = format!("channel:{channel_name}");
+        let channel: Arc<dyn Channel> = Arc::new(BlockUntilClosedChannel {
+            name: channel_name,
+            calls: Arc::clone(&calls),
+        });
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(1);
+        let handle = spawn_supervised_listener_with_health_interval(
+            channel,
+            tx,
+            1,
+            1,
+            Duration::from_millis(20),
+        );
+
+        tokio::time::sleep(Duration::from_millis(35)).await;
+        let first_last_ok = crate::health::snapshot_json()["components"][&component_name]
+            ["last_ok"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(!first_last_ok.is_empty());
+
+        tokio::time::sleep(Duration::from_millis(70)).await;
+        let second_last_ok = crate::health::snapshot_json()["components"][&component_name]
+            ["last_ok"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let first = chrono::DateTime::parse_from_rfc3339(&first_last_ok)
+            .expect("last_ok should be valid RFC3339");
+        let second = chrono::DateTime::parse_from_rfc3339(&second_last_ok)
+            .expect("last_ok should be valid RFC3339");
+        assert!(second > first, "expected periodic health heartbeat refresh");
+
+        drop(rx);
+        let join = tokio::time::timeout(Duration::from_secs(1), handle).await;
+        assert!(join.is_ok(), "listener should stop after channel shutdown");
         assert!(calls.load(Ordering::SeqCst) >= 1);
     }
 }

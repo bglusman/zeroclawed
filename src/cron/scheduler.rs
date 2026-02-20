@@ -21,6 +21,7 @@ const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
 pub async fn run(config: Config) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
     let mut interval = time::interval(Duration::from_secs(poll_secs));
+    interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
     let security = Arc::new(SecurityPolicy::from_config(
         &config.autonomy,
         &config.workspace_dir,
@@ -30,6 +31,8 @@ pub async fn run(config: Config) -> Result<()> {
 
     loop {
         interval.tick().await;
+        // Keep scheduler liveness fresh even when there are no due jobs.
+        crate::health::mark_component_ok("scheduler");
 
         let jobs = match due_jobs(&config, Utc::now()) {
             Ok(jobs) => jobs,
@@ -95,7 +98,7 @@ async fn process_due_jobs(config: &Config, security: &Arc<SecurityPolicy>, jobs:
 
     while let Some((job_id, success)) = in_flight.next().await {
         if !success {
-            crate::health::mark_component_error("scheduler", format!("job {job_id} failed"));
+            tracing::warn!("Scheduler job '{job_id}' failed");
         }
     }
 }
@@ -714,6 +717,24 @@ mod tests {
         assert!(!success);
         assert!(output.contains("blocked by security policy"));
         assert!(output.contains("rate limit exceeded"));
+    }
+
+    #[tokio::test]
+    async fn process_due_jobs_failure_does_not_mark_scheduler_unhealthy() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let job = test_job("ls definitely_missing_file_for_scheduler_component_health_test");
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+
+        crate::health::mark_component_ok("scheduler");
+        process_due_jobs(&config, &security, vec![job]).await;
+
+        let snapshot = crate::health::snapshot_json();
+        let scheduler = &snapshot["components"]["scheduler"];
+        assert_eq!(scheduler["status"], "ok");
     }
 
     #[tokio::test]
