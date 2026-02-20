@@ -1734,6 +1734,17 @@ pub struct AutonomyConfig {
     /// Tools that always require interactive approval, even after "Always".
     #[serde(default = "default_always_ask")]
     pub always_ask: Vec<String>,
+
+    /// Tools to exclude from non-CLI channels (e.g. Telegram, Discord).
+    ///
+    /// When a tool is listed here, non-CLI channels will not expose it to the
+    /// LLM — it will not appear in the tool specs and any calls will be
+    /// rejected. CLI channels are unaffected.
+    ///
+    /// Example: `["shell", "file_write"]` prevents the model from attempting
+    /// shell commands on Telegram, forcing it to use data already in context.
+    #[serde(default)]
+    pub non_cli_excluded_tools: Vec<String>,
 }
 
 fn default_auto_approve() -> Vec<String> {
@@ -1789,6 +1800,7 @@ impl Default for AutonomyConfig {
             block_high_risk_commands: true,
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
+            non_cli_excluded_tools: Vec::new(),
         }
     }
 }

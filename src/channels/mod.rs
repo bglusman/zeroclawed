@@ -210,6 +210,7 @@ struct ChannelRuntimeContext {
     message_timeout_secs: u64,
     interrupt_on_new_message: bool,
     multimodal: crate::config::MultimodalConfig,
+    non_cli_excluded_tools: Arc<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -1477,6 +1478,7 @@ async fn process_channel_message(
                 ctx.max_tool_iterations,
                 Some(cancellation_token.clone()),
                 delta_tx,
+                if msg.channel == "cli" { &[] } else { ctx.non_cli_excluded_tools.as_ref() },
             ),
         ) => LlmExecutionResult::Completed(result),
     };
@@ -2924,6 +2926,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         message_timeout_secs,
         interrupt_on_new_message,
         multimodal: config.multimodal.clone(),
+        non_cli_excluded_tools: Arc::new(config.autonomy.non_cli_excluded_tools.clone()),
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
