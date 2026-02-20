@@ -2,7 +2,7 @@
 
 This page defines the fastest supported path to install and initialize ZeroClaw.
 
-Last verified: **February 18, 2026**.
+Last verified: **February 20, 2026**.
 
 ## Option 0: Homebrew (macOS/Linuxbrew)
 
@@ -23,6 +23,31 @@ What it does by default:
 1. `cargo build --release --locked`
 2. `cargo install --path . --force --locked`
 
+### Resource preflight and pre-built flow
+
+Source builds typically require at least:
+
+- **2 GB RAM + swap**
+- **6 GB free disk**
+
+When resources are constrained, bootstrap now attempts a pre-built binary first.
+
+```bash
+./bootstrap.sh --prefer-prebuilt
+```
+
+To require binary-only installation and fail if no compatible release asset exists:
+
+```bash
+./bootstrap.sh --prebuilt-only
+```
+
+To bypass pre-built flow and force source compilation:
+
+```bash
+./bootstrap.sh --force-source-build
+```
+
 ## Dual-mode bootstrap
 
 Default behavior is **app-only** (build/install ZeroClaw) and expects existing Rust toolchain.
@@ -37,6 +62,9 @@ Notes:
 
 - `--install-system-deps` installs compiler/build prerequisites (may require `sudo`).
 - `--install-rust` installs Rust via `rustup` when missing.
+- `--prefer-prebuilt` tries release binary download first, then falls back to source build.
+- `--prebuilt-only` disables source fallback.
+- `--force-source-build` disables pre-built flow entirely.
 
 ## Option B: Remote one-liner
 

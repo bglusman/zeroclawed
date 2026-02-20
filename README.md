@@ -88,7 +88,7 @@ Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge
 | **Binary Size** | ~28MB (dist) | N/A (Scripts) | ~8MB | **3.4 MB** |
 | **Cost** | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
 
-> Notes: ZeroClaw results are measured on release builds using `/usr/bin/time -l`. OpenClaw requires Node.js runtime (typically ~390MB additional memory overhead), while NanoBot requires Python runtime. PicoClaw and ZeroClaw are static binaries.
+> Notes: ZeroClaw results are measured on release builds using `/usr/bin/time -l`. OpenClaw requires Node.js runtime (typically ~390MB additional memory overhead), while NanoBot requires Python runtime. PicoClaw and ZeroClaw are static binaries. The RAM figures above are runtime memory; build-time compilation requirements are higher.
 
 <p align="center">
   <img src="zero-claw.jpeg" alt="ZeroClaw vs OpenClaw Comparison" width="800" />
@@ -173,11 +173,32 @@ Or skip the steps above and install everything (system deps, Rust, ZeroClaw) in 
 curl -LsSf https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
 ```
 
+#### Compilation resource requirements
+
+Building from source needs more resources than running the resulting binary:
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| **RAM + swap** | 2 GB | 4 GB+ |
+| **Free disk** | 6 GB | 10 GB+ |
+
+If your host is below the minimum, use pre-built binaries:
+
+```bash
+./bootstrap.sh --prefer-prebuilt
+```
+
+To require binary-only install with no source fallback:
+
+```bash
+./bootstrap.sh --prebuilt-only
+```
+
 #### Optional
 
 - **Docker** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via your package manager or [docker.com](https://docs.docker.com/engine/install/).
 
-> **Note:** The default `cargo build --release` uses `codegen-units=1` for compatibility with low-memory devices (e.g., Raspberry Pi 3 with 1GB RAM). For faster builds on powerful machines, use `cargo build --profile release-fast`.
+> **Note:** The default `cargo build --release` uses `codegen-units=1` to lower peak compile pressure. For faster builds on powerful machines, use `cargo build --profile release-fast`.
 
 </details>
 
@@ -201,6 +222,12 @@ cd zeroclaw
 # Optional: bootstrap dependencies + Rust on fresh machines
 ./bootstrap.sh --install-system-deps --install-rust
 
+# Optional: pre-built binary first (recommended on low-RAM/low-disk hosts)
+./bootstrap.sh --prefer-prebuilt
+
+# Optional: binary-only install (no source build fallback)
+./bootstrap.sh --prebuilt-only
+
 # Optional: run onboarding in the same flow
 ./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
 
@@ -215,6 +242,25 @@ curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts
 ```
 
 Details: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md) (toolchain mode may request `sudo` for system packages).
+
+### Pre-built binaries
+
+Release assets are published for:
+
+- Linux: `x86_64`, `aarch64`, `armv7`
+- macOS: `x86_64`, `aarch64`
+- Windows: `x86_64`
+
+Download the latest assets from:
+<https://github.com/zeroclaw-labs/zeroclaw/releases/latest>
+
+Example (ARM64 Linux):
+
+```bash
+curl -fsSLO https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/zeroclaw-aarch64-unknown-linux-gnu.tar.gz
+tar xzf zeroclaw-aarch64-unknown-linux-gnu.tar.gz
+install -m 0755 zeroclaw "$HOME/.cargo/bin/zeroclaw"
+```
 
 ```bash
 git clone https://github.com/zeroclaw-labs/zeroclaw.git
