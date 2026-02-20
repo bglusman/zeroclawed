@@ -1352,10 +1352,61 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn cli_definition_has_no_flag_conflicts() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn onboard_help_includes_model_flag() {
+        let cmd = Cli::command();
+        let onboard = cmd
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "onboard")
+            .expect("onboard subcommand must exist");
+
+        let has_model_flag = onboard
+            .get_arguments()
+            .any(|arg| arg.get_id().as_str() == "model" && arg.get_long() == Some("model"));
+
+        assert!(
+            has_model_flag,
+            "onboard help should include --model for quick setup overrides"
+        );
+    }
+
+    #[test]
+    fn onboard_cli_accepts_model_provider_and_api_key_in_quick_mode() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--provider",
+            "openrouter",
+            "--model",
+            "custom-model-946",
+            "--api-key",
+            "sk-issue946",
+        ])
+        .expect("quick onboard invocation should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                interactive,
+                channels_only,
+                api_key,
+                provider,
+                model,
+                ..
+            } => {
+                assert!(!interactive);
+                assert!(!channels_only);
+                assert_eq!(provider.as_deref(), Some("openrouter"));
+                assert_eq!(model.as_deref(), Some("custom-model-946"));
+                assert_eq!(api_key.as_deref(), Some("sk-issue946"));
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
     }
 }

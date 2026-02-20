@@ -332,6 +332,28 @@ pub async fn run_quick_setup(
     model_override: Option<&str>,
     memory_backend: Option<&str>,
 ) -> Result<Config> {
+    let home = directories::UserDirs::new()
+        .map(|u| u.home_dir().to_path_buf())
+        .context("Could not find home directory")?;
+
+    run_quick_setup_with_home(
+        credential_override,
+        provider,
+        model_override,
+        memory_backend,
+        &home,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_lines)]
+async fn run_quick_setup_with_home(
+    credential_override: Option<&str>,
+    provider: Option<&str>,
+    model_override: Option<&str>,
+    memory_backend: Option<&str>,
+    home: &Path,
+) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
     println!(
         "  {}",
@@ -341,9 +363,6 @@ pub async fn run_quick_setup(
     );
     println!();
 
-    let home = directories::UserDirs::new()
-        .map(|u| u.home_dir().to_path_buf())
-        .context("Could not find home directory")?;
     let zeroclaw_dir = home.join(".zeroclaw");
     let workspace_dir = zeroclaw_dir.join("workspace");
     let config_path = zeroclaw_dir.join("config.toml");
@@ -4671,6 +4690,48 @@ mod tests {
         assert!(ctx.timezone.is_empty());
         assert!(ctx.agent_name.is_empty());
         assert!(ctx.communication_style.is_empty());
+    }
+
+    #[tokio::test]
+    async fn quick_setup_model_override_persists_to_config_toml() {
+        let tmp = TempDir::new().unwrap();
+
+        let config = run_quick_setup_with_home(
+            Some("sk-issue946"),
+            Some("openrouter"),
+            Some("custom-model-946"),
+            Some("sqlite"),
+            tmp.path(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.default_model.as_deref(), Some("custom-model-946"));
+        assert_eq!(config.api_key.as_deref(), Some("sk-issue946"));
+
+        let config_raw = tokio::fs::read_to_string(config.config_path).await.unwrap();
+        assert!(config_raw.contains("default_provider = \"openrouter\""));
+        assert!(config_raw.contains("default_model = \"custom-model-946\""));
+    }
+
+    #[tokio::test]
+    async fn quick_setup_without_model_uses_provider_default_model() {
+        let tmp = TempDir::new().unwrap();
+
+        let config = run_quick_setup_with_home(
+            Some("sk-issue946"),
+            Some("anthropic"),
+            None,
+            Some("sqlite"),
+            tmp.path(),
+        )
+        .await
+        .unwrap();
+
+        let expected = default_model_for_provider("anthropic");
+        assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
+        assert_eq!(config.default_model.as_deref(), Some(expected.as_str()));
     }
 
     // ── scaffold_workspace: basic file creation ─────────────────
