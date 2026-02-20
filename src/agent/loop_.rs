@@ -2318,7 +2318,10 @@ mod tests {
         let approval_cfg = crate::config::AutonomyConfig::default();
         let approval_mgr = ApprovalManager::from_config(&approval_cfg);
 
-        assert!(!should_execute_tools_in_parallel(&calls, Some(&approval_mgr)));
+        assert!(!should_execute_tools_in_parallel(
+            &calls,
+            Some(&approval_mgr)
+        ));
     }
 
     #[test]
@@ -2339,7 +2342,10 @@ mod tests {
         };
         let approval_mgr = ApprovalManager::from_config(&approval_cfg);
 
-        assert!(should_execute_tools_in_parallel(&calls, Some(&approval_mgr)));
+        assert!(should_execute_tools_in_parallel(
+            &calls,
+            Some(&approval_mgr)
+        ));
     }
 
     #[tokio::test]

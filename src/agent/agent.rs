@@ -403,7 +403,10 @@ impl Agent {
             return results;
         }
 
-        let futs: Vec<_> = calls.iter().map(|call| self.execute_tool_call(call)).collect();
+        let futs: Vec<_> = calls
+            .iter()
+            .map(|call| self.execute_tool_call(call))
+            .collect();
         futures::future::join_all(futs).await
     }
 

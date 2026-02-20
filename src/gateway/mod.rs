@@ -1194,8 +1194,7 @@ mod tests {
 
     /// Generate a random hex secret at runtime to avoid hard-coded cryptographic values.
     fn generate_test_secret() -> String {
-        use rand::Rng;
-        let bytes: [u8; 32] = rand::rng().random();
+        let bytes: [u8; 32] = rand::random();
         hex::encode(bytes)
     }
 
