@@ -20,6 +20,7 @@ pub mod discord;
 pub mod email_channel;
 pub mod imessage;
 pub mod irc;
+#[cfg(feature = "channel-lark")]
 pub mod lark;
 pub mod linq;
 #[cfg(feature = "channel-matrix")]
@@ -43,6 +44,7 @@ pub use discord::DiscordChannel;
 pub use email_channel::EmailChannel;
 pub use imessage::IMessageChannel;
 pub use irc::IrcChannel;
+#[cfg(feature = "channel-lark")]
 pub use lark::LarkChannel;
 pub use linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
@@ -2207,7 +2209,10 @@ pub async fn handle_command(command: crate::ChannelCommands, config: &Config) ->
                 ),
                 ("Email", config.channels_config.email.is_some()),
                 ("IRC", config.channels_config.irc.is_some()),
-                ("Lark", config.channels_config.lark.is_some()),
+                (
+                    "Lark",
+                    cfg!(feature = "channel-lark") && config.channels_config.lark.is_some(),
+                ),
                 ("DingTalk", config.channels_config.dingtalk.is_some()),
                 ("QQ", config.channels_config.qq.is_some()),
             ] {
@@ -2216,6 +2221,11 @@ pub async fn handle_command(command: crate::ChannelCommands, config: &Config) ->
             if !cfg!(feature = "channel-matrix") {
                 println!(
                     "  ℹ️ Matrix channel support is disabled in this build (enable `channel-matrix`)."
+                );
+            }
+            if !cfg!(feature = "channel-lark") {
+                println!(
+                    "  ℹ️ Lark channel support is disabled in this build (enable `channel-lark`)."
                 );
             }
             println!("\nTo start channels: zeroclaw channel start");
@@ -2437,8 +2447,16 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
         ));
     }
 
+    #[cfg(feature = "channel-lark")]
     if let Some(ref lk) = config.channels_config.lark {
         channels.push(("Lark", Arc::new(LarkChannel::from_config(lk))));
+    }
+
+    #[cfg(not(feature = "channel-lark"))]
+    if config.channels_config.lark.is_some() {
+        tracing::warn!(
+            "Lark channel is configured but this build was compiled without `channel-lark`; skipping Lark health check."
+        );
     }
 
     if let Some(ref dt) = config.channels_config.dingtalk {
@@ -2831,8 +2849,16 @@ pub async fn start_channels(config: Config) -> Result<()> {
         })));
     }
 
+    #[cfg(feature = "channel-lark")]
     if let Some(ref lk) = config.channels_config.lark {
         channels.push(Arc::new(LarkChannel::from_config(lk)));
+    }
+
+    #[cfg(not(feature = "channel-lark"))]
+    if config.channels_config.lark.is_some() {
+        tracing::warn!(
+            "Lark channel is configured but this build was compiled without `channel-lark`; skipping Lark runtime startup."
+        );
     }
 
     if let Some(ref dt) = config.channels_config.dingtalk {

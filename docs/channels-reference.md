@@ -70,24 +70,30 @@ Operational notes:
 
 ## Channel Matrix
 
-### Build Feature Toggle (`channel-matrix`)
+### Build Feature Toggles (`channel-matrix`, `channel-lark`)
 
-Matrix support is controlled at compile time by the `channel-matrix` Cargo feature.
+Matrix and Lark support are controlled at compile time.
 
-- Default builds include Matrix support (`default = ["hardware", "channel-matrix"]`).
-- For faster local iteration when Matrix is not needed:
-
-```bash
-cargo check --no-default-features --features hardware
-```
-
-- To explicitly enable Matrix support in custom feature sets:
+- Default builds are lean (`default = []`) and do not include Matrix/Lark.
+- Typical local check with only hardware support:
 
 ```bash
-cargo check --no-default-features --features hardware,channel-matrix
+cargo check --features hardware
 ```
 
-If `[channels_config.matrix]` is present but the binary was built without `channel-matrix`, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will log that Matrix is intentionally skipped for this build.
+- Enable Matrix explicitly when needed:
+
+```bash
+cargo check --features hardware,channel-matrix
+```
+
+- Enable Lark explicitly when needed:
+
+```bash
+cargo check --features hardware,channel-lark
+```
+
+If `[channels_config.matrix]` or `[channels_config.lark]` is present but the corresponding feature is not compiled in, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will report that the channel is intentionally skipped for this build.
 
 ---
 
