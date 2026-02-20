@@ -2620,6 +2620,13 @@ pub async fn start_channels(config: Config) -> Result<()> {
         ));
     }
 
+    // Filter out tools excluded for non-CLI channels so the LLM prompt
+    // does not mention them (prevents XML-based hallucinated tool calls).
+    let excluded = &config.autonomy.non_cli_excluded_tools;
+    if !excluded.is_empty() {
+        tool_descs.retain(|(name, _)| !excluded.iter().any(|ex| ex == name));
+    }
+
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
     } else {
