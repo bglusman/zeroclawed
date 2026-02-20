@@ -312,6 +312,12 @@ The wizard now includes a dedicated **Lark/Feishu** step with:
 - receive mode selection (`websocket` or `webhook`)
 - optional webhook verification token prompt (recommended for stronger callback authenticity checks)
 
+Runtime token behavior:
+
+- `tenant_access_token` is cached with a refresh deadline based on `expire`/`expires_in` from the auth response.
+- send requests automatically retry once after token invalidation when Feishu/Lark returns either HTTP `401` or business error code `99991663` (`Invalid access token`).
+- if the retry still returns token-invalid responses, the send call fails with the upstream status/body for easier troubleshooting.
+
 ### 4.12 DingTalk
 
 ```toml
