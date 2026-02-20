@@ -1000,7 +1000,7 @@ fn create_provider_with_url_and_options(
             ),
         )),
         "synthetic" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Synthetic", "https://api.synthetic.com", key, AuthStyle::Bearer,
+            "Synthetic", "https://api.synthetic.new/openai/v1", key, AuthStyle::Bearer,
         ))),
         "opencode" | "opencode-zen" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "OpenCode Zen", "https://opencode.ai/zen/v1", key, AuthStyle::Bearer,
