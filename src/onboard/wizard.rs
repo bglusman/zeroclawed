@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -98,7 +99,7 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
 
 // ── Main wizard entry point ──────────────────────────────────────
 
-pub async fn run_wizard() -> Result<Config> {
+pub async fn run_wizard(force: bool) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
 
     println!(
@@ -115,6 +116,7 @@ pub async fn run_wizard() -> Result<Config> {
 
     print_step(1, 9, "Workspace Setup");
     let (workspace_dir, config_path) = setup_workspace()?;
+    ensure_onboard_overwrite_allowed(&config_path, force)?;
 
     print_step(2, 9, "AI Provider & API Key");
     let (provider, api_key, model, provider_api_url) = setup_provider(&workspace_dir)?;
@@ -332,6 +334,7 @@ pub async fn run_quick_setup(
     provider: Option<&str>,
     model_override: Option<&str>,
     memory_backend: Option<&str>,
+    force: bool,
 ) -> Result<Config> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
@@ -342,6 +345,7 @@ pub async fn run_quick_setup(
         provider,
         model_override,
         memory_backend,
+        force,
         &home,
     )
     .await
@@ -353,6 +357,7 @@ async fn run_quick_setup_with_home(
     provider: Option<&str>,
     model_override: Option<&str>,
     memory_backend: Option<&str>,
+    force: bool,
     home: &Path,
 ) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
@@ -368,6 +373,7 @@ async fn run_quick_setup_with_home(
     let workspace_dir = zeroclaw_dir.join("workspace");
     let config_path = zeroclaw_dir.join("config.toml");
 
+    ensure_onboard_overwrite_allowed(&config_path, force)?;
     fs::create_dir_all(&workspace_dir).context("Failed to create workspace directory")?;
 
     let provider_name = provider.unwrap_or("openrouter").to_string();
@@ -1614,6 +1620,42 @@ fn print_step(current: u8, total: u8, title: &str) {
 
 fn print_bullet(text: &str) {
     println!("  {} {}", style("›").cyan(), text);
+}
+
+fn ensure_onboard_overwrite_allowed(config_path: &Path, force: bool) -> Result<()> {
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    if force {
+        println!(
+            "  {} Existing config detected at {}. Proceeding because --force was provided.",
+            style("!").yellow().bold(),
+            style(config_path.display()).yellow()
+        );
+        return Ok(());
+    }
+
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        bail!(
+            "Refusing to overwrite existing config at {} in non-interactive mode. Re-run with --force if overwrite is intentional.",
+            config_path.display()
+        );
+    }
+
+    let confirmed = Confirm::new()
+        .with_prompt(format!(
+            "  Existing config found at {}. Re-running onboarding will overwrite config.toml and may create missing workspace files (including BOOTSTRAP.md). Continue?",
+            config_path.display()
+        ))
+        .default(false)
+        .interact()?;
+
+    if !confirmed {
+        bail!("Onboarding canceled: existing configuration was left unchanged.");
+    }
+
+    Ok(())
 }
 
 async fn persist_workspace_selection(config_path: &Path) -> Result<()> {
@@ -4943,6 +4985,7 @@ mod tests {
             Some("openrouter"),
             Some("custom-model-946"),
             Some("sqlite"),
+            false,
             tmp.path(),
         )
         .await
@@ -4966,6 +5009,7 @@ mod tests {
             Some("anthropic"),
             None,
             Some("sqlite"),
+            false,
             tmp.path(),
         )
         .await
@@ -4974,6 +5018,67 @@ mod tests {
         let expected = default_model_for_provider("anthropic");
         assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
         assert_eq!(config.default_model.as_deref(), Some(expected.as_str()));
+    }
+
+    #[tokio::test]
+    async fn quick_setup_existing_config_requires_force_when_non_interactive() {
+        let tmp = TempDir::new().unwrap();
+        let zeroclaw_dir = tmp.path().join(".zeroclaw");
+        let config_path = zeroclaw_dir.join("config.toml");
+
+        tokio::fs::create_dir_all(&zeroclaw_dir).await.unwrap();
+        tokio::fs::write(&config_path, "default_provider = \"openrouter\"\n")
+            .await
+            .unwrap();
+
+        let err = run_quick_setup_with_home(
+            Some("sk-existing"),
+            Some("openrouter"),
+            Some("custom-model"),
+            Some("sqlite"),
+            false,
+            tmp.path(),
+        )
+        .await
+        .expect_err("quick setup should refuse overwrite without --force");
+
+        let err_text = err.to_string();
+        assert!(err_text.contains("Refusing to overwrite existing config"));
+        assert!(err_text.contains("--force"));
+    }
+
+    #[tokio::test]
+    async fn quick_setup_existing_config_overwrites_with_force() {
+        let tmp = TempDir::new().unwrap();
+        let zeroclaw_dir = tmp.path().join(".zeroclaw");
+        let config_path = zeroclaw_dir.join("config.toml");
+
+        tokio::fs::create_dir_all(&zeroclaw_dir).await.unwrap();
+        tokio::fs::write(
+            &config_path,
+            "default_provider = \"anthropic\"\ndefault_model = \"stale-model\"\n",
+        )
+        .await
+        .unwrap();
+
+        let config = run_quick_setup_with_home(
+            Some("sk-force"),
+            Some("openrouter"),
+            Some("custom-model-fresh"),
+            Some("sqlite"),
+            true,
+            tmp.path(),
+        )
+        .await
+        .expect("quick setup should overwrite existing config with --force");
+
+        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.default_model.as_deref(), Some("custom-model-fresh"));
+        assert_eq!(config.api_key.as_deref(), Some("sk-force"));
+
+        let config_raw = tokio::fs::read_to_string(config.config_path).await.unwrap();
+        assert!(config_raw.contains("default_provider = \"openrouter\""));
+        assert!(config_raw.contains("default_model = \"custom-model-fresh\""));
     }
 
     // ── scaffold_workspace: basic file creation ─────────────────

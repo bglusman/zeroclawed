@@ -34,8 +34,16 @@ Last verified: **February 20, 2026**.
 - `zeroclaw onboard`
 - `zeroclaw onboard --interactive`
 - `zeroclaw onboard --channels-only`
+- `zeroclaw onboard --force`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
+- `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none> --force`
+
+`onboard` safety behavior:
+
+- If `config.toml` already exists, `onboard` asks for explicit confirmation before overwrite.
+- In non-interactive environments, existing `config.toml` causes a safe refusal unless `--force` is passed.
+- Use `zeroclaw onboard --channels-only` when you only need to rotate channel tokens/allowlists.
 
 ### `agent`
 

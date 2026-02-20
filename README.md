@@ -283,6 +283,9 @@ zeroclaw onboard --api-key sk-... --provider openrouter [--model "openrouter/aut
 # Or interactive wizard
 zeroclaw onboard --interactive
 
+# If config.toml already exists and you intentionally want to overwrite it
+zeroclaw onboard --force
+
 # Or quickly repair channels/allowlists only
 zeroclaw onboard --channels-only
 
