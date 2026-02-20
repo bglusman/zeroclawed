@@ -4,20 +4,20 @@ Runbook này định nghĩa quy trình release tiêu chuẩn của maintainer.
 
 Cập nhật lần cuối: **2026-02-20**.
 
-## Mục tiêu Release
+## Mục tiêu release
 
-- Giữ cho các release có thể dự đoán và lặp lại.
+- Đảm bảo release có thể dự đoán và lặp lại.
 - Chỉ publish từ code đã có trên `main`.
 - Xác minh các artifact đa nền tảng trước khi publish.
 - Duy trì nhịp release đều đặn ngay cả khi PR volume cao.
 
-## Chu kỳ Tiêu chuẩn
+## Chu kỳ tiêu chuẩn
 
 - Release patch/minor: hàng tuần hoặc hai tuần một lần.
 - Bản vá bảo mật khẩn cấp: out-of-band.
 - Không bao giờ chờ tích lũy quá nhiều commit lớn.
 
-## Hợp đồng Workflow
+## Hợp đồng workflow
 
 Automation release nằm tại:
 
@@ -33,11 +33,11 @@ Các guardrail ở chế độ publish:
 
 - Tag phải khớp định dạng semver-like `vX.Y.Z[-suffix]`.
 - Tag phải đã tồn tại trên origin.
-- Commit của tag phải tiếp cận được từ `origin/main`.
+- Commit của tag phải có thể truy vết được từ `origin/main`.
 - GHCR image tag tương ứng (`ghcr.io/<owner>/<repo>:<tag>`) phải sẵn sàng trước khi GitHub Release publish hoàn tất.
 - Artifact được xác minh trước khi publish.
 
-## Quy trình Maintainer
+## Quy trình maintainer
 
 ### 1) Preflight trên `main`
 
@@ -94,7 +94,7 @@ Kết quả publish mong đợi:
 2. Xác minh GHCR tag cho phiên bản đã release và `latest`.
 3. Xác minh các đường dẫn cài đặt phụ thuộc vào release asset (ví dụ tải xuống binary bootstrap).
 
-## Đường dẫn Khẩn cấp / Khôi phục
+## Đường dẫn khẩn cấp / khôi phục
 
 Nếu release push tag thất bại sau khi artifact đã được xác minh:
 
@@ -105,8 +105,8 @@ Nếu release push tag thất bại sau khi artifact đã được xác minh:
    - `release_ref` tự động được pin vào `release_tag` ở chế độ publish
 3. Xác minh lại asset đã release.
 
-## Ghi chú Vận hành
+## Ghi chú vận hành
 
 - Giữ các thay đổi release nhỏ và có thể đảo ngược.
-- Ưu tiên dùng một issue/checklist release cho mỗi phiên bản để việc bàn giao rõ ràng.
+- Dùng một issue/checklist release cho mỗi phiên bản để bàn giao rõ ràng.
 - Tránh publish từ các feature branch ad-hoc.

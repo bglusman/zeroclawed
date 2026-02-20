@@ -1,6 +1,6 @@
 # Khắc phục sự cố ZeroClaw
 
-Hướng dẫn này tập trung vào các lỗi cài đặt/chạy thường gặp và cách giải quyết nhanh.
+Các lỗi thường gặp khi cài đặt và chạy, kèm cách khắc phục.
 
 Xác minh lần cuối: **2026-02-20**.
 
@@ -8,7 +8,7 @@ Xác minh lần cuối: **2026-02-20**.
 
 ### Không tìm thấy `cargo`
 
-Biểu hiện:
+Triệu chứng:
 
 - bootstrap thoát với lỗi `cargo is not installed`
 
@@ -22,7 +22,7 @@ Hoặc cài từ <https://rustup.rs/>.
 
 ### Thiếu thư viện hệ thống để build
 
-Biểu hiện:
+Triệu chứng:
 
 - build thất bại do lỗi trình biên dịch hoặc `pkg-config`
 
@@ -34,14 +34,14 @@ Khắc phục:
 
 ### Build thất bại trên máy ít RAM / ít dung lượng
 
-Biểu hiện:
+Triệu chứng:
 
 - `cargo build --release` bị kill (`signal: 9`, OOM killer, hoặc `cannot allocate memory`)
 - Build vẫn lỗi sau khi thêm swap vì hết dung lượng ổ đĩa
 
 Nguyên nhân:
 
-- Bộ nhớ khi chạy (<5MB cho thao tác thông thường) khác với bộ nhớ khi biên dịch.
+- RAM lúc chạy (<5MB) khác xa RAM lúc biên dịch.
 - Build đầy đủ từ mã nguồn có thể cần **2 GB RAM + swap** và **6+ GB dung lượng trống**.
 - Bật swap trên ổ nhỏ có thể tránh OOM RAM nhưng vẫn lỗi vì hết dung lượng.
 
@@ -76,12 +76,12 @@ cargo build --release --locked --no-default-features --features hardware
 
 ### Build rất chậm hoặc có vẻ bị treo
 
-Biểu hiện:
+Triệu chứng:
 
 - `cargo check` / `cargo build` dừng lâu ở `Checking zeroclaw`
 - Lặp lại thông báo `Blocking waiting for file lock on package cache` hoặc `build directory`
 
-Nguyên nhân trong ZeroClaw:
+Nguyên nhân:
 
 - Thư viện Matrix E2EE (`matrix-sdk`, `ruma`, `vodozemac`) lớn và tốn thời gian kiểm tra kiểu.
 - TLS + crypto native build script (`aws-lc-sys`, `ring`) tăng thời gian biên dịch đáng kể.
@@ -121,7 +121,7 @@ Dừng các cargo job không liên quan trước khi build.
 
 ### Không tìm thấy lệnh `zeroclaw` sau cài đặt
 
-Biểu hiện:
+Triệu chứng:
 
 - Cài đặt thành công nhưng shell không tìm thấy `zeroclaw`
 

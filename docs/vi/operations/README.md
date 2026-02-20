@@ -1,6 +1,6 @@
 # Tài liệu vận hành và triển khai
 
-Dành cho các operator vận hành ZeroClaw trong môi trường liên tục hoặc giống sản xuất.
+Dành cho operator vận hành ZeroClaw liên tục hoặc trên production.
 
 ## Vận hành cốt lõi
 

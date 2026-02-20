@@ -1,6 +1,6 @@
 # Tài liệu bảo mật
 
-Phần này kết hợp hướng dẫn tăng cường hiện tại và tài liệu đề xuất/lộ trình.
+Hướng dẫn bảo mật hiện tại và đề xuất cải tiến.
 
 ## Hành vi hiện tại trước tiên
 
@@ -12,7 +12,7 @@ Phần này kết hợp hướng dẫn tăng cường hiện tại và tài li�
 
 ## Tài liệu đề xuất / Lộ trình
 
-Các tài liệu sau đây theo định hướng đề xuất rõ ràng và có thể bao gồm các ví dụ CLI/config giả định:
+Các tài liệu sau theo định hướng đề xuất rõ ràng và có thể bao gồm các ví dụ CLI/config chưa triển khai:
 
 - [../agnostic-security.md](../agnostic-security.md)
 - [../frictionless-security.md](../frictionless-security.md)

@@ -1,11 +1,11 @@
-# Giới Hạn Tài Nguyên Cho ZeroClaw
+# Giới hạn tài nguyên
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Vấn Đề
+## Vấn đề
 ZeroClaw có rate limiting (20 actions/hour) nhưng chưa có giới hạn tài nguyên. Một agent bị lỗi lặp vòng có thể:
 - Làm cạn kiệt bộ nhớ khả dụng
 - Quay CPU liên tục ở 100%
@@ -13,9 +13,9 @@ ZeroClaw có rate limiting (20 actions/hour) nhưng chưa có giới hạn tài 
 
 ---
 
-## Các Giải Pháp Đề Xuất
+## Các giải pháp đề xuất
 
-### Tùy Chọn 1: cgroups v2 (Linux, Khuyến Nghị)
+### Tùy chọn 1: cgroups v2 (Linux, khuyến nghị)
 Tự động tạo cgroup cho zeroclaw với các giới hạn.
 
 ```bash
@@ -28,7 +28,7 @@ IOWriteBandwidthMax=/dev/sda 10M
 TasksMax=100
 ```
 
-### Tùy Chọn 2: Phát Hiện Deadlock với tokio::task
+### Tùy chọn 2: phát hiện deadlock với tokio::task
 Ngăn task starvation.
 
 ```rust
@@ -47,7 +47,7 @@ where
 }
 ```
 
-### Tùy Chọn 3: Memory Monitoring
+### Tùy chọn 3: memory monitoring
 Theo dõi sử dụng heap và kill nếu vượt giới hạn.
 
 ```rust
@@ -72,7 +72,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for LimitedAllocator<A> {
 
 ---
 
-## Config Schema
+## Config schema
 
 ```toml
 [resources]
@@ -95,7 +95,7 @@ max_open_files = 100
 
 ---
 
-## Thứ Tự Triển Khai
+## Thứ tự triển khai
 
 | Giai đoạn | Tính năng | Công sức | Tác động |
 |-------|---------|--------|--------|

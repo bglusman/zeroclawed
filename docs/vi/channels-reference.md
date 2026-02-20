@@ -2,7 +2,7 @@
 
 Tài liệu này là nguồn tham khảo chính thức về cấu hình channel trong ZeroClaw.
 
-Đối với các phòng Matrix được mã hóa, hãy đọc thêm hướng dẫn chuyên biệt:
+Với các phòng Matrix được mã hóa, xem hướng dẫn chuyên biệt:
 - [Hướng dẫn Matrix E2EE](matrix-e2ee-guide.md)
 
 ## Truy cập nhanh
@@ -36,7 +36,7 @@ cli = true
 
 Mỗi channel được bật bằng cách tạo sub-table tương ứng (ví dụ: `[channels_config.telegram]`).
 
-## Chuyển đổi Model Runtime trong chat (Telegram / Discord)
+## Chuyển đổi model runtime trong chat (Telegram / Discord)
 
 Khi chạy `zeroclaw channel start` (hoặc chế độ daemon), Telegram và Discord hỗ trợ chuyển đổi runtime theo phạm vi người gửi:
 
@@ -51,7 +51,7 @@ Lưu ý:
 - Xem trước bộ nhớ cache model từ `zeroclaw models refresh --provider <ID>`.
 - Đây là lệnh chat runtime, không phải lệnh con CLI.
 
-## Giao thức Marker Hình ảnh đầu vào
+## Giao thức marker hình ảnh đầu vào
 
 ZeroClaw hỗ trợ đầu vào multimodal qua các marker nội tuyến trong tin nhắn:
 
@@ -63,8 +63,8 @@ ZeroClaw hỗ trợ đầu vào multimodal qua các marker nội tuyến trong t
 
 Lưu ý vận hành:
 
-- Phân tích marker được áp dụng cho các tin nhắn có vai trò người dùng trước khi gọi provider.
-- Khả năng của provider được kiểm tra tại runtime: nếu provider được chọn không hỗ trợ vision, yêu cầu sẽ thất bại với lỗi capability có cấu trúc (`capability=vision`).
+- Marker được phân tích trong các tin nhắn người dùng trước khi gọi provider.
+- Capability của provider được kiểm tra tại runtime: nếu provider không hỗ trợ vision, request thất bại với lỗi capability có cấu trúc (`capability=vision`).
 - Các phần `media` của Linq webhook có MIME type `image/*` được tự động chuyển đổi sang định dạng marker này.
 
 ## Channel Matrix
@@ -80,7 +80,7 @@ Hỗ trợ Matrix được kiểm soát tại thời điểm biên dịch bằng
 cargo check --no-default-features --features hardware
 ```
 
-- Để bật rõ ràng hỗ trợ Matrix trong các feature set tùy chỉnh:
+- Để bật tường minh hỗ trợ Matrix trong feature set tùy chỉnh:
 
 ```bash
 cargo check --no-default-features --features hardware,channel-matrix
@@ -112,13 +112,13 @@ Nếu `[channels_config.matrix]` có mặt nhưng binary được build mà khô
 
 ---
 
-## 3. Ngữ nghĩa Allowlist
+## 3. Ngữ nghĩa allowlist
 
-Đối với các channel có allowlist người gửi đầu vào:
+Với các channel có allowlist người gửi:
 
 - Allowlist trống: từ chối tất cả tin nhắn đầu vào.
 - `"*"`: cho phép tất cả người gửi (chỉ dùng để xác minh tạm thời).
-- Danh sách rõ ràng: chỉ cho phép những người gửi được liệt kê.
+- Danh sách tường minh: chỉ cho phép những người gửi được liệt kê.
 
 Tên trường khác nhau theo channel:
 
@@ -130,7 +130,7 @@ Tên trường khác nhau theo channel:
 
 ---
 
-## 4. Ví dụ cấu hình theo từng Channel
+## 4. Ví dụ cấu hình theo từng channel
 
 ### 4.1 Telegram
 
@@ -378,7 +378,7 @@ Nếu channel có vẻ đã kết nối nhưng không phản hồi:
 
 ---
 
-## 7. Phụ lục Vận hành: Bảng từ khóa Log
+## 7. Phụ lục vận hành: bảng từ khóa log
 
 Dùng phụ lục này để phân loại sự cố nhanh. Khớp từ khóa log trước, sau đó thực hiện các bước xử lý sự cố ở trên.
 
@@ -421,4 +421,4 @@ Nếu một channel task cụ thể bị crash hoặc thoát, channel supervisor
 - `Channel <name> error: ...; restarting`
 - `Channel message worker crashed:`
 
-Các thông báo này cho thấy hành vi khởi động lại tự động đang hoạt động, và bạn nên kiểm tra các log trước đó để tìm nguyên nhân gốc rễ.
+Các thông báo này xác nhận cơ chế tự restart đang hoạt động. Kiểm tra log trước đó để tìm nguyên nhân gốc rễ.

@@ -14,11 +14,11 @@ zeroclaw providers
 
 Thứ tự ưu tiên tại runtime:
 
-1. Thông tin xác thực rõ ràng từ config/CLI
+1. Thông tin xác thực tường minh từ config/CLI
 2. Biến môi trường dành riêng cho provider
 3. Biến môi trường dự phòng chung: `ZEROCLAW_API_KEY`, sau đó là `API_KEY`
 
-Đối với các chuỗi dự phòng có khả năng chịu lỗi (`reliability.fallback_providers`), mỗi provider dự phòng sẽ tự giải quyết thông tin xác thực của mình độc lập. Thông tin xác thực rõ ràng của provider chính không được tái sử dụng cho các provider dự phòng.
+Với chuỗi provider dự phòng (`reliability.fallback_providers`), mỗi provider dự phòng tự giải quyết thông tin xác thực của mình độc lập. Key xác thực của provider chính không tự động dùng cho provider dự phòng.
 
 ## Danh mục Provider
 
@@ -58,15 +58,15 @@ Thứ tự ưu tiên tại runtime:
 
 - Provider ID: `gemini` (alias: `google`, `google-gemini`)
 - Xác thực có thể dùng `GEMINI_API_KEY`, `GOOGLE_API_KEY`, hoặc Gemini CLI OAuth cache (`~/.gemini/oauth_creds.json`)
-- Yêu cầu bằng API key sử dụng `generativelanguage.googleapis.com/v1beta`
-- Yêu cầu OAuth qua Gemini CLI sử dụng `cloudcode-pa.googleapis.com/v1internal` với ngữ nghĩa của Code Assist request envelope
+- Request bằng API key dùng endpoint `generativelanguage.googleapis.com/v1beta`
+- Request OAuth qua Gemini CLI dùng endpoint `cloudcode-pa.googleapis.com/v1internal` theo chuẩn Code Assist request envelope
 
 ### Ghi chú về Ollama Vision
 
 - Provider ID: `ollama`
-- Đầu vào hình ảnh được hỗ trợ qua các marker nội tuyến trong tin nhắn người dùng: ``[IMAGE:<source>]``
+- Hỗ trợ đầu vào hình ảnh qua marker nội tuyến trong tin nhắn: ``[IMAGE:<source>]``
 - Sau khi chuẩn hóa multimodal, ZeroClaw gửi payload hình ảnh qua trường `messages[].images` gốc của Ollama.
-- Nếu chọn provider không hỗ trợ vision, ZeroClaw trả về lỗi capability có cấu trúc thay vì bỏ qua hình ảnh một cách thầm lặng.
+- Nếu chọn provider không hỗ trợ vision, ZeroClaw trả về lỗi rõ ràng thay vì âm thầm bỏ qua hình ảnh.
 
 ### Ghi chú về Bedrock
 
@@ -165,7 +165,7 @@ api_key = "qwen-oauth"
 
 Thứ tự ưu tiên giải quyết thông tin xác thực cho `qwen-code`:
 
-1. Giá trị `api_key` rõ ràng (nếu không phải placeholder `qwen-oauth`)
+1. Giá trị `api_key` tường minh (nếu không phải placeholder `qwen-oauth`)
 2. `QWEN_OAUTH_TOKEN`
 3. `~/.qwen/oauth_creds.json` (tái sử dụng thông tin xác thực OAuth đã cache của Qwen Code)
 4. Tùy chọn làm mới qua `QWEN_OAUTH_REFRESH_TOKEN` (hoặc refresh token đã cache)

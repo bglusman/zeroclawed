@@ -1,6 +1,6 @@
 # Tham khảo lệnh ZeroClaw
 
-Tài liệu này dựa trên giao diện CLI hiện tại (`zeroclaw --help`).
+Dựa trên CLI hiện tại (`zeroclaw --help`).
 
 Xác minh lần cuối: **2026-02-20**.
 
@@ -150,7 +150,7 @@ Skill manifest (`SKILL.toml`) hỗ trợ `prompts` và `[[tools]]`; cả hai đ�
 - `zeroclaw peripheral setup-uno-q [--host <ip_or_host>]`
 - `zeroclaw peripheral flash-nucleo`
 
-## Mẹo kiểm tra
+## Kiểm tra nhanh
 
 Để xác minh nhanh tài liệu với binary hiện tại:
 

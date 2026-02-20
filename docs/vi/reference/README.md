@@ -1,6 +1,6 @@
 # Danh mục tham chiếu
 
-Chỉ mục tham chiếu có cấu trúc cho lệnh, provider, channel, config và hướng dẫn tích hợp.
+Tra cứu lệnh, provider, channel, config và tích hợp.
 
 ## Tham chiếu cốt lõi
 

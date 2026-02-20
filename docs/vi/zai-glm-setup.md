@@ -1,7 +1,7 @@
 # Thiết lập Z.AI GLM
 
 ZeroClaw hỗ trợ các model GLM của Z.AI thông qua các endpoint tương thích OpenAI.
-Hướng dẫn này trình bày các tùy chọn thiết lập thực tế phù hợp với hành vi provider hiện tại của ZeroClaw.
+Hướng dẫn cấu hình thực tế theo provider hiện tại của ZeroClaw.
 
 ## Tổng quan
 
@@ -35,7 +35,7 @@ default_model = "glm-5"
 default_temperature = 0.7
 ```
 
-## Các Model Hiện có
+## Các model hiện có
 
 | Model | Mô tả |
 |-------|-------|
@@ -46,7 +46,7 @@ default_temperature = 0.7
 
 Khả năng khả dụng của model có thể thay đổi theo tài khoản/khu vực, hãy dùng API `/models` khi không chắc chắn.
 
-## Xác minh Thiết lập
+## Xác minh thiết lập
 
 ### Kiểm tra bằng curl
 
@@ -135,7 +135,7 @@ curl -s "https://api.z.ai/api/coding/paas/v4/models" \
 3. Tạo API key từ dashboard
 4. Định dạng key: `id.secret` (ví dụ: `abc123.xyz789`)
 
-## Tài liệu Liên quan
+## Tài liệu liên quan
 
 - [ZeroClaw README](README.md)
 - [Custom Provider Endpoints](./custom-providers.md)

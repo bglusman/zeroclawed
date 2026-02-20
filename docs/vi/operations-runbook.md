@@ -1,6 +1,6 @@
 # Sổ tay Vận hành ZeroClaw
 
-Tài liệu này dành cho các operator chịu trách nhiệm duy trì tính sẵn sàng, tư thế bảo mật và xử lý sự cố.
+Tài liệu này dành cho các operator chịu trách nhiệm duy trì tính sẵn sàng, tình trạng bảo mật và xử lý sự cố.
 
 Cập nhật lần cuối: **2026-02-18**.
 

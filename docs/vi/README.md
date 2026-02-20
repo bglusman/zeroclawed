@@ -1,10 +1,10 @@
 # Tài liệu ZeroClaw (Tiếng Việt)
 
-Trang này là điểm vào tiếng Việt cho hệ thống tài liệu.
+Đây là trang chủ tiếng Việt của hệ thống tài liệu.
 
 Đồng bộ lần cuối: **2026-02-20**.
 
-> Lưu ý: Tên lệnh, khóa cấu hình và đường dẫn API giữ nguyên tiếng Anh. Nội dung chi tiết lấy tài liệu tiếng Anh làm chuẩn.
+> Lưu ý: Tên lệnh, khóa cấu hình và đường dẫn API giữ nguyên tiếng Anh. Khi có sai khác, tài liệu tiếng Anh là bản gốc.
 
 ## Tra cứu nhanh
 
@@ -20,10 +20,10 @@ Trang này là điểm vào tiếng Việt cho hệ thống tài liệu.
 | Vận hành hàng ngày (runbook) | [operations-runbook.md](operations-runbook.md) |
 | Khắc phục sự cố cài đặt/chạy/kênh | [troubleshooting.md](troubleshooting.md) |
 | Cấu hình Matrix phòng mã hóa (E2EE) | [matrix-e2ee-guide.md](matrix-e2ee-guide.md) |
-| Duyệt tài liệu theo danh mục | [SUMMARY.md](SUMMARY.md) |
+| Xem theo danh mục | [SUMMARY.md](SUMMARY.md) |
 | Xem bản chụp PR/Issue | [../project-triage-snapshot-2026-02-18.md](../project-triage-snapshot-2026-02-18.md) |
 
-## Cây quyết định 10 giây (xem trước)
+## Tìm nhanh
 
 - Cài đặt lần đầu hoặc khởi động nhanh → [getting-started/README.md](getting-started/README.md)
 - Cần tra cứu lệnh CLI / khóa cấu hình → [reference/README.md](reference/README.md)
@@ -34,7 +34,7 @@ Trang này là điểm vào tiếng Việt cho hệ thống tài liệu.
 - Đóng góp / review / quy trình CI → [contributing/README.md](contributing/README.md)
 - Xem toàn bộ bản đồ tài liệu → [SUMMARY.md](SUMMARY.md)
 
-## Duyệt theo danh mục (khuyến nghị)
+## Theo danh mục
 
 - Bắt đầu: [getting-started/README.md](getting-started/README.md)
 - Tra cứu: [reference/README.md](reference/README.md)
@@ -69,7 +69,7 @@ Trang này là điểm vào tiếng Việt cho hệ thống tài liệu.
 
 ### Bảo mật / Độ tin cậy
 
-> Lưu ý: Mục này bao gồm tài liệu đề xuất/lộ trình, có thể chứa lệnh hoặc cấu hình giả định. Để biết hành vi hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md) và [troubleshooting.md](troubleshooting.md) trước.
+> Lưu ý: Mục này gồm tài liệu đề xuất/lộ trình, có thể chứa lệnh hoặc cấu hình chưa triển khai. Để biết hành vi thực tế, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md) và [troubleshooting.md](troubleshooting.md) trước.
 
 - [security/README.md](security/README.md)
 - [agnostic-security.md](agnostic-security.md)
@@ -79,7 +79,7 @@ Trang này là điểm vào tiếng Việt cho hệ thống tài liệu.
 - [resource-limits.md](resource-limits.md)
 - [security-roadmap.md](security-roadmap.md)
 
-## Quản lý & phân loại tài liệu
+## Quản lý tài liệu
 
 - Mục lục thống nhất (TOC): [SUMMARY.md](SUMMARY.md)
 - Danh mục và phân loại tài liệu: [../docs-inventory.md](../docs-inventory.md)

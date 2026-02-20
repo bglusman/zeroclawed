@@ -1,10 +1,10 @@
-# Tham khảo cấu hình ZeroClaw (Dành cho vận hành)
+# Tham khảo cấu hình ZeroClaw
 
-Đây là tài liệu tham khảo ngắn gọn về các mục cấu hình thường dùng và giá trị mặc định.
+Các mục cấu hình thường dùng và giá trị mặc định.
 
 Xác minh lần cuối: **2026-02-19**.
 
-Thứ tự tìm đường dẫn config khi khởi động:
+Thứ tự tìm config khi khởi động:
 
 1. Biến `ZEROCLAW_WORKSPACE` (nếu được đặt)
 2. Marker `~/.zeroclaw/active_workspace.toml` (nếu có)
@@ -50,7 +50,7 @@ otel_service_name = "zeroclaw"
 
 ## Ghi đè provider qua biến môi trường
 
-Chọn provider cũng có thể điều khiển qua biến môi trường. Thứ tự ưu tiên:
+Provider cũng có thể chọn qua biến môi trường. Thứ tự ưu tiên:
 
 1. `ZEROCLAW_PROVIDER` (ghi đè tường minh, luôn thắng khi có giá trị)
 2. `PROVIDER` (dự phòng kiểu cũ, chỉ áp dụng khi provider trong config chưa đặt hoặc vẫn là `openrouter`)
@@ -298,7 +298,7 @@ Lưu ý:
 
 ## `[[model_routes]]` và `[[embedding_routes]]`
 
-Dùng route hint để tích hợp giữ tên ổn định trong khi model ID thay đổi.
+Route hint giúp tên tích hợp ổn định khi model ID thay đổi.
 
 ### `[[model_routes]]`
 
@@ -343,7 +343,7 @@ Chiến lược nâng cấp:
 
 ## `[query_classification]`
 
-Định tuyến model hint tự động — ánh xạ tin nhắn người dùng đến hint `[[model_routes]]` dựa trên mẫu nội dung.
+Tự động định tuyến tin nhắn đến hint `[[model_routes]]` theo mẫu nội dung.
 
 | Khóa | Mặc định | Mục đích |
 |---|---|---|
@@ -380,7 +380,7 @@ priority = 5
 
 ## `[channels_config]`
 
-Tùy chọn kênh cấp cao nằm dưới `channels_config`.
+Cấu hình kênh cấp cao nằm dưới `channels_config`.
 
 | Khóa | Mặc định | Mục đích |
 |---|---|---|
@@ -437,7 +437,7 @@ Lưu ý:
 
 ## `[hardware]`
 
-Cấu hình hardware wizard cho truy cập vật lý (STM32, probe, serial).
+Cấu hình truy cập phần cứng vật lý (STM32, probe, serial).
 
 | Khóa | Mặc định | Mục đích |
 |---|---|---|
@@ -456,7 +456,7 @@ Lưu ý:
 
 ## `[peripherals]`
 
-Cấu hình bo mạch ngoại vi cấp cao. Bo mạch trở thành tool agent khi được bật.
+Bo mạch ngoại vi trở thành tool agent khi được bật.
 
 | Khóa | Mặc định | Mục đích |
 |---|---|---|

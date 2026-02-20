@@ -1,16 +1,16 @@
-# Các Chiến Lược Sandboxing của ZeroClaw
+# Chiến lược sandboxing
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Vấn Đề
-ZeroClaw hiện có application-layer security (allowlists, path blocking, command injection protection) nhưng thiếu cơ chế kiềm chế ở cấp độ OS. Nếu kẻ tấn công nằm trong allowlist, họ có thể chạy bất kỳ lệnh nào được cho phép với quyền của user zeroclaw.
+## Vấn đề
+ZeroClaw hiện có application-layer security (allowlists, path blocking, command injection protection) nhưng thiếu cơ chế cách ly cấp hệ điều hành. Nếu kẻ tấn công nằm trong allowlist, họ có thể chạy bất kỳ lệnh nào được cho phép với quyền của user zeroclaw.
 
-## Các Giải Pháp Đề Xuất
+## Các giải pháp đề xuất
 
-### Tùy Chọn 1: Tích Hợp Firejail (Khuyến Nghị Cho Linux)
+### Tùy chọn 1: tích hợp Firejail (khuyến nghị cho Linux)
 Firejail cung cấp sandboxing ở user-space với overhead tối thiểu.
 
 ```rust
@@ -72,7 +72,7 @@ sandbox_backend = "firejail"  # hoặc "none", "bubblewrap", "docker"
 
 ---
 
-### Tùy Chọn 2: Bubblewrap (Di Động, Không Cần Root)
+### Tùy chọn 2: Bubblewrap (di động, không cần root)
 Bubblewrap dùng user namespaces để tạo container.
 
 ```bash
@@ -92,7 +92,7 @@ bwrap --ro-bind /usr /usr \
 
 ---
 
-### Tùy Chọn 3: Docker-in-Docker (Nặng Nhưng Cách Ly Hoàn Toàn)
+### Tùy chọn 3: Docker-in-Docker (nặng nhưng cách ly hoàn toàn)
 Chạy các công cụ agent trong container tạm thời.
 
 ```rust
@@ -122,7 +122,7 @@ impl DockerSandbox {
 
 ---
 
-### Tùy Chọn 4: Landlock (Linux Kernel LSM, Rust Native)
+### Tùy chọn 4: Landlock (Linux kernel LSM, Rust native)
 Landlock cung cấp kiểm soát truy cập hệ thống file mà không cần container.
 
 ```rust
@@ -141,7 +141,7 @@ pub fn apply_landlock() -> Result<()> {
 
 ---
 
-## Thứ Tự Triển Khai Ưu Tiên
+## Thứ tự triển khai ưu tiên
 
 | Giai đoạn | Giải pháp | Công sức | Tăng cường bảo mật |
 |-------|----------|--------|---------------|
@@ -150,7 +150,7 @@ pub fn apply_landlock() -> Result<()> {
 | **P2** | Bubblewrap wrapper | Trung bình | Rất cao |
 | **P3** | Docker sandbox mode | Cao | Hoàn toàn |
 
-## Mở Rộng Config Schema
+## Mở rộng config schema
 
 ```toml
 [security.sandbox]
@@ -167,7 +167,7 @@ readonly_paths = ["/usr", "/bin", "/lib"]
 readwrite_paths = ["$HOME/workspace", "/tmp/zeroclaw"]
 ```
 
-## Chiến Lược Kiểm Thử
+## Chiến lược kiểm thử
 
 ```rust
 #[cfg(test)]

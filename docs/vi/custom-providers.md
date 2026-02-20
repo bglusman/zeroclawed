@@ -38,7 +38,7 @@ default_model = "claude-sonnet-4-6"
 
 ### Biến môi trường
 
-Đối với các provider `custom:` và `anthropic-custom:`, dùng biến môi trường chứa key chung:
+Với provider `custom:` và `anthropic-custom:`, dùng biến môi trường chứa key chung:
 
 ```bash
 export API_KEY="your-api-key"
@@ -78,7 +78,7 @@ curl -sS https://your-api.com/models \
   -H "Authorization: Bearer $API_KEY"
 ```
 
-- Nếu gateway không triển khai `/models`, hãy gửi một yêu cầu chat tối giản và kiểm tra văn bản lỗi model mà provider trả về.
+- Nếu gateway không triển khai `/models`, gửi một request chat tối giản và kiểm tra thông báo lỗi model mà provider trả về.
 
 ### Sự cố kết nối
 

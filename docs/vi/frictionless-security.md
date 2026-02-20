@@ -1,16 +1,16 @@
-# Bảo Mật Không Ma Sát: Không Ảnh Hưởng đến Wizard
+# Bảo mật không gây cản trở
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Nguyên Tắc Cốt Lõi
+## Nguyên tắc cốt lõi
 > **"Các tính năng bảo mật nên như túi khí — luôn hiện diện, bảo vệ, và vô hình cho đến khi cần."**
 
-## Thiết Kế: Tự Động Phát Hiện Âm Thầm
+## Thiết kế: tự động phát hiện âm thầm
 
-### 1. Không Thêm Bước Wizard Mới (Giữ Nguyên 9 Bước, < 60 Giây)
+### 1. Không thêm bước wizard mới (giữ nguyên 9 bước, < 60 giây)
 
 ```rust
 // Wizard không thay đổi
@@ -31,7 +31,7 @@ pub fn run_wizard() -> Result<Config> {
 }
 ```
 
-### 2. Logic Tự Phát Hiện (Chạy Một Lần Khi Khởi Động Lần Đầu)
+### 2. Logic tự phát hiện (chạy một lần khi khởi động lần đầu)
 
 ```rust
 // src/security/detect.rs
@@ -121,7 +121,7 @@ impl SandboxConfig {
 }
 ```
 
-### 3. Lần Chạy Đầu: Ghi Log Âm Thầm
+### 3. Lần chạy đầu: ghi log âm thầm
 
 ```bash
 $ zeroclaw agent -m "hello"
@@ -137,7 +137,7 @@ $ zeroclaw agent -m "hello"
 [agent] Thinking...
 ```
 
-### 4. File Config: Tất Cả Giá Trị Mặc Định Được Ẩn
+### 4. File config: tất cả giá trị mặc định được ẩn
 
 ```toml
 # ~/.config/zeroclaw/config.toml
@@ -163,7 +163,7 @@ enabled = false  # Người dùng tắt tường minh
 max_memory_mb = 1024  # Người dùng tăng giới hạn
 ```
 
-### 5. Người Dùng Nâng Cao: Kiểm Soát Tường Minh
+### 5. Người dùng nâng cao: kiểm soát tường minh
 
 ```bash
 # Kiểm tra trạng thái đang hoạt động
@@ -184,7 +184,7 @@ $ zeroclaw config set security.sandbox.backend firejail
 $ zeroclaw config set security.resources.max_memory_mb 2048
 ```
 
-### 6. Giảm Cấp Nhẹ Nhàng
+### 6. Giảm cấp nhẹ nhàng
 
 | Nền tảng | Tốt nhất có thể | Fallback | Tệ nhất |
 |----------|---------------|----------|------------|
@@ -197,7 +197,7 @@ $ zeroclaw config set security.resources.max_memory_mb 2048
 
 ---
 
-## Mở Rộng Config Schema
+## Mở rộng config schema
 
 ```rust
 // src/config/schema.rs
@@ -262,9 +262,9 @@ impl Default for SandboxBackend {
 
 ---
 
-## So Sánh Trải Nghiệm Người Dùng
+## So sánh trải nghiệm người dùng
 
-### Trước (Hiện Tại)
+### Trước (hiện tại)
 ```bash
 $ zeroclaw onboard
 [1/9] Workspace Setup...
@@ -274,7 +274,7 @@ $ zeroclaw onboard
 ✓ Security: Supervised | workspace-scoped
 ```
 
-### Sau (Với Bảo Mật Không Ma Sát)
+### Sau (với bảo mật không gây cản trở)
 ```bash
 $ zeroclaw onboard
 [1/9] Workspace Setup...
@@ -285,7 +285,7 @@ $ zeroclaw onboard
 # ↑ Chỉ thêm một từ, tự phát hiện âm thầm!
 ```
 
-### Người Dùng Nâng Cao (Kiểm Soát Tường Minh)
+### Người dùng nâng cao (kiểm soát tường minh)
 ```bash
 $ zeroclaw onboard --security-level paranoid
 [1/9] Workspace Setup...
@@ -295,7 +295,7 @@ $ zeroclaw onboard --security-level paranoid
 
 ---
 
-## Tương Thích Ngược
+## Tương thích ngược
 
 | Tình huống | Hành vi |
 |----------|----------|
@@ -306,7 +306,7 @@ $ zeroclaw onboard --security-level paranoid
 
 ---
 
-## Tóm Tắt
+## Tóm tắt
 
 ✅ **Không ảnh hưởng wizard** — giữ nguyên 9 bước, < 60 giây
 ✅ **Không thêm prompt** — tự phát hiện âm thầm

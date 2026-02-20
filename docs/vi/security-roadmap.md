@@ -1,11 +1,11 @@
-# Lộ Trình Cải Tiến Bảo Mật ZeroClaw
+# Lộ trình cải tiến bảo mật
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Trạng Thái Hiện Tại: Nền Tảng Vững Chắc
+## Tình trạng bảo mật hiện tại: nền tảng vững chắc
 
 ZeroClaw đã có **application-layer security xuất sắc**:
 
@@ -20,7 +20,7 @@ ZeroClaw đã có **application-layer security xuất sắc**:
 ✅ Chặn forbidden paths
 ✅ Độ phủ kiểm thử toàn diện (1.017 test)
 
-## Những Gì Còn Thiếu: Kiềm Chế Ở Cấp Độ OS
+## Những gì còn thiếu: cách ly cấp hệ điều hành
 
 🔴 Chưa có sandboxing cấp OS (chroot, containers, namespaces)
 🔴 Chưa có giới hạn tài nguyên (giới hạn CPU, memory, disk I/O)
@@ -29,27 +29,27 @@ ZeroClaw đã có **application-layer security xuất sắc**:
 
 ---
 
-## So Sánh: ZeroClaw vs PicoClaw vs Production Grade
+## So sánh: ZeroClaw vs PicoClaw vs production grade
 
-| Tính năng | PicoClaw | ZeroClaw Hiện Tại | ZeroClaw + Lộ Trình | Mục Tiêu Production |
+| Tính năng | PicoClaw | ZeroClaw hiện tại | ZeroClaw + lộ trình | Mục tiêu production |
 |---------|----------|--------------|-------------------|-------------------|
-| **Kích thước Binary** | ~8MB | **3.4MB** ✅ | 3.5-4MB | < 5MB |
+| **Kích thước binary** | ~8MB | **3.4MB** ✅ | 3.5-4MB | < 5MB |
 | **RAM** | < 10MB | **< 5MB** ✅ | < 10MB | < 20MB |
-| **Thời gian Startup** | < 1s | **< 10ms** ✅ | < 50ms | < 100ms |
-| **Command Allowlist** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
-| **Path Blocking** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
-| **Injection Protection** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
-| **OS Sandbox** | Không | ❌ Không | ✅ Firejail/Landlock | ✅ Container/namespaces |
-| **Resource Limits** | Không | ❌ Không | ✅ cgroups/Monitor | ✅ Full cgroups |
-| **Audit Logging** | Không | ❌ Không | ✅ Ký HMAC | ✅ Tích hợp SIEM |
-| **Điểm Bảo Mật** | C | **B+** | **A-** | **A+** |
+| **Thời gian startup** | < 1s | **< 10ms** ✅ | < 50ms | < 100ms |
+| **Command allowlist** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
+| **Path blocking** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
+| **Injection protection** | Không rõ | ✅ Có | ✅ Có | ✅ Có |
+| **OS sandbox** | Không | ❌ Không | ✅ Firejail/Landlock | ✅ Container/namespaces |
+| **Resource limits** | Không | ❌ Không | ✅ cgroups/Monitor | ✅ Full cgroups |
+| **Audit logging** | Không | ❌ Không | ✅ Ký HMAC | ✅ Tích hợp SIEM |
+| **Điểm bảo mật** | C | **B+** | **A-** | **A+** |
 
 ---
 
-## Lộ Trình Triển Khai
+## Lộ trình triển khai
 
-### Giai Đoạn 1: Kết Quả Nhanh (1-2 tuần)
-**Mục tiêu**: Giải quyết các thiếu sót nghiêm trọng với độ phức tạp tối thiểu
+### Giai đoạn 1: kết quả nhanh (1-2 tuần)
+**Mục tiêu**: giải quyết các thiếu sót nghiêm trọng với độ phức tạp tối thiểu
 
 | Nhiệm vụ | File | Công sức | Tác động |
 |------|------|--------|-------|
@@ -60,14 +60,14 @@ ZeroClaw đã có **application-layer security xuất sắc**:
 | Cập nhật config schema | `src/config/schema.rs` | 1 ngày | - |
 
 **Kết quả bàn giao**:
-- Linux: Truy cập filesystem bị giới hạn trong workspace
-- Tất cả nền tảng: Bảo vệ memory/CPU chống lệnh chạy vô hạn
-- Tất cả nền tảng: Audit trail chống giả mạo
+- Linux: truy cập filesystem bị giới hạn trong workspace
+- Tất cả nền tảng: bảo vệ memory/CPU chống lệnh chạy vô hạn
+- Tất cả nền tảng: audit trail chống giả mạo
 
 ---
 
-### Giai Đoạn 2: Tích Hợp Nền Tảng (2-3 tuần)
-**Mục tiêu**: Tích hợp sâu với OS để cách ly cấp production
+### Giai đoạn 2: tích hợp nền tảng (2-3 tuần)
+**Mục tiêu**: tích hợp sâu với OS để cách ly cấp production
 
 | Nhiệm vụ | Công sức | Tác động |
 |------|--------|-------|
@@ -78,15 +78,15 @@ ZeroClaw đã có **application-layer security xuất sắc**:
 | Audit log query CLI | 2 ngày | Trung bình |
 
 **Kết quả bàn giao**:
-- Linux: Cách ly hoàn toàn như container qua Firejail
-- macOS: Cách ly filesystem với Bubblewrap
-- Linux: Thực thi giới hạn tài nguyên qua cgroups
-- Linux: Allowlist syscall
+- Linux: cách ly hoàn toàn như container qua Firejail
+- macOS: cách ly filesystem với Bubblewrap
+- Linux: thực thi giới hạn tài nguyên qua cgroups
+- Linux: allowlist syscall
 
 ---
 
-### Giai Đoạn 3: Hardening Production (1-2 tuần)
-**Mục tiêu**: Các tính năng bảo mật doanh nghiệp
+### Giai đoạn 3: hardening production (1-2 tuần)
+**Mục tiêu**: các tính năng bảo mật doanh nghiệp
 
 | Nhiệm vụ | Công sức | Tác động |
 |------|--------|-------|
@@ -104,7 +104,7 @@ ZeroClaw đã có **application-layer security xuất sắc**:
 
 ---
 
-## Xem Trước Config Schema Mới
+## Xem trước config schema mới
 
 ```toml
 [security]
@@ -142,7 +142,7 @@ max_actions_per_hour = 20
 
 ---
 
-## Xem Trước Lệnh CLI
+## Xem trước lệnh CLI
 
 ```bash
 # Kiểm tra trạng thái bảo mật
@@ -166,7 +166,7 @@ zeroclaw sandbox --test
 
 ---
 
-## Tóm Tắt
+## Tóm tắt
 
 **ZeroClaw đã an toàn hơn PicoClaw** với:
 - Binary nhỏ hơn 50% (3.4MB so với 8MB)
@@ -182,4 +182,4 @@ zeroclaw sandbox --test
 - Sẵn sàng doanh nghiệp với các cấp độ bảo mật có thể cấu hình
 
 **Công sức ước tính**: 4-7 tuần để triển khai đầy đủ
-**Giá trị**: Biến ZeroClaw từ "an toàn để kiểm thử" thành "an toàn cho production"
+**Giá trị**: biến ZeroClaw từ "an toàn để kiểm thử" thành "an toàn cho production"

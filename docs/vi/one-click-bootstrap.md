@@ -1,6 +1,6 @@
 # Cài đặt một lệnh
 
-Trang này hướng dẫn cách cài đặt và khởi tạo ZeroClaw nhanh nhất.
+Cách cài đặt và khởi tạo ZeroClaw nhanh nhất.
 
 Xác minh lần cuối: **2026-02-20**.
 

@@ -1,11 +1,11 @@
-# Audit Logging Cho ZeroClaw
+# Audit logging
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Vấn Đề
+## Vấn đề
 ZeroClaw ghi log các hành động nhưng thiếu audit trail chống giả mạo cho:
 - Ai đã thực thi lệnh nào
 - Khi nào và từ channel nào
@@ -14,7 +14,7 @@ ZeroClaw ghi log các hành động nhưng thiếu audit trail chống giả m�
 
 ---
 
-## Định Dạng Audit Log Đề Xuất
+## Định dạng audit log đề xuất
 
 ```json
 {
@@ -47,7 +47,7 @@ ZeroClaw ghi log các hành động nhưng thiếu audit trail chống giả m�
 
 ---
 
-## Triển Khai
+## Triển khai
 
 ```rust
 // src/security/audit.rs
@@ -110,7 +110,7 @@ impl AuditLogger {
 
 ---
 
-## Config Schema
+## Config schema
 
 ```toml
 [security.audit]
@@ -132,7 +132,7 @@ log_policy_violations = true
 
 ---
 
-## CLI Truy Vấn Audit
+## CLI truy vấn audit
 
 ```bash
 # Hiển thị tất cả lệnh được thực thi bởi @alice
@@ -153,7 +153,7 @@ zeroclaw audit --verify-signatures
 
 ---
 
-## Xoay Vòng Log
+## Xoay vòng log
 
 ```rust
 pub fn rotate_audit_log(log_path: &PathBuf, max_size: u64) -> anyhow::Result<()> {
@@ -181,7 +181,7 @@ pub fn rotate_audit_log(log_path: &PathBuf, max_size: u64) -> anyhow::Result<()>
 
 ---
 
-## Thứ Tự Triển Khai
+## Thứ tự triển khai
 
 | Giai đoạn | Tính năng | Công sức | Giá trị bảo mật |
 |-------|---------|--------|----------------|

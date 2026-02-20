@@ -1,11 +1,11 @@
-# Bảo Mật Agnostic: Không Ảnh Hưởng đến Tính Di Động
+# Bảo mật không phụ thuộc nền tảng
 
 > ⚠️ **Trạng thái: Đề xuất / Lộ trình**
 >
 > Tài liệu này mô tả các hướng tiếp cận đề xuất và có thể bao gồm các lệnh hoặc cấu hình giả định.
 > Để biết hành vi runtime hiện tại, xem [config-reference.md](config-reference.md), [operations-runbook.md](operations-runbook.md), và [troubleshooting.md](troubleshooting.md).
 
-## Câu Hỏi Cốt Lõi: Liệu các tính năng bảo mật có làm hỏng...
+## Câu hỏi cốt lõi: liệu các tính năng bảo mật có làm hỏng...
 1. ❓ Quá trình cross-compilation nhanh?
 2. ❓ Kiến trúc pluggable (hoán đổi bất kỳ thành phần nào)?
 3. ❓ Tính agnostic phần cứng (ARM, x86, RISC-V)?
@@ -15,9 +15,9 @@
 
 ---
 
-## 1. Tốc Độ Build: Bảo Mật Ẩn Sau Feature Flag
+## 1. Tốc độ build: bảo mật ẩn sau feature flag
 
-### Cargo.toml: Các Tính Năng Bảo Mật Đặt Sau Features
+### Cargo.toml: các tính năng bảo mật đặt sau features
 
 ```toml
 [features]
@@ -48,7 +48,7 @@ audit-logging = []
 dev = []
 ```
 
-### Lệnh Build (Chọn Profile Phù Hợp)
+### Lệnh build (chọn profile phù hợp)
 
 ```bash
 # Dev build cực nhanh (không có extras bảo mật)
@@ -68,7 +68,7 @@ cargo build --release --features sandbox-landlock  # Linux
 cargo build --release --features sandbox-docker    # Tất cả nền tảng
 ```
 
-### Conditional Compilation: Không Overhead Khi Tắt
+### Conditional compilation: không overhead khi tắt
 
 ```rust
 // src/security/mod.rs
@@ -91,9 +91,9 @@ pub mod policy;  // allowlist, path blocking, injection protection
 
 ---
 
-## 2. Kiến Trúc Pluggable: Bảo Mật Cũng Là Một Trait
+## 2. Kiến trúc pluggable: bảo mật cũng là một trait
 
-### Security Backend Trait (Hoán Đổi Như Mọi Thứ Khác)
+### Security backend trait (hoán đổi như mọi thứ khác)
 
 ```rust
 // src/security/traits.rs
@@ -115,7 +115,7 @@ pub struct NoopSandbox;
 
 impl Sandbox for NoopSandbox {
     fn wrap_command(&self, _cmd: &mut std::process::Command) -> std::io::Result<()> {
-        Ok(())  // Chuyển tiếp không thay đổi
+        Ok(())  // Pass-through, không thay đổi
     }
 
     fn is_available(&self) -> bool { true }
@@ -123,7 +123,7 @@ impl Sandbox for NoopSandbox {
 }
 ```
 
-### Factory Pattern: Tự Động Chọn Dựa Trên Features
+### Factory pattern: tự động chọn dựa trên features
 
 ```rust
 // src/security/factory.rs
@@ -166,11 +166,11 @@ pub fn create_sandbox() -> Box<dyn Sandbox> {
 
 ---
 
-## 3. Agnostic Phần Cứng: Cùng Binary, Nhiều Nền Tảng
+## 3. Agnostic phần cứng: cùng binary, nhiều nền tảng
 
-### Ma Trận Hành Vi Đa Nền Tảng
+### Ma trận hành vi đa nền tảng
 
-| Nền tảng | Build trên | Hành vi Runtime |
+| Nền tảng | Build trên | Hành vi runtime |
 |----------|-----------|------------------|
 | **Linux ARM** (Raspberry Pi) | ✅ Có | Landlock → None (graceful) |
 | **Linux x86_64** | ✅ Có | Landlock → Firejail → None |
@@ -180,7 +180,7 @@ pub fn create_sandbox() -> Box<dyn Sandbox> {
 | **Windows x86_64** | ✅ Có | None (app-layer) |
 | **RISC-V Linux** | ✅ Có | Landlock → None |
 
-### Cơ Chế Hoạt Động: Phát Hiện Tại Runtime
+### Cơ chế hoạt động: phát hiện tại runtime
 
 ```rust
 // src/security/detect.rs
@@ -218,11 +218,11 @@ impl SandboxingStrategy {
 
 ---
 
-## 4. Phần Cứng Nhỏ: Phân Tích Tác Động Bộ Nhớ
+## 4. Phần cứng nhỏ: phân tích tác động bộ nhớ
 
-### Tác Động Kích Thước Binary (Ước Tính)
+### Tác động kích thước binary (ước tính)
 
-| Tính năng | Kích thước Code | RAM Overhead | Trạng thái |
+| Tính năng | Kích thước code | RAM overhead | Trạng thái |
 |---------|-----------|--------------|--------|
 | **ZeroClaw cơ bản** | 3.4MB | <5MB | ✅ Hiện tại |
 | **+ Landlock** | +50KB | +100KB | ✅ Linux 5.13+ |
@@ -231,7 +231,7 @@ impl SandboxingStrategy {
 | **+ Audit logging** | +40KB | +200KB (buffered) | ✅ Tất cả nền tảng |
 | **Full security** | +140KB | +350KB | ✅ Vẫn <6MB tổng |
 
-### Tương Thích Phần Cứng $10
+### Tương thích phần cứng $10
 
 | Phần cứng | RAM | ZeroClaw (cơ bản) | ZeroClaw (full security) | Trạng thái |
 |----------|-----|-----------------|--------------------------|--------|
@@ -245,9 +245,9 @@ impl SandboxingStrategy {
 
 ---
 
-## 5. Hoán Đổi Agnostic: Mọi Thứ Vẫn Pluggable
+## 5. Tính hoán đổi: mọi thứ vẫn pluggable
 
-### Cam Kết Cốt Lõi của ZeroClaw: Hoán Đổi Bất Kỳ Thứ Gì
+### Cam kết chính của ZeroClaw: hoán đổi bất kỳ thứ gì
 
 ```rust
 // Providers (đã pluggable)
@@ -268,7 +268,7 @@ Box<dyn Auditor>
 Box<dyn ResourceMonitor>
 ```
 
-### Hoán Đổi Security Backend Qua Config
+### Hoán đổi security backend qua config
 
 ```toml
 # Không dùng sandbox (nhanh nhất, chỉ app-layer)
@@ -292,15 +292,15 @@ backend = "docker"
 
 ---
 
-## 6. Tác Động Phụ Thuộc: Thêm Tối Thiểu
+## 6. Tác động phụ thuộc: thêm tối thiểu
 
-### Phụ Thuộc Hiện Tại (để tham khảo)
+### Phụ thuộc hiện tại (để tham khảo)
 ```
 reqwest, tokio, serde, anyhow, uuid, chrono, rusqlite,
 axum, tracing, opentelemetry, ...
 ```
 
-### Phụ Thuộc Của Các Security Feature
+### Phụ thuộc của các security feature
 
 | Tính năng | Phụ thuộc mới | Nền tảng |
 |---------|------------------|----------|
@@ -318,7 +318,7 @@ axum, tracing, opentelemetry, ...
 
 ---
 
-## Tóm Tắt: Các Giá Trị Cốt Lõi Được Bảo Toàn
+## Tóm tắt: các giá trị chính được bảo toàn
 
 | Giá trị | Trước | Sau (có bảo mật) | Trạng thái |
 |------------|--------|----------------------|--------|
@@ -332,7 +332,7 @@ axum, tracing, opentelemetry, ...
 
 ---
 
-## Chìa Khóa: Feature Flags + Conditional Compilation
+## Điểm mấu chốt: feature flags + conditional compilation
 
 ```bash
 # Developer build (nhanh nhất, không có extra feature)
