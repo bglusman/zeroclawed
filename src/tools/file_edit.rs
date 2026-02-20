@@ -68,6 +68,14 @@ impl Tool for FileEditTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'new_string' parameter"))?;
 
+        if old_string.is_empty() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("old_string must not be empty".into()),
+            });
+        }
+
         // ── 2. Autonomy check ──────────────────────────────────────
         if !self.security.can_act() {
             return Ok(ToolResult {
@@ -413,6 +421,40 @@ mod tests {
             .execute(json!({"path": "f.txt", "old_string": "a"}))
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn file_edit_rejects_empty_old_string() {
+        let dir = std::env::temp_dir().join("zeroclaw_test_file_edit_empty_old_string");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        tokio::fs::write(dir.join("test.txt"), "hello")
+            .await
+            .unwrap();
+
+        let tool = FileEditTool::new(test_security(dir.clone()));
+        let result = tool
+            .execute(json!({
+                "path": "test.txt",
+                "old_string": "",
+                "new_string": "x"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("must not be empty"));
+
+        let content = tokio::fs::read_to_string(dir.join("test.txt"))
+            .await
+            .unwrap();
+        assert_eq!(content, "hello");
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[tokio::test]
