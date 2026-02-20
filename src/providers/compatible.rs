@@ -4,7 +4,8 @@
 
 use crate::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
-    Provider, StreamChunk, StreamError, StreamOptions, StreamResult, ToolCall as ProviderToolCall,
+    Provider, StreamChunk, StreamError, StreamOptions, StreamResult, TokenUsage,
+    ToolCall as ProviderToolCall,
 };
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -272,6 +273,16 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct ApiChatResponse {
     choices: Vec<Choice>,
+    #[serde(default)]
+    usage: Option<UsageInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UsageInfo {
+    #[serde(default)]
+    prompt_tokens: Option<u64>,
+    #[serde(default)]
+    completion_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1270,6 +1281,10 @@ impl Provider for OpenAiCompatibleProvider {
 
         let body = response.text().await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
+        let usage = chat_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+        });
         let choice = chat_response
             .choices
             .into_iter()
@@ -1297,7 +1312,7 @@ impl Provider for OpenAiCompatibleProvider {
         Ok(ProviderChatResponse {
             text,
             tool_calls,
-            usage: None,
+            usage,
         })
     }
 
@@ -1401,6 +1416,10 @@ impl Provider for OpenAiCompatibleProvider {
         }
 
         let native_response: ApiChatResponse = response.json().await?;
+        let usage = native_response.usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+        });
         let message = native_response
             .choices
             .into_iter()
@@ -1408,7 +1427,9 @@ impl Provider for OpenAiCompatibleProvider {
             .map(|choice| choice.message)
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))?;
 
-        Ok(Self::parse_native_response(message))
+        let mut result = Self::parse_native_response(message);
+        result.usage = usage;
+        Ok(result)
     }
 
     fn supports_native_tools(&self) -> bool {
@@ -2459,5 +2480,24 @@ mod tests {
         let line = "data: [DONE]";
         let result = parse_sse_line(line).unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn api_response_parses_usage() {
+        let json = r#"{
+            "choices": [{"message": {"content": "Hello"}}],
+            "usage": {"prompt_tokens": 150, "completion_tokens": 60}
+        }"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let usage = resp.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, Some(150));
+        assert_eq!(usage.completion_tokens, Some(60));
+    }
+
+    #[test]
+    fn api_response_parses_without_usage() {
+        let json = r#"{"choices": [{"message": {"content": "Hello"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.usage.is_none());
     }
 }
