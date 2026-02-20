@@ -4,7 +4,9 @@ use super::{
     MemoryBackendKind,
 };
 use crate::config::Config;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
+#[cfg(feature = "memory-postgres")]
+use anyhow::Context;
 use console::style;
 
 /// Handle `zeroclaw memory <subcommand>` CLI commands.
@@ -39,6 +41,7 @@ fn create_cli_memory(config: &Config) -> Result<Box<dyn Memory>> {
         MemoryBackendKind::None => {
             bail!("Memory backend is 'none' (disabled). No entries to manage.");
         }
+        #[cfg(feature = "memory-postgres")]
         MemoryBackendKind::Postgres => {
             let sp = &config.storage.provider.config;
             let db_url = sp
@@ -52,6 +55,10 @@ fn create_cli_memory(config: &Config) -> Result<Box<dyn Memory>> {
             let mem =
                 super::PostgresMemory::new(db_url, &sp.schema, &sp.table, sp.connect_timeout_secs)?;
             Ok(Box::new(mem))
+        }
+        #[cfg(not(feature = "memory-postgres"))]
+        MemoryBackendKind::Postgres => {
+            bail!("memory backend 'postgres' requires the 'memory-postgres' feature to be enabled");
         }
         _ => create_memory_for_migration(&backend, &config.workspace_dir),
     }
