@@ -142,9 +142,9 @@ Examples:
 pub enum SkillCommands {
     /// List all installed skills
     List,
-    /// Install a new skill from a URL or local path
+    /// Install a new skill from a git URL (HTTPS/SSH) or local path
     Install {
-        /// Source URL or local path
+        /// Source git URL (HTTPS/SSH) or local path
         source: String,
     },
     /// Remove an installed skill

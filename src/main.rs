@@ -598,9 +598,9 @@ enum ChannelCommands {
 enum SkillCommands {
     /// List installed skills
     List,
-    /// Install a skill from a GitHub URL or local path
+    /// Install a skill from a git URL (HTTPS/SSH) or local path
     Install {
-        /// GitHub URL or local path
+        /// Git URL (HTTPS/SSH) or local path
         source: String,
     },
     /// Remove an installed skill

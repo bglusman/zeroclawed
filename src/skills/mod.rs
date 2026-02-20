@@ -470,13 +470,57 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
              The agent will read it and follow the instructions.\n\n\
              ## Installing community skills\n\n\
              ```bash\n\
-             zeroclaw skills install <github-url>\n\
+             zeroclaw skills install <source>\n\
              zeroclaw skills list\n\
              ```\n",
         )?;
     }
 
     Ok(())
+}
+
+fn is_git_source(source: &str) -> bool {
+    is_git_scheme_source(source, "https://")
+        || is_git_scheme_source(source, "http://")
+        || is_git_scheme_source(source, "ssh://")
+        || is_git_scheme_source(source, "git://")
+        || is_git_scp_source(source)
+}
+
+fn is_git_scheme_source(source: &str, scheme: &str) -> bool {
+    let Some(rest) = source.strip_prefix(scheme) else {
+        return false;
+    };
+    if rest.is_empty() || rest.starts_with('/') {
+        return false;
+    }
+
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    !host.is_empty()
+}
+
+fn is_git_scp_source(source: &str) -> bool {
+    // SCP-like syntax accepted by git, e.g. git@host:owner/repo.git
+    // Keep this strict enough to avoid treating local paths as git remotes.
+    let Some((user_host, remote_path)) = source.split_once(':') else {
+        return false;
+    };
+    if remote_path.is_empty() {
+        return false;
+    }
+    if source.contains("://") {
+        return false;
+    }
+
+    let Some((user, host)) = user_host.split_once('@') else {
+        return false;
+    };
+    !user.is_empty()
+        && !host.is_empty()
+        && !user.contains('/')
+        && !user.contains('\\')
+        && !host.contains('/')
+        && !host.contains('\\')
 }
 
 /// Recursively copy a directory (used as fallback when symlinks aren't available)
@@ -508,7 +552,7 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
                 println!("  Create one: mkdir -p ~/.zeroclaw/workspace/skills/my-skill");
                 println!("              echo '# My Skill' > ~/.zeroclaw/workspace/skills/my-skill/SKILL.md");
                 println!();
-                println!("  Or install: zeroclaw skills install <github-url>");
+                println!("  Or install: zeroclaw skills install <source>");
             } else {
                 println!("Installed skills ({}):", skills.len());
                 println!();
@@ -544,7 +588,7 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
             let skills_path = skills_dir(workspace_dir);
             std::fs::create_dir_all(&skills_path)?;
 
-            if source.starts_with("https://") || source.starts_with("http://") {
+            if is_git_source(&source) {
                 // Git clone
                 let output = std::process::Command::new("git")
                     .args(["clone", "--depth", "1", &source])
@@ -961,6 +1005,45 @@ description = "Bare minimum"
         assert!(prompt.contains(
             "<instruction>Use &lt;tool&gt; &amp; check &quot;quotes&quot;.</instruction>"
         ));
+    }
+
+    #[test]
+    fn git_source_detection_accepts_remote_protocols_and_scp_style() {
+        let sources = [
+            "https://github.com/some-org/some-skill.git",
+            "http://github.com/some-org/some-skill.git",
+            "ssh://git@github.com/some-org/some-skill.git",
+            "git://github.com/some-org/some-skill.git",
+            "git@github.com:some-org/some-skill.git",
+            "git@localhost:skills/some-skill.git",
+        ];
+
+        for source in sources {
+            assert!(
+                is_git_source(source),
+                "expected git source detection for '{source}'"
+            );
+        }
+    }
+
+    #[test]
+    fn git_source_detection_rejects_local_paths_and_invalid_inputs() {
+        let sources = [
+            "./skills/local-skill",
+            "/tmp/skills/local-skill",
+            "C:\\skills\\local-skill",
+            "git@github.com",
+            "ssh://",
+            "not-a-url",
+            "dir/git@github.com:org/repo.git",
+        ];
+
+        for source in sources {
+            assert!(
+                !is_git_source(source),
+                "expected local/invalid source detection for '{source}'"
+            );
+        }
     }
 
     #[test]
