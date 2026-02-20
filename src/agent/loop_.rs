@@ -2208,6 +2208,7 @@ mod tests {
                 .map(|text| ChatResponse {
                     text: Some(text.to_string()),
                     tool_calls: Vec::new(),
+                    usage: None,
                 })
                 .collect();
             Self {
