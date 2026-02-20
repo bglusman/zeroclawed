@@ -3,21 +3,129 @@ name: Pub Release
 on:
     push:
         tags: ["v*"]
+    workflow_dispatch:
+        inputs:
+            release_ref:
+                description: "Git ref (branch, tag, or SHA) to build"
+                required: false
+                default: "main"
+                type: string
+            publish_release:
+                description: "Publish a GitHub release (false = verification build only)"
+                required: false
+                default: false
+                type: boolean
+            release_tag:
+                description: "Existing release tag (required when publish_release=true), e.g. v0.1.1"
+                required: false
+                default: ""
+                type: string
+            draft:
+                description: "Create release as draft (manual publish only)"
+                required: false
+                default: true
+                type: boolean
+    schedule:
+        # Weekly release-readiness verification on default branch (no publish)
+        - cron: "17 8 * * 1"
 
 concurrency:
-    group: release
+    group: release-${{ github.ref || github.run_id }}
     cancel-in-progress: false
 
 permissions:
     contents: write
+    packages: read
     id-token: write # Required for cosign keyless signing via OIDC
 
 env:
     CARGO_TERM_COLOR: always
 
 jobs:
+    prepare:
+        name: Prepare Release Context
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        outputs:
+            release_ref: ${{ steps.vars.outputs.release_ref }}
+            release_tag: ${{ steps.vars.outputs.release_tag }}
+            publish_release: ${{ steps.vars.outputs.publish_release }}
+            draft_release: ${{ steps.vars.outputs.draft_release }}
+        steps:
+            - name: Resolve release inputs
+              id: vars
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  event_name="${GITHUB_EVENT_NAME}"
+                  publish_release="false"
+                  draft_release="false"
+                  semver_pattern='^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'
+
+                  if [[ "$event_name" == "push" ]]; then
+                    release_ref="${GITHUB_REF_NAME}"
+                    release_tag="${GITHUB_REF_NAME}"
+                    publish_release="true"
+                  elif [[ "$event_name" == "workflow_dispatch" ]]; then
+                    release_ref="${{ inputs.release_ref }}"
+                    publish_release="${{ inputs.publish_release }}"
+                    draft_release="${{ inputs.draft }}"
+
+                    if [[ "$publish_release" == "true" ]]; then
+                      release_tag="${{ inputs.release_tag }}"
+                      if [[ -z "$release_tag" ]]; then
+                        echo "::error::release_tag is required when publish_release=true"
+                        exit 1
+                      fi
+                      release_ref="$release_tag"
+                    else
+                      release_tag="verify-${GITHUB_SHA::12}"
+                    fi
+                  else
+                    # schedule
+                    release_ref="main"
+                    release_tag="verify-${GITHUB_SHA::12}"
+                  fi
+
+                  if [[ "$publish_release" == "true" ]]; then
+                    if [[ ! "$release_tag" =~ $semver_pattern ]]; then
+                      echo "::error::release_tag must match semver-like format (vX.Y.Z[-suffix])"
+                      exit 1
+                    fi
+                    if ! git ls-remote --exit-code --tags "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${release_tag}" >/dev/null; then
+                      echo "::error::Tag ${release_tag} does not exist on origin. Push the tag first, then rerun manual publish."
+                      exit 1
+                    fi
+
+                    # Guardrail: release tags must resolve to commits already reachable from main.
+                    tmp_repo="$(mktemp -d)"
+                    trap 'rm -rf "$tmp_repo"' EXIT
+                    git -C "$tmp_repo" init -q
+                    git -C "$tmp_repo" remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+                    git -C "$tmp_repo" fetch --quiet --filter=blob:none origin main "refs/tags/${release_tag}:refs/tags/${release_tag}"
+                    if ! git -C "$tmp_repo" merge-base --is-ancestor "refs/tags/${release_tag}" "origin/main"; then
+                      echo "::error::Tag ${release_tag} is not reachable from origin/main. Release tags must be cut from main."
+                      exit 1
+                    fi
+                  fi
+
+                  echo "release_ref=${release_ref}" >> "$GITHUB_OUTPUT"
+                  echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+                  echo "publish_release=${publish_release}" >> "$GITHUB_OUTPUT"
+                  echo "draft_release=${draft_release}" >> "$GITHUB_OUTPUT"
+
+                  {
+                    echo "### Release Context"
+                    echo "- event: ${event_name}"
+                    echo "- release_ref: ${release_ref}"
+                    echo "- release_tag: ${release_tag}"
+                    echo "- publish_release: ${publish_release}"
+                    echo "- draft_release: ${draft_release}"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     build-release:
         name: Build ${{ matrix.target }}
+        needs: [prepare]
         runs-on: ${{ matrix.os }}
         timeout-minutes: 40
         strategy:
@@ -69,9 +177,12 @@ jobs:
 
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  ref: ${{ needs.prepare.outputs.release_ref }}
 
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
+                  toolchain: 1.92.0
                   targets: ${{ matrix.target }}
 
             - uses: useblacksmith/rust-cache@f53e7f127245d2a269b3d90879ccf259876842d5 # v3
@@ -136,13 +247,53 @@ jobs:
                   path: zeroclaw-${{ matrix.target }}.${{ matrix.archive_ext }}
                   retention-days: 7
 
+    verify-artifacts:
+        name: Verify Artifact Set
+        needs: [prepare, build-release]
+        runs-on: blacksmith-2vcpu-ubuntu-2404
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  path: artifacts
+
+            - name: Validate expected archives
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  expected=(
+                    "zeroclaw-x86_64-unknown-linux-gnu.tar.gz"
+                    "zeroclaw-aarch64-unknown-linux-gnu.tar.gz"
+                    "zeroclaw-armv7-unknown-linux-gnueabihf.tar.gz"
+                    "zeroclaw-x86_64-apple-darwin.tar.gz"
+                    "zeroclaw-aarch64-apple-darwin.tar.gz"
+                    "zeroclaw-x86_64-pc-windows-msvc.zip"
+                  )
+
+                  missing=0
+                  for file in "${expected[@]}"; do
+                    if ! find artifacts -type f -name "$file" -print -quit | grep -q .; then
+                      echo "::error::Missing release archive: $file"
+                      missing=1
+                    fi
+                  done
+
+                  if [ "$missing" -ne 0 ]; then
+                    exit 1
+                  fi
+
+                  echo "All expected release archives are present."
+
     publish:
         name: Publish Release
-        needs: build-release
+        if: needs.prepare.outputs.publish_release == 'true'
+        needs: [prepare, verify-artifacts]
         runs-on: blacksmith-2vcpu-ubuntu-2404
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  ref: ${{ needs.prepare.outputs.release_ref }}
 
             - name: Download all artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -173,19 +324,56 @@ jobs:
               uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
 
             - name: Sign artifacts with cosign (keyless)
+              shell: bash
               run: |
-                  for file in artifacts/**/*; do
-                    [ -f "$file" ] || continue
+                  set -euo pipefail
+                  while IFS= read -r -d '' file; do
                     cosign sign-blob --yes \
                       --oidc-issuer=https://token.actions.githubusercontent.com \
                       --output-signature="${file}.sig" \
                       --output-certificate="${file}.pem" \
                       "$file"
+                  done < <(find artifacts -type f ! -name '*.sig' ! -name '*.pem' -print0)
+
+            - name: Verify GHCR release tag availability
+              shell: bash
+              env:
+                  RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+              run: |
+                  set -euo pipefail
+                  repo="${GITHUB_REPOSITORY,,}"
+                  manifest_url="https://ghcr.io/v2/${repo}/manifests/${RELEASE_TAG}"
+                  accept_header="application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+                  max_attempts=18
+                  sleep_seconds=20
+
+                  for attempt in $(seq 1 "$max_attempts"); do
+                    code="$(curl -sS -o /tmp/ghcr-release-manifest.json -w "%{http_code}" \
+                      -u "${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}" \
+                      -H "Accept: ${accept_header}" \
+                      "${manifest_url}" || true)"
+
+                    if [ "$code" = "200" ]; then
+                      echo "GHCR release tag is available: ${repo}:${RELEASE_TAG}"
+                      exit 0
+                    fi
+
+                    if [ "$attempt" -lt "$max_attempts" ]; then
+                      echo "Waiting for GHCR tag ${repo}:${RELEASE_TAG} (attempt ${attempt}/${max_attempts}, HTTP ${code})..."
+                      sleep "$sleep_seconds"
+                    fi
                   done
+
+                  echo "::error::GHCR tag ${repo}:${RELEASE_TAG} was not available before release publish timeout."
+                  cat /tmp/ghcr-release-manifest.json || true
+                  exit 1
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
               with:
+                  tag_name: ${{ needs.prepare.outputs.release_tag }}
+                  target_commitish: ${{ needs.prepare.outputs.release_ref }}
+                  draft: ${{ needs.prepare.outputs.draft_release == 'true' }}
                   generate_release_notes: true
                   files: |
                       artifacts/**/*

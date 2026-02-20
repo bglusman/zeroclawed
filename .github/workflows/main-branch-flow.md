@@ -1,11 +1,12 @@
 # Main Branch Delivery Flows
 
-This document explains what runs when code is proposed to `main`, merged into `main`, and released via tags.
+This document explains what runs when code is proposed to `main`, merged into `main`, and released.
 
 Use this with:
 
 - [`docs/ci-map.md`](../../docs/ci-map.md)
 - [`docs/pr-workflow.md`](../../docs/pr-workflow.md)
+- [`docs/release-process.md`](../../docs/release-process.md)
 
 ## Event Summary
 
@@ -14,8 +15,8 @@ Use this with:
 | PR activity (`pull_request_target`) | `pr-intake-checks.yml`, `pr-labeler.yml`, `pr-auto-response.yml` |
 | PR activity (`pull_request`) | `ci-run.yml`, `sec-audit.yml`, plus path-scoped `pub-docker-img.yml`, `workflow-sanity.yml`, `pr-label-policy-check.yml` |
 | Push to `main` | `ci-run.yml`, `sec-audit.yml`, plus path-scoped workflows |
-| Tag push (`v*`) | `pub-release.yml`, `pub-docker-img.yml` publish job |
-| Scheduled/manual | `sec-codeql.yml`, `feature-matrix.yml`, `test-fuzz.yml`, `pr-check-stale.yml`, `pr-check-status.yml`, `sync-contributors.yml`, `test-benchmarks.yml`, `test-e2e.yml` |
+| Tag push (`v*`) | `pub-release.yml` publish mode, `pub-docker-img.yml` publish job |
+| Scheduled/manual | `pub-release.yml` verification mode, `sec-codeql.yml`, `feature-matrix.yml`, `test-fuzz.yml`, `pr-check-stale.yml`, `pr-check-status.yml`, `sync-contributors.yml`, `test-benchmarks.yml`, `test-e2e.yml` |
 
 ## Runtime and Docker Matrix
 
@@ -32,7 +33,7 @@ Observed averages below are from recent completed runs (sampled from GitHub Acti
 | `pr-label-policy-check.yml` | Label policy/automation changes | 14.7s | No | No | No |
 | `pub-docker-img.yml` (`pull_request`) | Docker build-input PR changes | 240.4s | Yes | Yes | No |
 | `pub-docker-img.yml` (`push`/`workflow_dispatch`) | `main` push (build-input paths), tag push `v*`, or manual dispatch | 139.9s | Yes | No | Yes |
-| `pub-release.yml` | Tag push `v*` | N/A in recent sample | No | No | No |
+| `pub-release.yml` | Tag push `v*` (publish) + manual/scheduled verification (no publish) | N/A in recent sample | No | No | No |
 
 Notes:
 
@@ -153,12 +154,15 @@ Important: Docker publish now runs on qualifying `main` pushes; no release tag i
 
 Workflow: `.github/workflows/pub-release.yml`
 
-1. Triggered only on tag push `v*`.
-2. Builds release artifacts across matrix targets.
-3. Generates SBOM (`CycloneDX` + `SPDX`).
-4. Generates `SHA256SUMS`.
-5. Signs artifacts with keyless cosign.
-6. Publishes GitHub Release with artifacts.
+1. Trigger modes:
+   - Tag push `v*` -> publish mode.
+   - Manual dispatch -> verification-only or publish mode (input-driven).
+   - Weekly schedule -> verification-only mode.
+2. `prepare` resolves release context (`release_ref`, `release_tag`, publish/draft mode) and validates manual publish inputs.
+3. `build-release` builds matrix artifacts across Linux/macOS/Windows targets.
+4. `verify-artifacts` enforces presence of all expected archives before any publish attempt.
+5. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, keyless cosign signatures, and verifies GHCR release-tag availability.
+6. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish.
 
 ## Merge/Policy Notes
 
@@ -199,8 +203,10 @@ flowchart TD
   A --> C["sec-audit.yml"]
   A --> D["path-scoped workflows (if matched)"]
   T["Tag push v*"] --> R["pub-release.yml"]
+  W["Manual/Scheduled release verify"] --> R
   T --> P["pub-docker-img.yml publish job"]
   R --> R1["Artifacts + SBOM + checksums + signatures + GitHub Release"]
+  W --> R2["Verification build only (no GitHub Release publish)"]
   P --> P1["Push ghcr image tags (version + sha)"]
 ```
 

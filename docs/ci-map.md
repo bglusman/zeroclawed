@@ -30,7 +30,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
     - Purpose: scheduled/manual static analysis for security findings
 - `.github/workflows/pub-release.yml` (`Release`)
-    - Purpose: build tagged release artifacts and publish GitHub releases
+    - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
     - Purpose: validate shared contributor-tier policy in `.github/label-policy.json` and ensure label workflows consume that policy
 - `.github/workflows/test-rust-build.yml` (`Rust Reusable Job`)
@@ -67,7 +67,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - `CI`: push to `main`, PRs to `main`
 - `Docker`: push to `main` when Docker build inputs change, tag push (`v*`), matching PRs, manual dispatch
-- `Release`: tag push (`v*`)
+- `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `PR Intake Checks`: `pull_request_target` on opened/reopened/synchronize/edited/ready_for_review
@@ -82,7 +82,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 1. `CI Required Gate` failing: start with `.github/workflows/ci-run.yml`.
 2. Docker failures on PRs: inspect `.github/workflows/pub-docker-img.yml` `pr-smoke` job.
-3. Release failures on tags: inspect `.github/workflows/pub-release.yml`.
+3. Release failures (tag/manual/scheduled): inspect `.github/workflows/pub-release.yml` and the `prepare` job outputs.
 4. Security failures: inspect `.github/workflows/sec-audit.yml` and `deny.toml`.
 5. Workflow syntax/lint failures: inspect `.github/workflows/workflow-sanity.yml`.
 6. PR intake failures: inspect `.github/workflows/pr-intake-checks.yml` sticky comment and run logs.
@@ -93,6 +93,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ## Maintenance Rules
 
 - Keep merge-blocking checks deterministic and reproducible (`--locked` where applicable).
+- Follow `docs/release-process.md` for verify-before-publish release cadence and tag discipline.
 - Keep merge-blocking rust quality policy aligned across `.github/workflows/ci-run.yml`, `dev/ci.sh`, and `.githooks/pre-push` (`./scripts/ci/rust_quality_gate.sh` + `./scripts/ci/rust_strict_delta_gate.sh`).
 - Use `./scripts/ci/rust_strict_delta_gate.sh` (or `./dev/ci.sh lint-delta`) as the incremental strict merge gate for changed Rust lines.
 - Run full strict lint audits regularly via `./scripts/ci/rust_quality_gate.sh --strict` (for example through `./dev/ci.sh lint-strict`) and track cleanup in focused PRs.
