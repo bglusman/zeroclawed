@@ -109,10 +109,12 @@ jobs:
                     fi
                   fi
 
-                  echo "release_ref=${release_ref}" >> "$GITHUB_OUTPUT"
-                  echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
-                  echo "publish_release=${publish_release}" >> "$GITHUB_OUTPUT"
-                  echo "draft_release=${draft_release}" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "release_ref=${release_ref}"
+                    echo "release_tag=${release_tag}"
+                    echo "publish_release=${publish_release}"
+                    echo "draft_release=${draft_release}"
+                  } >> "$GITHUB_OUTPUT"
 
                   {
                     echo "### Release Context"
