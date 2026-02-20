@@ -95,6 +95,8 @@ const MIN_CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 30;
 /// Default timeout for processing a single channel message (LLM + tools).
 /// Used as fallback when not configured in channels_config.message_timeout_secs.
 const CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 300;
+/// Cap timeout scaling so large max_tool_iterations values do not create unbounded waits.
+const CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP: u64 = 4;
 const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
@@ -112,6 +114,15 @@ type RouteSelectionMap = Arc<Mutex<HashMap<String, ChannelRouteSelection>>>;
 
 fn effective_channel_message_timeout_secs(configured: u64) -> u64 {
     configured.max(MIN_CHANNEL_MESSAGE_TIMEOUT_SECS)
+}
+
+fn channel_message_timeout_budget_secs(
+    message_timeout_secs: u64,
+    max_tool_iterations: usize,
+) -> u64 {
+    let iterations = max_tool_iterations.max(1) as u64;
+    let scale = iterations.min(CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP);
+    message_timeout_secs.saturating_mul(scale)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1223,10 +1234,12 @@ async fn process_channel_message(
         Cancelled,
     }
 
+    let timeout_budget_secs =
+        channel_message_timeout_budget_secs(ctx.message_timeout_secs, ctx.max_tool_iterations);
     let llm_result = tokio::select! {
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
-            Duration::from_secs(ctx.message_timeout_secs),
+            Duration::from_secs(timeout_budget_secs),
             run_tool_call_loop(
                 active_provider.as_ref(),
                 &mut history,
@@ -1385,7 +1398,10 @@ async fn process_channel_message(
             }
         }
         LlmExecutionResult::Completed(Err(_)) => {
-            let timeout_msg = format!("LLM response timed out after {}s", ctx.message_timeout_secs);
+            let timeout_msg = format!(
+                "LLM response timed out after {}s (base={}s, max_tool_iterations={})",
+                timeout_budget_secs, ctx.message_timeout_secs, ctx.max_tool_iterations
+            );
             eprintln!(
                 "  ❌ {} (elapsed: {}ms)",
                 timeout_msg,
@@ -2639,6 +2655,24 @@ mod tests {
             MIN_CHANNEL_MESSAGE_TIMEOUT_SECS
         );
         assert_eq!(effective_channel_message_timeout_secs(300), 300);
+    }
+
+    #[test]
+    fn channel_message_timeout_budget_scales_with_tool_iterations() {
+        assert_eq!(channel_message_timeout_budget_secs(300, 1), 300);
+        assert_eq!(channel_message_timeout_budget_secs(300, 2), 600);
+        assert_eq!(channel_message_timeout_budget_secs(300, 3), 900);
+    }
+
+    #[test]
+    fn channel_message_timeout_budget_uses_safe_defaults_and_cap() {
+        // 0 iterations falls back to 1x timeout budget.
+        assert_eq!(channel_message_timeout_budget_secs(300, 0), 300);
+        // Large iteration counts are capped to avoid runaway waits.
+        assert_eq!(
+            channel_message_timeout_budget_secs(300, 10),
+            300 * CHANNEL_MESSAGE_TIMEOUT_SCALE_CAP
+        );
     }
 
     #[test]

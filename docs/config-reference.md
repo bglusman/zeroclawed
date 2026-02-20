@@ -332,7 +332,7 @@ Top-level channel options are configured under `channels_config`.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `message_timeout_secs` | `300` | Timeout in seconds for processing a single channel message (LLM + tools) |
+| `message_timeout_secs` | `300` | Base timeout in seconds for channel message processing; runtime scales this with tool-loop depth (up to 4x) |
 
 Examples:
 
@@ -344,6 +344,8 @@ Examples:
 Notes:
 
 - Default `300s` is optimized for on-device LLMs (Ollama) which are slower than cloud APIs.
+- Runtime timeout budget is `message_timeout_secs * scale`, where `scale = min(max_tool_iterations, 4)` and a minimum of `1`.
+- This scaling avoids false timeouts when the first LLM turn is slow/retried but later tool-loop turns still need to complete.
 - If using cloud APIs (OpenAI, Anthropic, etc.), you can reduce this to `60` or lower.
 - Values below `30` are clamped to `30` to avoid immediate timeout churn.
 - When a timeout occurs, users receive: `⚠️ Request timed out while waiting for the model. Please try again.`
