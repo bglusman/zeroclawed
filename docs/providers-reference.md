@@ -56,6 +56,13 @@ credential is not reused for fallback providers.
 | `lmstudio` | `lm-studio` | Yes | (optional; local by default) |
 | `nvidia` | `nvidia-nim`, `build.nvidia.com` | No | `NVIDIA_API_KEY` |
 
+### Gemini Notes
+
+- Provider ID: `gemini` (aliases: `google`, `google-gemini`)
+- Auth can come from `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or Gemini CLI OAuth cache (`~/.gemini/oauth_creds.json`)
+- API key requests use `generativelanguage.googleapis.com/v1beta`
+- Gemini CLI OAuth requests use `cloudcode-pa.googleapis.com/v1internal` with Code Assist request envelope semantics
+
 ### Ollama Vision Notes
 
 - Provider ID: `ollama`
