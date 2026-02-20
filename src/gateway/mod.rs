@@ -887,6 +887,8 @@ async fn handle_webhook(
                     duration,
                     success: true,
                     error_message: None,
+                    input_tokens: None,
+                    output_tokens: None,
                 });
             state.observer.record_metric(
                 &crate::observability::traits::ObserverMetric::RequestLatency(duration),
@@ -916,6 +918,8 @@ async fn handle_webhook(
                     duration,
                     success: false,
                     error_message: Some(sanitized.clone()),
+                    input_tokens: None,
+                    output_tokens: None,
                 });
             state.observer.record_metric(
                 &crate::observability::traits::ObserverMetric::RequestLatency(duration),

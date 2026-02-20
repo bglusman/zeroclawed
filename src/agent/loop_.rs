@@ -1253,12 +1253,20 @@ pub(crate) async fn run_tool_call_loop(
         let (response_text, parsed_text, tool_calls, assistant_history_content, native_tool_calls) =
             match chat_result {
                 Ok(resp) => {
+                    let (resp_input_tokens, resp_output_tokens) = resp
+                        .usage
+                        .as_ref()
+                        .map(|u| (u.input_tokens, u.output_tokens))
+                        .unwrap_or((None, None));
+
                     observer.record_event(&ObserverEvent::LlmResponse {
                         provider: provider_name.to_string(),
                         model: model.to_string(),
                         duration: llm_started_at.elapsed(),
                         success: true,
                         error_message: None,
+                        input_tokens: resp_input_tokens,
+                        output_tokens: resp_output_tokens,
                     });
 
                     let response_text = resp.text_or_empty().to_string();
@@ -1301,6 +1309,8 @@ pub(crate) async fn run_tool_call_loop(
                         duration: llm_started_at.elapsed(),
                         success: false,
                         error_message: Some(crate::providers::sanitize_api_error(&e.to_string())),
+                        input_tokens: None,
+                        output_tokens: None,
                     });
                     return Err(e);
                 }
