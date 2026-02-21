@@ -13,7 +13,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `.github/workflows/ci-run.yml` (`CI`)
     - Purpose: Rust validation (`cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D clippy::correctness`, strict delta lint gate on changed Rust lines, `test`, release build smoke) + docs quality checks when docs change (`markdownlint` blocks only issues on changed lines; link check scans only links added on changed lines)
     - Additional behavior: PRs that change `.github/workflows/**` require at least one approving review from a login in `WORKFLOW_OWNER_LOGINS` (repository variable fallback: `theonlyhennygod,willsarg`)
-    - Additional behavior: PRs that change root license files (`LICENSE`, `LICENSE-APACHE`) must be authored by a login in `LICENSE_FILE_OWNER_LOGINS` (repository variable fallback: `willsarg`)
+    - Additional behavior: PRs that change root license files (`LICENSE`, `LICENSE-APACHE`) must be authored by `willsarg`
     - Additional behavior: lint gates run before `test`/`build`; when lint/docs gates fail on PRs, CI posts an actionable feedback comment with failing gate names and local fix commands
     - Merge gate: `CI Required Gate`
 - `.github/workflows/workflow-sanity.yml` (`Workflow Sanity`)
@@ -25,7 +25,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ### Non-Blocking but Important
 
 - `.github/workflows/pub-docker-img.yml` (`Docker`)
-    - Purpose: PR Docker smoke check and publish images on `main` pushes (build-input paths), tag pushes (`v*`), and manual dispatch
+    - Purpose: PR Docker smoke check and publish images on tag pushes (`v*`) only
 - `.github/workflows/sec-audit.yml` (`Security Audit`)
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA) and policy/license checks (`cargo deny`)
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
@@ -70,7 +70,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 ## Trigger Map
 
 - `CI`: push to `main`, PRs to `main`
-- `Docker`: push to `main` when Docker build inputs change, tag push (`v*`), matching PRs, manual dispatch
+- `Docker`: tag push (`v*`) for publish, matching PRs for smoke build, manual dispatch for smoke only
 - `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
 - `Sec Vorpal Reviewdog`: manual dispatch only

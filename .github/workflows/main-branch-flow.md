@@ -32,14 +32,14 @@ Observed averages below are from recent completed runs (sampled from GitHub Acti
 | `workflow-sanity.yml` | Workflow-file changes | 34.2s | No | No | No |
 | `pr-label-policy-check.yml` | Label policy/automation changes | 14.7s | No | No | No |
 | `pub-docker-img.yml` (`pull_request`) | Docker build-input PR changes | 240.4s | Yes | Yes | No |
-| `pub-docker-img.yml` (`push`/`workflow_dispatch`) | `main` push (build-input paths), tag push `v*`, or manual dispatch | 139.9s | Yes | No | Yes |
+| `pub-docker-img.yml` (`push`) | tag push `v*` | 139.9s | Yes | No | Yes |
 | `pub-release.yml` | Tag push `v*` (publish) + manual/scheduled verification (no publish) | N/A in recent sample | No | No | No |
 
 Notes:
 
 1. `pub-docker-img.yml` is the only workflow in the main PR/push path that builds Docker images.
 2. Container runtime verification (`docker run`) occurs in PR smoke only.
-3. Container registry push occurs on `main` build-input pushes, tag pushes, and manual dispatch.
+3. Container registry push occurs on tag pushes (`v*`) only.
 4. `ci-run.yml` "Build (Smoke)" builds Rust binaries, not Docker images.
 
 ## Step-By-Step
@@ -70,7 +70,7 @@ Notes:
    - `test`
    - `docs-quality`
 7. If `.github/workflows/**` changed, `workflow-owner-approval` must pass.
-8. If root license files (`LICENSE`, `LICENSE-APACHE`) changed, `license-file-owner-guard` requires PR author login in `LICENSE_FILE_OWNER_LOGINS` (fallback `willsarg`).
+8. If root license files (`LICENSE`, `LICENSE-APACHE`) changed, `license-file-owner-guard` allows only PR author `willsarg`.
 9. `lint-feedback` posts actionable comment if lint/docs gates fail.
 10. `CI Required Gate` aggregates results to final pass/fail.
 11. Maintainer merges PR once checks and review policy are satisfied.
@@ -139,18 +139,15 @@ Workflow: `.github/workflows/pub-docker-img.yml`
 
 ### Push behavior
 
-1. `publish` job runs on `push` and `workflow_dispatch`.
-2. Workflow trigger includes `main` pushes with Docker build-input changes and tag pushes `v*`.
+1. `publish` job runs on tag pushes `v*` only.
+2. Workflow trigger includes semantic version tag pushes (`v*`) only.
 3. Login to `ghcr.io` uses `${{ github.actor }}` and `${{ secrets.GITHUB_TOKEN }}`.
-4. Tag computation includes:
-   - `latest` + SHA tag (`sha-<12 chars>`) for `main`
-   - semantic tag from pushed git tag (`vX.Y.Z`) + SHA tag for tag pushes
-   - branch name + SHA tag for non-`main` manual dispatch refs
-5. Multi-platform publish is used for both `main` and tag pushes (`linux/amd64,linux/arm64`).
+4. Tag computation includes semantic tag from pushed git tag (`vX.Y.Z`) + SHA tag.
+5. Multi-platform publish is used for tag pushes (`linux/amd64,linux/arm64`).
 6. Typical runtime in recent sample: ~139.9s.
 7. Result: pushed image tags under `ghcr.io/<owner>/<repo>`.
 
-Important: Docker publish now runs on qualifying `main` pushes; no release tag is required to refresh `latest`.
+Important: Docker publish now requires a `v*` tag push; regular `main` pushes do not publish images.
 
 ## Release Logic
 
@@ -217,4 +214,4 @@ flowchart TD
 1. Unexpected skipped jobs: inspect `scripts/ci/detect_change_scope.sh` outputs.
 2. Workflow-change PR blocked: verify `WORKFLOW_OWNER_LOGINS` and approvals.
 3. Fork PR appears stalled: check whether Actions run approval is pending.
-4. Docker not published: confirm changed files match Docker build-input paths, or run workflow dispatch manually.
+4. Docker not published: confirm a `v*` tag was pushed to the intended commit.
