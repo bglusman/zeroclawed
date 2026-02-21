@@ -7,10 +7,10 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
-use crate::channels::{Channel, LinqChannel, SendMessage, WhatsAppChannel};
+use crate::channels::{Channel, LinqChannel, NextcloudTalkChannel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
-use crate::providers::{self, ChatMessage, Provider, ProviderCapabilityError};
+use crate::providers::{self, ChatMessage, Provider};
 use crate::runtime;
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use crate::security::SecurityPolicy;
@@ -55,6 +55,10 @@ fn whatsapp_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String 
 
 fn linq_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
     format!("linq_{}_{}", msg.sender, msg.id)
+}
+
+fn nextcloud_talk_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
+    format!("nextcloud_talk_{}_{}", msg.sender, msg.id)
 }
 
 fn hash_webhook_secret(value: &str) -> String {
@@ -281,6 +285,9 @@ pub struct AppState {
     pub linq: Option<Arc<LinqChannel>>,
     /// Linq webhook signing secret for signature verification
     pub linq_signing_secret: Option<Arc<str>>,
+    pub nextcloud_talk: Option<Arc<NextcloudTalkChannel>>,
+    /// Nextcloud Talk webhook secret for signature verification
+    pub nextcloud_talk_webhook_secret: Option<Arc<str>>,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
 }
@@ -429,6 +436,40 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         })
         .map(Arc::from);
 
+    // Nextcloud Talk channel (if configured)
+    let nextcloud_talk_channel: Option<Arc<NextcloudTalkChannel>> =
+        config.channels_config.nextcloud_talk.as_ref().map(|nc| {
+            Arc::new(NextcloudTalkChannel::new(
+                nc.base_url.clone(),
+                nc.app_token.clone(),
+                nc.allowed_users.clone(),
+            ))
+        });
+
+    // Nextcloud Talk webhook secret for signature verification
+    // Priority: environment variable > config file
+    let nextcloud_talk_webhook_secret: Option<Arc<str>> =
+        std::env::var("ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET")
+            .ok()
+            .and_then(|secret| {
+                let secret = secret.trim();
+                (!secret.is_empty()).then(|| secret.to_owned())
+            })
+            .or_else(|| {
+                config
+                    .channels_config
+                    .nextcloud_talk
+                    .as_ref()
+                    .and_then(|nc| {
+                        nc.webhook_secret
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|secret| !secret.is_empty())
+                            .map(ToOwned::to_owned)
+                    })
+            })
+            .map(Arc::from);
+
     // ── Pairing guard ──────────────────────────────────────
     let pairing = Arc::new(PairingGuard::new(
         config.gateway.require_pairing,
@@ -483,6 +524,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     if linq_channel.is_some() {
         println!("  POST /linq      — Linq message webhook (iMessage/RCS/SMS)");
     }
+    if nextcloud_talk_channel.is_some() {
+        println!("  POST /nextcloud-talk — Nextcloud Talk bot webhook");
+    }
     println!("  GET  /health    — health check");
     println!("  GET  /metrics   — Prometheus metrics");
     if let Some(code) = pairing.pairing_code() {
@@ -521,6 +565,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         whatsapp_app_secret,
         linq: linq_channel,
         linq_signing_secret,
+        nextcloud_talk: nextcloud_talk_channel,
+        nextcloud_talk_webhook_secret,
         observer,
     };
 
@@ -533,6 +579,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .route("/linq", post(handle_linq_webhook))
+        .route("/nextcloud-talk", post(handle_nextcloud_talk_webhook))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(TimeoutLayer::with_status_code(
@@ -666,23 +713,13 @@ async fn persist_pairing_tokens(config: Arc<Mutex<Config>>, pairing: &PairingGua
     Ok(())
 }
 
-async fn run_gateway_chat_with_multimodal(
+/// Simple chat for webhook endpoint (no tools, for backward compatibility and testing).
+async fn run_gateway_chat_simple(
     state: &AppState,
     provider_label: &str,
     message: &str,
 ) -> anyhow::Result<String> {
     let user_messages = vec![ChatMessage::user(message)];
-    let image_marker_count = crate::multimodal::count_image_markers(&user_messages);
-    if image_marker_count > 0 && !state.provider.supports_vision() {
-        return Err(ProviderCapabilityError {
-            provider: provider_label.to_string(),
-            capability: "vision".to_string(),
-            message: format!(
-                "received {image_marker_count} image marker(s), but this provider does not support vision input"
-            ),
-        }
-        .into());
-    }
 
     // Keep webhook/gateway prompts aligned with channel behavior by injecting
     // workspace-aware system context before model invocation.
@@ -710,6 +747,12 @@ async fn run_gateway_chat_with_multimodal(
         .provider
         .chat_with_history(&prepared.messages, &state.model, state.temperature)
         .await
+}
+
+/// Full-featured chat with tools for channel handlers (WhatsApp, Linq, Nextcloud Talk).
+async fn run_gateway_chat_with_tools(state: &AppState, message: &str) -> anyhow::Result<String> {
+    let config = state.config.lock().clone();
+    crate::agent::process_message(config, message).await
 }
 
 /// Webhook request body
@@ -833,7 +876,7 @@ async fn handle_webhook(
             messages_count: 1,
         });
 
-    match run_gateway_chat_with_multimodal(&state, &provider_label, message).await {
+    match run_gateway_chat_simple(&state, &provider_label, message).await {
         Ok(response) => {
             let duration = started_at.elapsed();
             state
@@ -1017,12 +1060,6 @@ async fn handle_whatsapp_message(
     }
 
     // Process each message
-    let provider_label = state
-        .config
-        .lock()
-        .default_provider
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
     for msg in &messages {
         tracing::info!(
             "WhatsApp message from {}: {}",
@@ -1039,7 +1076,7 @@ async fn handle_whatsapp_message(
                 .await;
         }
 
-        match run_gateway_chat_with_multimodal(&state, &provider_label, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content).await {
             Ok(response) => {
                 // Send reply via WhatsApp
                 if let Err(e) = wa
@@ -1130,12 +1167,6 @@ async fn handle_linq_webhook(
     }
 
     // Process each message
-    let provider_label = state
-        .config
-        .lock()
-        .default_provider
-        .clone()
-        .unwrap_or_else(|| "unknown".to_string());
     for msg in &messages {
         tracing::info!(
             "Linq message from {}: {}",
@@ -1153,7 +1184,7 @@ async fn handle_linq_webhook(
         }
 
         // Call the LLM
-        match run_gateway_chat_with_multimodal(&state, &provider_label, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content).await {
             Ok(response) => {
                 // Send reply via Linq
                 if let Err(e) = linq
@@ -1179,6 +1210,115 @@ async fn handle_linq_webhook(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
 }
 
+/// POST /nextcloud-talk — incoming message webhook (Nextcloud Talk bot API)
+async fn handle_nextcloud_talk_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let Some(ref nextcloud_talk) = state.nextcloud_talk else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Nextcloud Talk not configured"})),
+        );
+    };
+
+    let body_str = String::from_utf8_lossy(&body);
+
+    // ── Security: Verify Nextcloud Talk HMAC signature if secret is configured ──
+    if let Some(ref webhook_secret) = state.nextcloud_talk_webhook_secret {
+        let random = headers
+            .get("X-Nextcloud-Talk-Random")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        let signature = headers
+            .get("X-Nextcloud-Talk-Signature")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        if !crate::channels::nextcloud_talk::verify_nextcloud_talk_signature(
+            webhook_secret,
+            random,
+            &body_str,
+            signature,
+        ) {
+            tracing::warn!(
+                "Nextcloud Talk webhook signature verification failed (signature: {})",
+                if signature.is_empty() {
+                    "missing"
+                } else {
+                    "invalid"
+                }
+            );
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Invalid signature"})),
+            );
+        }
+    }
+
+    // Parse JSON body
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid JSON payload"})),
+        );
+    };
+
+    // Parse messages from webhook payload
+    let messages = nextcloud_talk.parse_webhook_payload(&payload);
+    if messages.is_empty() {
+        // Acknowledge webhook even if payload does not contain actionable user messages.
+        return (StatusCode::OK, Json(serde_json::json!({"status": "ok"})));
+    }
+
+    let provider_label = state
+        .config
+        .lock()
+        .default_provider
+        .clone()
+        .unwrap_or_else(|| "unknown".to_string());
+
+    for msg in &messages {
+        tracing::info!(
+            "Nextcloud Talk message from {}: {}",
+            msg.sender,
+            truncate_with_ellipsis(&msg.content, 50)
+        );
+
+        if state.auto_save {
+            let key = nextcloud_talk_memory_key(msg);
+            let _ = state
+                .mem
+                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .await;
+        }
+
+        match run_gateway_chat_with_tools(&state, &msg.content).await {
+            Ok(response) => {
+                if let Err(e) = nextcloud_talk
+                    .send(&SendMessage::new(response, &msg.reply_target))
+                    .await
+                {
+                    tracing::error!("Failed to send Nextcloud Talk reply: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!("LLM error for Nextcloud Talk message: {e:#}");
+                let _ = nextcloud_talk
+                    .send(&SendMessage::new(
+                        "Sorry, I couldn't process your message right now.",
+                        &msg.reply_target,
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1194,8 +1334,7 @@ mod tests {
 
     /// Generate a random hex secret at runtime to avoid hard-coded cryptographic values.
     fn generate_test_secret() -> String {
-        use rand::Rng;
-        let bytes: [u8; 32] = rand::rng().random();
+        let bytes: [u8; 32] = rand::random();
         hex::encode(bytes)
     }
 
@@ -1255,6 +1394,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1298,6 +1439,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer,
         };
 
@@ -1658,6 +1801,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1716,6 +1861,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1786,6 +1933,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1828,6 +1977,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1875,6 +2026,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -1894,6 +2047,109 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn compute_nextcloud_signature_hex(secret: &str, random: &str, body: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let payload = format!("{random}{body}");
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(payload.as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    #[tokio::test]
+    async fn nextcloud_talk_webhook_returns_not_found_when_not_configured() {
+        let provider: Arc<dyn Provider> = Arc::new(MockProvider::default());
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_nextcloud_talk_webhook(
+            State(state),
+            HeaderMap::new(),
+            Bytes::from_static(br#"{"type":"message"}"#),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn nextcloud_talk_webhook_rejects_invalid_signature() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let channel = Arc::new(NextcloudTalkChannel::new(
+            "https://cloud.example.com".into(),
+            "app-token".into(),
+            vec!["*".into()],
+        ));
+
+        let secret = "nextcloud-test-secret";
+        let random = "seed-value";
+        let body = r#"{"type":"message","object":{"token":"room-token"},"message":{"actorType":"users","actorId":"user_a","message":"hello"}}"#;
+        let _valid_signature = compute_nextcloud_signature_hex(secret, random, body);
+        let invalid_signature = "deadbeef";
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: Some(channel),
+            nextcloud_talk_webhook_secret: Some(Arc::from(secret)),
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Nextcloud-Talk-Random",
+            HeaderValue::from_str(random).unwrap(),
+        );
+        headers.insert(
+            "X-Nextcloud-Talk-Signature",
+            HeaderValue::from_str(invalid_signature).unwrap(),
+        );
+
+        let response = handle_nextcloud_talk_webhook(State(state), headers, Bytes::from(body))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     // ══════════════════════════════════════════════════════════

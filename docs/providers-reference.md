@@ -2,7 +2,7 @@
 
 This document maps provider IDs, aliases, and credential environment variables.
 
-Last verified: **February 19, 2026**.
+Last verified: **February 20, 2026**.
 
 ## How to List Providers
 
@@ -43,6 +43,7 @@ credential is not reused for fallback providers.
 | `minimax` | `minimax-intl`, `minimax-io`, `minimax-global`, `minimax-cn`, `minimaxi`, `minimax-oauth`, `minimax-oauth-cn`, `minimax-portal`, `minimax-portal-cn` | No | `MINIMAX_OAUTH_TOKEN`, `MINIMAX_API_KEY` |
 | `bedrock` | `aws-bedrock` | No | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (optional: `AWS_REGION`) |
 | `qianfan` | `baidu` | No | `QIANFAN_API_KEY` |
+| `doubao` | `volcengine`, `ark`, `doubao-cn` | No | `ARK_API_KEY`, `DOUBAO_API_KEY` |
 | `qwen` | `dashscope`, `qwen-intl`, `dashscope-intl`, `qwen-us`, `dashscope-us`, `qwen-code`, `qwen-oauth`, `qwen_oauth` | No | `QWEN_OAUTH_TOKEN`, `DASHSCOPE_API_KEY` |
 | `groq` | — | No | `GROQ_API_KEY` |
 | `mistral` | — | No | `MISTRAL_API_KEY` |
@@ -54,7 +55,16 @@ credential is not reused for fallback providers.
 | `cohere` | — | No | `COHERE_API_KEY` |
 | `copilot` | `github-copilot` | No | (use config/`API_KEY` fallback with GitHub token) |
 | `lmstudio` | `lm-studio` | Yes | (optional; local by default) |
+| `llamacpp` | `llama.cpp` | Yes | `LLAMACPP_API_KEY` (optional; only if server auth is enabled) |
 | `nvidia` | `nvidia-nim`, `build.nvidia.com` | No | `NVIDIA_API_KEY` |
+
+### Gemini Notes
+
+- Provider ID: `gemini` (aliases: `google`, `google-gemini`)
+- Auth can come from `GEMINI_API_KEY`, `GOOGLE_API_KEY`, or Gemini CLI OAuth cache (`~/.gemini/oauth_creds.json`)
+- API key requests use `generativelanguage.googleapis.com/v1beta`
+- Gemini CLI OAuth requests use `cloudcode-pa.googleapis.com/v1internal` with Code Assist request envelope semantics
+- Thinking models (e.g. `gemini-3-pro-preview`) are supported — internal reasoning parts are automatically filtered from the response
 
 ### Ollama Vision Notes
 
@@ -62,6 +72,21 @@ credential is not reused for fallback providers.
 - Vision input is supported through user message image markers: ``[IMAGE:<source>]``.
 - After multimodal normalization, ZeroClaw sends image payloads through Ollama's native `messages[].images` field.
 - If a non-vision provider is selected, ZeroClaw returns a structured capability error instead of silently ignoring images.
+
+### Ollama Cloud Routing Notes
+
+- Use `:cloud` model suffix only with a remote Ollama endpoint.
+- Remote endpoint should be set in `api_url` (example: `https://ollama.com`).
+- ZeroClaw normalizes a trailing `/api` in `api_url` automatically.
+- If `default_model` ends with `:cloud` while `api_url` is local or unset, config validation fails early with an actionable error.
+- Local Ollama model discovery intentionally excludes `:cloud` entries to avoid selecting cloud-only models in local mode.
+
+### llama.cpp Server Notes
+
+- Provider ID: `llamacpp` (alias: `llama.cpp`)
+- Default endpoint: `http://localhost:8080/v1`
+- API key is optional by default; set `LLAMACPP_API_KEY` only when `llama-server` is started with `--api-key`.
+- Model discovery: `zeroclaw models refresh --provider llamacpp`
 
 ### Bedrock Notes
 

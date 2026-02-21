@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 const COMPOSIO_API_BASE_V2: &str = "https://backend.composio.dev/api/v2";
 const COMPOSIO_API_BASE_V3: &str = "https://backend.composio.dev/api/v3";
+const COMPOSIO_TOOL_VERSION_LATEST: &str = "latest";
 
 fn ensure_https(url: &str) -> anyhow::Result<()> {
     if !url.starts_with("https://") {
@@ -79,12 +80,11 @@ impl ComposioTool {
 
     async fn list_actions_v3(&self, app_name: Option<&str>) -> anyhow::Result<Vec<ComposioAction>> {
         let url = format!("{COMPOSIO_API_BASE_V3}/tools");
-        let mut req = self.client().get(&url).header("x-api-key", &self.api_key);
-
-        req = req.query(&[("limit", "200")]);
-        if let Some(app) = app_name.map(str::trim).filter(|app| !app.is_empty()) {
-            req = req.query(&[("toolkits", app), ("toolkit_slug", app)]);
-        }
+        let req = self
+            .client()
+            .get(&url)
+            .header("x-api-key", &self.api_key)
+            .query(&Self::build_list_actions_v3_query(app_name));
 
         let resp = req.send().await?;
         if !resp.status().is_success() {
@@ -280,6 +280,23 @@ impl ComposioTool {
         }
     }
 
+    fn build_list_actions_v3_query(app_name: Option<&str>) -> Vec<(String, String)> {
+        let mut query = vec![
+            ("limit".to_string(), "200".to_string()),
+            (
+                "toolkit_versions".to_string(),
+                COMPOSIO_TOOL_VERSION_LATEST.to_string(),
+            ),
+        ];
+
+        if let Some(app) = app_name.map(str::trim).filter(|app| !app.is_empty()) {
+            query.push(("toolkits".to_string(), app.to_string()));
+            query.push(("toolkit_slug".to_string(), app.to_string()));
+        }
+
+        query
+    }
+
     fn build_execute_action_v3_request(
         tool_slug: &str,
         params: serde_json::Value,
@@ -294,6 +311,7 @@ impl ComposioTool {
 
         let mut body = json!({
             "arguments": params,
+            "version": COMPOSIO_TOOL_VERSION_LATEST,
         });
 
         if let Some(entity) = entity_id {
@@ -1517,8 +1535,36 @@ mod tests {
             "https://backend.composio.dev/api/v3/tools/execute/gmail-send-email"
         );
         assert_eq!(body["arguments"]["to"], json!("test@example.com"));
+        assert_eq!(body["version"], json!(COMPOSIO_TOOL_VERSION_LATEST));
         assert_eq!(body["user_id"], json!("workspace-user"));
         assert_eq!(body["connected_account_id"], json!("account-42"));
+    }
+
+    #[test]
+    fn build_list_actions_v3_query_requests_latest_versions() {
+        let query = ComposioTool::build_list_actions_v3_query(None)
+            .into_iter()
+            .collect::<HashMap<String, String>>();
+        assert_eq!(
+            query.get("toolkit_versions"),
+            Some(&COMPOSIO_TOOL_VERSION_LATEST.to_string())
+        );
+        assert_eq!(query.get("limit"), Some(&"200".to_string()));
+        assert!(!query.contains_key("toolkits"));
+        assert!(!query.contains_key("toolkit_slug"));
+    }
+
+    #[test]
+    fn build_list_actions_v3_query_adds_app_filters_when_present() {
+        let query = ComposioTool::build_list_actions_v3_query(Some(" github "))
+            .into_iter()
+            .collect::<HashMap<String, String>>();
+        assert_eq!(
+            query.get("toolkit_versions"),
+            Some(&COMPOSIO_TOOL_VERSION_LATEST.to_string())
+        );
+        assert_eq!(query.get("toolkits"), Some(&"github".to_string()));
+        assert_eq!(query.get("toolkit_slug"), Some(&"github".to_string()));
     }
 
     // ── resolve_connected_account_ref (multi-account fix) ────
@@ -1639,6 +1685,7 @@ mod tests {
             "https://backend.composio.dev/api/v3/tools/execute/github-list-repos"
         );
         assert_eq!(body["arguments"], json!({}));
+        assert_eq!(body["version"], json!(COMPOSIO_TOOL_VERSION_LATEST));
         assert!(body.get("connected_account_id").is_none());
         assert!(body.get("user_id").is_none());
     }

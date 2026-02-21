@@ -25,7 +25,7 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 </p>
 
 <p align="center">
-  🌐 <strong>Languages:</strong> <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a>
+  🌐 <strong>Languages:</strong> <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a> · <a href="README.fr.md">Français</a> · <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
 <p align="center">
@@ -85,10 +85,10 @@ Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge
 | **Language** | TypeScript | Python | Go | **Rust** |
 | **RAM** | > 1GB | > 100MB | < 10MB | **< 5MB** |
 | **Startup (0.8GHz core)** | > 500s | > 30s | < 1s | **< 10ms** |
-| **Binary Size** | ~28MB (dist) | N/A (Scripts) | ~8MB | **3.4 MB** |
+| **Binary Size** | ~28MB (dist) | N/A (Scripts) | ~8MB | **~8.8 MB** |
 | **Cost** | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
 
-> Notes: ZeroClaw results are measured on release builds using `/usr/bin/time -l`. OpenClaw requires Node.js runtime (typically ~390MB additional memory overhead), while NanoBot requires Python runtime. PicoClaw and ZeroClaw are static binaries.
+> Notes: ZeroClaw results are measured on release builds using `/usr/bin/time -l`. OpenClaw requires Node.js runtime (typically ~390MB additional memory overhead), while NanoBot requires Python runtime. PicoClaw and ZeroClaw are static binaries. The RAM figures above are runtime memory; build-time compilation requirements are higher.
 
 <p align="center">
   <img src="zero-claw.jpeg" alt="ZeroClaw vs OpenClaw Comparison" width="800" />
@@ -173,11 +173,32 @@ Or skip the steps above and install everything (system deps, Rust, ZeroClaw) in 
 curl -LsSf https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
 ```
 
+#### Compilation resource requirements
+
+Building from source needs more resources than running the resulting binary:
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| **RAM + swap** | 2 GB | 4 GB+ |
+| **Free disk** | 6 GB | 10 GB+ |
+
+If your host is below the minimum, use pre-built binaries:
+
+```bash
+./bootstrap.sh --prefer-prebuilt
+```
+
+To require binary-only install with no source fallback:
+
+```bash
+./bootstrap.sh --prebuilt-only
+```
+
 #### Optional
 
 - **Docker** — required only if using the [Docker sandboxed runtime](#runtime-support-current) (`runtime.kind = "docker"`). Install via your package manager or [docker.com](https://docs.docker.com/engine/install/).
 
-> **Note:** The default `cargo build --release` uses `codegen-units=1` for compatibility with low-memory devices (e.g., Raspberry Pi 3 with 1GB RAM). For faster builds on powerful machines, use `cargo build --profile release-fast`.
+> **Note:** The default `cargo build --release` uses `codegen-units=1` to lower peak compile pressure. For faster builds on powerful machines, use `cargo build --profile release-fast`.
 
 </details>
 
@@ -201,11 +222,23 @@ cd zeroclaw
 # Optional: bootstrap dependencies + Rust on fresh machines
 ./bootstrap.sh --install-system-deps --install-rust
 
+# Optional: pre-built binary first (recommended on low-RAM/low-disk hosts)
+./bootstrap.sh --prefer-prebuilt
+
+# Optional: binary-only install (no source build fallback)
+./bootstrap.sh --prebuilt-only
+
 # Optional: run onboarding in the same flow
 ./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
 
-# Optional: run bootstrap + onboarding fully in Docker
+# Optional: run bootstrap + onboarding fully in Docker-compatible mode
 ./bootstrap.sh --docker
+
+# Optional: force Podman as container CLI
+ZEROCLAW_CONTAINER_CLI=podman ./bootstrap.sh --docker
+
+# Optional: in --docker mode, skip local image build and use local tag or pull fallback image
+./bootstrap.sh --docker --skip-build
 ```
 
 Remote one-liner (review first in security-sensitive environments):
@@ -215,6 +248,25 @@ curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts
 ```
 
 Details: [`docs/one-click-bootstrap.md`](docs/one-click-bootstrap.md) (toolchain mode may request `sudo` for system packages).
+
+### Pre-built binaries
+
+Release assets are published for:
+
+- Linux: `x86_64`, `aarch64`, `armv7`
+- macOS: `x86_64`, `aarch64`
+- Windows: `x86_64`
+
+Download the latest assets from:
+<https://github.com/zeroclaw-labs/zeroclaw/releases/latest>
+
+Example (ARM64 Linux):
+
+```bash
+curl -fsSLO https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/zeroclaw-aarch64-unknown-linux-gnu.tar.gz
+tar xzf zeroclaw-aarch64-unknown-linux-gnu.tar.gz
+install -m 0755 zeroclaw "$HOME/.cargo/bin/zeroclaw"
+```
 
 ```bash
 git clone https://github.com/zeroclaw-labs/zeroclaw.git
@@ -230,6 +282,9 @@ zeroclaw onboard --api-key sk-... --provider openrouter [--model "openrouter/aut
 
 # Or interactive wizard
 zeroclaw onboard --interactive
+
+# If config.toml already exists and you intentionally want to overwrite it
+zeroclaw onboard --force
 
 # Or quickly repair channels/allowlists only
 zeroclaw onboard --channels-only
@@ -251,6 +306,10 @@ zeroclaw daemon
 zeroclaw status
 zeroclaw auth status
 
+# Generate shell completions (stdout only, safe to source directly)
+source <(zeroclaw completions bash)
+zeroclaw completions zsh > ~/.zfunc/_zeroclaw
+
 # Run system diagnostics
 zeroclaw doctor
 
@@ -270,6 +329,8 @@ zeroclaw integrations info Telegram
 zeroclaw service install
 zeroclaw service status
 zeroclaw service restart
+
+# On Alpine (OpenRC): sudo zeroclaw service install
 
 # Migrate memory from OpenClaw (safe preview first)
 zeroclaw migrate openclaw --dry-run
@@ -333,8 +394,8 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 
 | Subsystem | Trait | Ships with | Extend |
 |-----------|-------|------------|--------|
-| **AI Models** | `Provider` | Provider catalog via `zeroclaw providers` (currently 28 built-ins + aliases, plus custom endpoints) | `custom:https://your-api.com` (OpenAI-compatible) or `anthropic-custom:https://your-api.com` |
-| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp, Email, IRC, Lark, DingTalk, QQ, Webhook | Any messaging API |
+| **AI Models** | `Provider` | Provider catalog via `zeroclaw providers` (currently 29 built-ins + aliases, plus custom endpoints) | `custom:https://your-api.com` (OpenAI-compatible) or `anthropic-custom:https://your-api.com` |
+| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp, Linq, Email, IRC, Lark, DingTalk, QQ, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite hybrid search, PostgreSQL backend (configurable storage provider), Lucid bridge, Markdown files, explicit `none` backend, snapshot/hydrate, optional response cache | Any persistence backend |
 | **Tools** | `Tool` | shell/file/memory, cron/schedule, git, pushover, browser, http_request, screenshot/image_info, composio (opt-in), delegate, hardware tools | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
@@ -478,7 +539,37 @@ For non-text replies, ZeroClaw can send Telegram attachments when the assistant 
 
 Paths can be local files (for example `/tmp/screenshot.png`) or HTTPS URLs.
 
-### WhatsApp Business Cloud API Setup
+### WhatsApp Setup
+
+ZeroClaw supports two WhatsApp backends:
+
+- **WhatsApp Web mode** (QR / pair code, no Meta Business API required)
+- **WhatsApp Business Cloud API mode** (official Meta webhook flow)
+
+#### WhatsApp Web mode (recommended for personal/self-hosted use)
+
+1. **Build with WhatsApp Web support:**
+   ```bash
+   cargo build --features whatsapp-web
+   ```
+
+2. **Configure ZeroClaw:**
+   ```toml
+   [channels_config.whatsapp]
+   session_path = "~/.zeroclaw/state/whatsapp-web/session.db"
+   pair_phone = "15551234567"   # optional; omit to use QR flow
+   pair_code = ""               # optional custom pair code
+   allowed_numbers = ["+1234567890"]  # E.164 format, or ["*"] for all
+   ```
+
+3. **Start channels/daemon and link device:**
+   - Run `zeroclaw channel start` (or `zeroclaw daemon`).
+   - Follow terminal pairing output (QR or pair code).
+   - In WhatsApp on phone: **Settings → Linked Devices**.
+
+4. **Test:** Send a message from an allowed number and verify the agent replies.
+
+#### WhatsApp Business Cloud API mode
 
 WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
@@ -647,6 +738,26 @@ api_url = "https://ollama.com"
 api_key = "ollama_api_key_here"
 ```
 
+### llama.cpp Server Endpoint
+
+ZeroClaw now supports `llama-server` as a first-class local provider:
+
+- Provider ID: `llamacpp` (alias: `llama.cpp`)
+- Default endpoint: `http://localhost:8080/v1`
+- API key is optional unless your server is started with `--api-key`
+
+Example setup:
+
+```bash
+llama-server -hf ggml-org/gpt-oss-20b-GGUF --jinja -c 133000 --host 127.0.0.1 --port 8033
+```
+
+```toml
+default_provider = "llamacpp"
+api_url = "http://127.0.0.1:8033/v1"
+default_model = "ggml-org/gpt-oss-20b-GGUF"
+```
+
 ### Custom Provider Endpoints
 
 For detailed configuration of custom OpenAI-compatible and Anthropic-compatible endpoints, see [docs/custom-providers.md](docs/custom-providers.md).
@@ -796,7 +907,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `agent` | Interactive or single-message chat mode |
 | `gateway` | Start webhook server (default: `127.0.0.1:3000`) |
 | `daemon` | Start long-running autonomous runtime |
-| `service` | Manage user-level background service |
+| `service install/start/stop/status/uninstall` | Manage background service (systemd user-level or OpenRC system-wide) |
 | `doctor` | Diagnose daemon/scheduler/channel freshness |
 | `status` | Show full system status |
 | `cron` | Manage scheduled tasks (`list/add/add-at/add-every/once/remove/update/pause/resume`) |
@@ -806,10 +917,48 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `integrations` | Inspect integration setup details |
 | `skills` | List/install/remove skills |
 | `migrate` | Import data from other runtimes (`migrate openclaw`) |
+| `completions` | Generate shell completion scripts (`bash`, `fish`, `zsh`, `powershell`, `elvish`) |
 | `hardware` | USB discover/introspect/info commands |
 | `peripheral` | Manage and flash hardware peripherals |
 
 For a task-oriented command guide, see [`docs/commands-reference.md`](docs/commands-reference.md).
+
+### Service Management
+
+ZeroClaw supports two init systems for background services:
+
+| Init System | Scope | Config Path | Requires |
+|------------|-------|-------------|----------|
+| **systemd** (default on Linux) | User-level | `~/.zeroclaw/config.toml` | No sudo |
+| **OpenRC** (Alpine) | System-wide | `/etc/zeroclaw/config.toml` | sudo/root |
+
+Init system is auto-detected (`systemd` or `OpenRC`).
+
+```bash
+# Linux with systemd (default, user-level)
+zeroclaw service install
+zeroclaw service start
+
+# Alpine with OpenRC (system-wide, requires sudo)
+sudo zeroclaw service install
+sudo rc-update add zeroclaw default
+sudo rc-service zeroclaw start
+```
+
+For full OpenRC setup instructions, see [docs/network-deployment.md](docs/network-deployment.md#7-openrc-alpine-linux-service).
+
+### Open-Skills Opt-In
+
+Community `open-skills` sync is disabled by default. Enable it explicitly in `config.toml`:
+
+```toml
+[skills]
+open_skills_enabled = true
+# open_skills_dir = "/path/to/open-skills"  # optional
+# prompt_injection_mode = "compact"          # optional: use for low-context local models
+```
+
+You can also override at runtime with `ZEROCLAW_OPEN_SKILLS_ENABLED`, `ZEROCLAW_OPEN_SKILLS_DIR`, and `ZEROCLAW_SKILLS_PROMPT_MODE` (`full` or `compact`).
 
 ## Development
 

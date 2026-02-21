@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  🌐 语言：<a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a>
+  🌐 语言：<a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ru.md">Русский</a> · <a href="README.fr.md">Français</a> · <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@ ZeroClaw 是一个高性能、低资源占用、可组合的自主智能体运�
 | **语言** | TypeScript | Python | Go | **Rust** |
 | **RAM** | > 1GB | > 100MB | < 10MB | **< 5MB** |
 | **启动时间（0.8GHz 核）** | > 500s | > 30s | < 1s | **< 10ms** |
-| **二进制体积** | ~28MB（dist） | N/A（脚本） | ~8MB | **3.4 MB** |
+| **二进制体积** | ~28MB（dist） | N/A（脚本） | ~8MB | **~8.8 MB** |
 | **成本** | Mac Mini $599 | Linux SBC ~$50 | Linux 板卡 $10 | **任意 $10 硬件** |
 
 > 说明：ZeroClaw 的数据来自 release 构建，并通过 `/usr/bin/time -l` 测得。OpenClaw 需要 Node.js 运行时环境，仅该运行时通常就会带来约 390MB 的额外内存占用；NanoBot 需要 Python 运行时环境。PicoClaw 与 ZeroClaw 为静态二进制。
@@ -203,7 +203,7 @@ zeroclaw agent --provider anthropic -m "hello"
 | 子系统 | Trait | 内置实现 | 扩展方式 |
 |--------|-------|----------|----------|
 | **AI 模型** | `Provider` | 通过 `zeroclaw providers` 查看（当前 28 个内置 + 别名，以及自定义端点） | `custom:https://your-api.com`（OpenAI 兼容）或 `anthropic-custom:https://your-api.com` |
-| **通道** | `Channel` | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp, Email, IRC, Lark, DingTalk, QQ, Webhook | 任意消息 API |
+| **通道** | `Channel` | CLI, Telegram, Discord, Slack, Mattermost, iMessage, Matrix, Signal, WhatsApp, Linq, Email, IRC, Lark, DingTalk, QQ, Webhook | 任意消息 API |
 | **记忆** | `Memory` | SQLite 混合搜索, PostgreSQL 后端, Lucid 桥接, Markdown 文件, 显式 `none` 后端, 快照/恢复, 可选响应缓存 | 任意持久化后端 |
 | **工具** | `Tool` | shell/file/memory, cron/schedule, git, pushover, browser, http_request, screenshot/image_info, composio (opt-in), delegate, 硬件工具 | 任意能力 |
 | **可观测性** | `Observer` | Noop, Log, Multi | Prometheus, OTel |

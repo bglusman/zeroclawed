@@ -310,7 +310,11 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
             .trim()
             .to_string();
         if !name.is_empty() {
-            let arguments = parse_arguments_value(function.get("arguments"));
+            let arguments = parse_arguments_value(
+                function
+                    .get("arguments")
+                    .or_else(|| function.get("parameters")),
+            );
             return Some(ParsedToolCall { name, arguments });
         }
     }
@@ -326,7 +330,8 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
         return None;
     }
 
-    let arguments = parse_arguments_value(value.get("arguments"));
+    let arguments =
+        parse_arguments_value(value.get("arguments").or_else(|| value.get("parameters")));
     Some(ParsedToolCall { name, arguments })
 }
 
@@ -359,6 +364,95 @@ fn parse_tool_calls_from_json_value(value: &serde_json::Value) -> Vec<ParsedTool
     }
 
     calls
+}
+
+fn is_xml_meta_tag(tag: &str) -> bool {
+    let normalized = tag.to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "tool_call"
+            | "toolcall"
+            | "tool-call"
+            | "invoke"
+            | "thinking"
+            | "thought"
+            | "analysis"
+            | "reasoning"
+            | "reflection"
+    )
+}
+
+static XML_TOOL_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<([a-zA-Z_][a-zA-Z0-9_-]*)>\s*(.*?)\s*</\1>").unwrap());
+
+static XML_ARG_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<([a-zA-Z_][a-zA-Z0-9_-]*)>\s*([^<]+?)\s*</\1>").unwrap());
+
+/// Parse XML-style tool calls in `<tool_call>` bodies.
+/// Supports both nested argument tags and JSON argument payloads:
+/// - `<memory_recall><query>...</query></memory_recall>`
+/// - `<shell>{"command":"pwd"}</shell>`
+fn parse_xml_tool_calls(xml_content: &str) -> Option<Vec<ParsedToolCall>> {
+    let mut calls = Vec::new();
+    let trimmed = xml_content.trim();
+
+    if !trimmed.starts_with('<') || !trimmed.contains('>') {
+        return None;
+    }
+
+    for cap in XML_TOOL_TAG_RE.captures_iter(trimmed) {
+        let tool_name = cap[1].trim().to_string();
+        if is_xml_meta_tag(&tool_name) {
+            continue;
+        }
+
+        let inner_content = cap[2].trim();
+        if inner_content.is_empty() {
+            continue;
+        }
+
+        let mut args = serde_json::Map::new();
+
+        if let Some(first_json) = extract_json_values(inner_content).into_iter().next() {
+            match first_json {
+                serde_json::Value::Object(object_args) => {
+                    args = object_args;
+                }
+                other => {
+                    args.insert("value".to_string(), other);
+                }
+            }
+        } else {
+            for inner_cap in XML_ARG_TAG_RE.captures_iter(inner_content) {
+                let key = inner_cap[1].trim().to_string();
+                if is_xml_meta_tag(&key) {
+                    continue;
+                }
+                let value = inner_cap[2].trim();
+                if !value.is_empty() {
+                    args.insert(key, serde_json::Value::String(value.to_string()));
+                }
+            }
+
+            if args.is_empty() {
+                args.insert(
+                    "content".to_string(),
+                    serde_json::Value::String(inner_content.to_string()),
+                );
+            }
+        }
+
+        calls.push(ParsedToolCall {
+            name: tool_name,
+            arguments: serde_json::Value::Object(args),
+        });
+    }
+
+    if calls.is_empty() {
+        None
+    } else {
+        Some(calls)
+    }
 }
 
 const TOOL_CALL_OPEN_TAGS: [&str; 4] = ["<tool_call>", "<toolcall>", "<tool-call>", "<invoke>"];
@@ -654,6 +748,8 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
         if let Some(close_idx) = after_open.find(close_tag) {
             let inner = &after_open[..close_idx];
             let mut parsed_any = false;
+
+            // Try JSON format first
             let json_values = extract_json_values(inner);
             for value in json_values {
                 let parsed_calls = parse_tool_calls_from_json_value(&value);
@@ -663,8 +759,18 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
                 }
             }
 
+            // If JSON parsing failed, try XML format (DeepSeek/GLM style)
             if !parsed_any {
-                tracing::warn!("Malformed <tool_call> JSON: expected tool-call object in tag body");
+                if let Some(xml_calls) = parse_xml_tool_calls(inner) {
+                    calls.extend(xml_calls);
+                    parsed_any = true;
+                }
+            }
+
+            if !parsed_any {
+                tracing::warn!(
+                    "Malformed <tool_call>: expected tool-call object in tag body (JSON/XML)"
+                );
             }
 
             remaining = &after_open[close_idx + close_tag.len()..];
@@ -889,6 +995,145 @@ pub(crate) async fn agent_turn(
     .await
 }
 
+async fn execute_one_tool(
+    call_name: &str,
+    call_arguments: serde_json::Value,
+    tools_registry: &[Box<dyn Tool>],
+    observer: &dyn Observer,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<String> {
+    let Some(tool) = find_tool(tools_registry, call_name) else {
+        return Ok(format!("Unknown tool: {call_name}"));
+    };
+
+    observer.record_event(&ObserverEvent::ToolCallStart {
+        tool: call_name.to_string(),
+    });
+    let start = Instant::now();
+
+    let tool_future = tool.execute(call_arguments);
+    let tool_result = if let Some(token) = cancellation_token {
+        tokio::select! {
+            () = token.cancelled() => return Err(ToolLoopCancelled.into()),
+            result = tool_future => result,
+        }
+    } else {
+        tool_future.await
+    };
+
+    match tool_result {
+        Ok(r) => {
+            observer.record_event(&ObserverEvent::ToolCall {
+                tool: call_name.to_string(),
+                duration: start.elapsed(),
+                success: r.success,
+            });
+            if r.success {
+                Ok(scrub_credentials(&r.output))
+            } else {
+                Ok(format!("Error: {}", r.error.unwrap_or_else(|| r.output)))
+            }
+        }
+        Err(e) => {
+            observer.record_event(&ObserverEvent::ToolCall {
+                tool: call_name.to_string(),
+                duration: start.elapsed(),
+                success: false,
+            });
+            Ok(format!("Error executing {call_name}: {e}"))
+        }
+    }
+}
+
+fn should_execute_tools_in_parallel(
+    tool_calls: &[ParsedToolCall],
+    approval: Option<&ApprovalManager>,
+) -> bool {
+    if tool_calls.len() <= 1 {
+        return false;
+    }
+
+    if let Some(mgr) = approval {
+        if tool_calls.iter().any(|call| mgr.needs_approval(&call.name)) {
+            // Approval-gated calls must keep sequential handling so the caller can
+            // enforce CLI prompt/deny policy consistently.
+            return false;
+        }
+    }
+
+    true
+}
+
+async fn execute_tools_parallel(
+    tool_calls: &[ParsedToolCall],
+    tools_registry: &[Box<dyn Tool>],
+    observer: &dyn Observer,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<Vec<String>> {
+    let futures: Vec<_> = tool_calls
+        .iter()
+        .map(|call| {
+            execute_one_tool(
+                &call.name,
+                call.arguments.clone(),
+                tools_registry,
+                observer,
+                cancellation_token,
+            )
+        })
+        .collect();
+
+    let results = futures_util::future::join_all(futures).await;
+    results.into_iter().collect()
+}
+
+async fn execute_tools_sequential(
+    tool_calls: &[ParsedToolCall],
+    tools_registry: &[Box<dyn Tool>],
+    observer: &dyn Observer,
+    approval: Option<&ApprovalManager>,
+    channel_name: &str,
+    cancellation_token: Option<&CancellationToken>,
+) -> Result<Vec<String>> {
+    let mut individual_results: Vec<String> = Vec::with_capacity(tool_calls.len());
+
+    for call in tool_calls {
+        if let Some(mgr) = approval {
+            if mgr.needs_approval(&call.name) {
+                let request = ApprovalRequest {
+                    tool_name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                };
+
+                let decision = if channel_name == "cli" {
+                    mgr.prompt_cli(&request)
+                } else {
+                    ApprovalResponse::No
+                };
+
+                mgr.record_decision(&call.name, &call.arguments, decision, channel_name);
+
+                if decision == ApprovalResponse::No {
+                    individual_results.push("Denied by user.".to_string());
+                    continue;
+                }
+            }
+        }
+
+        let result = execute_one_tool(
+            &call.name,
+            call.arguments.clone(),
+            tools_registry,
+            observer,
+            cancellation_token,
+        )
+        .await?;
+        individual_results.push(result);
+    }
+
+    Ok(individual_results)
+}
+
 // ── Agent Tool-Call Loop ──────────────────────────────────────────────────
 // Core agentic iteration: send conversation to the LLM, parse any tool
 // calls from the response, execute them, append results to history, and
@@ -1085,84 +1330,34 @@ pub(crate) async fn run_tool_call_loop(
             let _ = std::io::stdout().flush();
         }
 
-        // Execute each tool call and build results.
-        // `individual_results` tracks per-call output so that native-mode history
-        // can emit one `role: tool` message per tool call with the correct ID.
+        // Execute tool calls and build results. `individual_results` tracks per-call output so
+        // native-mode history can emit one role=tool message per tool call with the correct ID.
+        //
+        // When multiple tool calls are present and interactive CLI approval is not needed, run
+        // tool executions concurrently for lower wall-clock latency.
         let mut tool_results = String::new();
-        let mut individual_results: Vec<String> = Vec::new();
-        for call in &tool_calls {
-            // ── Approval hook ────────────────────────────────
-            if let Some(mgr) = approval {
-                if mgr.needs_approval(&call.name) {
-                    let request = ApprovalRequest {
-                        tool_name: call.name.clone(),
-                        arguments: call.arguments.clone(),
-                    };
+        let should_parallel = should_execute_tools_in_parallel(&tool_calls, approval);
+        let individual_results = if should_parallel {
+            execute_tools_parallel(
+                &tool_calls,
+                tools_registry,
+                observer,
+                cancellation_token.as_ref(),
+            )
+            .await?
+        } else {
+            execute_tools_sequential(
+                &tool_calls,
+                tools_registry,
+                observer,
+                approval,
+                channel_name,
+                cancellation_token.as_ref(),
+            )
+            .await?
+        };
 
-                    // Only prompt interactively on CLI; auto-approve on other channels.
-                    let decision = if channel_name == "cli" {
-                        mgr.prompt_cli(&request)
-                    } else {
-                        ApprovalResponse::Yes
-                    };
-
-                    mgr.record_decision(&call.name, &call.arguments, decision, channel_name);
-
-                    if decision == ApprovalResponse::No {
-                        let denied = "Denied by user.".to_string();
-                        individual_results.push(denied.clone());
-                        let _ = writeln!(
-                            tool_results,
-                            "<tool_result name=\"{}\">\n{denied}\n</tool_result>",
-                            call.name
-                        );
-                        continue;
-                    }
-                }
-            }
-
-            observer.record_event(&ObserverEvent::ToolCallStart {
-                tool: call.name.clone(),
-            });
-            let start = Instant::now();
-            let result = if let Some(tool) = find_tool(tools_registry, &call.name) {
-                let tool_future = tool.execute(call.arguments.clone());
-                let tool_result = if let Some(token) = cancellation_token.as_ref() {
-                    tokio::select! {
-                        () = token.cancelled() => return Err(ToolLoopCancelled.into()),
-                        result = tool_future => result,
-                    }
-                } else {
-                    tool_future.await
-                };
-
-                match tool_result {
-                    Ok(r) => {
-                        observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: r.success,
-                        });
-                        if r.success {
-                            scrub_credentials(&r.output)
-                        } else {
-                            format!("Error: {}", r.error.unwrap_or_else(|| r.output))
-                        }
-                    }
-                    Err(e) => {
-                        observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: false,
-                        });
-                        format!("Error executing {}: {e}", call.name)
-                    }
-                }
-            } else {
-                format!("Unknown tool: {}", call.name)
-            };
-
-            individual_results.push(result.clone());
+        for (call, result) in tool_calls.iter().zip(individual_results.iter()) {
             let _ = writeln!(
                 tool_results,
                 "<tool_result name=\"{}\">\n{}\n</tool_result>",
@@ -1348,7 +1543,7 @@ pub async fn run(
         .collect();
 
     // ── Build system prompt from workspace MD files (OpenClaw framework) ──
-    let skills = crate::skills::load_skills(&config.workspace_dir);
+    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
@@ -1458,17 +1653,22 @@ pub async fn run(
     } else {
         None
     };
-    let mut system_prompt = crate::channels::build_system_prompt(
+    let native_tools = provider.supports_native_tools();
+    let mut system_prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
         model_name,
         &tool_descs,
         &skills,
         Some(&config.identity),
         bootstrap_max_chars,
+        native_tools,
+        config.skills.prompt_injection_mode,
     );
 
-    // Append structured tool-use instructions with schemas
-    system_prompt.push_str(&build_tool_instructions(&tools_registry));
+    // Append structured tool-use instructions with schemas (only for non-native providers)
+    if !native_tools {
+        system_prompt.push_str(&build_tool_instructions(&tools_registry));
+    }
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = ApprovalManager::from_config(&config.autonomy);
@@ -1602,9 +1802,7 @@ pub async fn run(
             }
 
             // Auto-save conversation turns (skip short/trivial messages)
-            if config.memory.auto_save
-                && user_input.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
-            {
+            if config.memory.auto_save && user_input.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
                 let user_key = autosave_memory_key("user_msg");
                 let _ = mem
                     .store(&user_key, &user_input, MemoryCategory::Conversation, None)
@@ -1774,7 +1972,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         .map(|b| b.board.clone())
         .collect();
 
-    let skills = crate::skills::load_skills(&config.workspace_dir);
+    let skills = crate::skills::load_skills_with_config(&config.workspace_dir, &config);
     let mut tool_descs: Vec<(&str, &str)> = vec![
         ("shell", "Execute terminal commands."),
         ("file_read", "Read file contents."),
@@ -1823,15 +2021,20 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     } else {
         None
     };
-    let mut system_prompt = crate::channels::build_system_prompt(
+    let native_tools = provider.supports_native_tools();
+    let mut system_prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
         &model_name,
         &tool_descs,
         &skills,
         Some(&config.identity),
         bootstrap_max_chars,
+        native_tools,
+        config.skills.prompt_injection_mode,
     );
-    system_prompt.push_str(&build_tool_instructions(&tools_registry));
+    if !native_tools {
+        system_prompt.push_str(&build_tool_instructions(&tools_registry));
+    }
 
     let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };
@@ -1871,8 +2074,10 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     #[test]
     fn test_scrub_credentials() {
@@ -1959,6 +2164,121 @@ mod tests {
             Ok(ChatResponse {
                 text: Some("vision-ok".to_string()),
                 tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct ScriptedProvider {
+        responses: Arc<Mutex<VecDeque<ChatResponse>>>,
+    }
+
+    impl ScriptedProvider {
+        fn from_text_responses(responses: Vec<&str>) -> Self {
+            let scripted = responses
+                .into_iter()
+                .map(|text| ChatResponse {
+                    text: Some(text.to_string()),
+                    tool_calls: Vec::new(),
+                })
+                .collect();
+            Self {
+                responses: Arc::new(Mutex::new(scripted)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Provider for ScriptedProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            anyhow::bail!("chat_with_system should not be used in scripted provider tests");
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            let mut responses = self
+                .responses
+                .lock()
+                .expect("responses lock should be valid");
+            responses
+                .pop_front()
+                .ok_or_else(|| anyhow::anyhow!("scripted provider exhausted responses"))
+        }
+    }
+
+    struct DelayTool {
+        name: String,
+        delay_ms: u64,
+        active: Arc<AtomicUsize>,
+        max_active: Arc<AtomicUsize>,
+    }
+
+    impl DelayTool {
+        fn new(
+            name: &str,
+            delay_ms: u64,
+            active: Arc<AtomicUsize>,
+            max_active: Arc<AtomicUsize>,
+        ) -> Self {
+            Self {
+                name: name.to_string(),
+                delay_ms,
+                active,
+                max_active,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for DelayTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn description(&self) -> &str {
+            "Delay tool for testing parallel tool execution"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "value": { "type": "string" }
+                },
+                "required": ["value"]
+            })
+        }
+
+        async fn execute(
+            &self,
+            args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            let now_active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(now_active, Ordering::SeqCst);
+
+            tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
+
+            self.active.fetch_sub(1, Ordering::SeqCst);
+
+            let value = args
+                .get("value")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: format!("ok:{value}"),
+                error: None,
             })
         }
     }
@@ -2079,6 +2399,151 @@ mod tests {
 
         assert_eq!(result, "vision-ok");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn should_execute_tools_in_parallel_returns_false_for_single_call() {
+        let calls = vec![ParsedToolCall {
+            name: "file_read".to_string(),
+            arguments: serde_json::json!({"path": "a.txt"}),
+        }];
+
+        assert!(!should_execute_tools_in_parallel(&calls, None));
+    }
+
+    #[test]
+    fn should_execute_tools_in_parallel_returns_false_when_approval_is_required() {
+        let calls = vec![
+            ParsedToolCall {
+                name: "shell".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+            },
+            ParsedToolCall {
+                name: "http_request".to_string(),
+                arguments: serde_json::json!({"url": "https://example.com"}),
+            },
+        ];
+        let approval_cfg = crate::config::AutonomyConfig::default();
+        let approval_mgr = ApprovalManager::from_config(&approval_cfg);
+
+        assert!(!should_execute_tools_in_parallel(
+            &calls,
+            Some(&approval_mgr)
+        ));
+    }
+
+    #[test]
+    fn should_execute_tools_in_parallel_returns_true_when_cli_has_no_interactive_approvals() {
+        let calls = vec![
+            ParsedToolCall {
+                name: "shell".to_string(),
+                arguments: serde_json::json!({"command": "pwd"}),
+            },
+            ParsedToolCall {
+                name: "http_request".to_string(),
+                arguments: serde_json::json!({"url": "https://example.com"}),
+            },
+        ];
+        let approval_cfg = crate::config::AutonomyConfig {
+            level: crate::security::AutonomyLevel::Full,
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_mgr = ApprovalManager::from_config(&approval_cfg);
+
+        assert!(should_execute_tools_in_parallel(
+            &calls,
+            Some(&approval_mgr)
+        ));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_executes_multiple_tools_in_parallel_with_ordered_results() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"delay_a","arguments":{"value":"A"}}
+</tool_call>
+<tool_call>
+{"name":"delay_b","arguments":{"value":"B"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![
+            Box::new(DelayTool::new(
+                "delay_a",
+                200,
+                Arc::clone(&active),
+                Arc::clone(&max_active),
+            )),
+            Box::new(DelayTool::new(
+                "delay_b",
+                200,
+                Arc::clone(&active),
+                Arc::clone(&max_active),
+            )),
+        ];
+
+        let approval_cfg = crate::config::AutonomyConfig {
+            level: crate::security::AutonomyLevel::Full,
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_mgr = ApprovalManager::from_config(&approval_cfg);
+
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run tool calls"),
+        ];
+        let observer = NoopObserver;
+
+        let started = std::time::Instant::now();
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            Some(&approval_mgr),
+            "telegram",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+        )
+        .await
+        .expect("parallel execution should complete");
+        let elapsed = started.elapsed();
+
+        assert_eq!(result, "done");
+        assert!(
+            elapsed < Duration::from_millis(350),
+            "parallel execution should be faster than sequential fallback; elapsed={elapsed:?}"
+        );
+        assert!(
+            max_active.load(Ordering::SeqCst) >= 2,
+            "both tools should overlap in execution"
+        );
+
+        let tool_results_message = history
+            .iter()
+            .find(|msg| msg.role == "user" && msg.content.starts_with("[Tool results]"))
+            .expect("tool results message should be present");
+        let idx_a = tool_results_message
+            .content
+            .find("name=\"delay_a\"")
+            .expect("delay_a result should be present");
+        let idx_b = tool_results_message
+            .content
+            .find("name=\"delay_b\"")
+            .expect("delay_b result should be present");
+        assert!(
+            idx_a < idx_b,
+            "tool results should preserve input order for tool call mapping"
+        );
     }
 
     #[test]
@@ -2206,6 +2671,59 @@ After text."#;
         let response = r#"<tool_call>
 I will now call the tool with this payload:
 {"name": "shell", "arguments": {"command": "pwd"}}
+</tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
+            "pwd"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_xml_nested_tool_payload() {
+        let response = r#"<tool_call>
+<memory_recall>
+<query>project roadmap</query>
+</memory_recall>
+</tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "memory_recall");
+        assert_eq!(
+            calls[0].arguments.get("query").unwrap().as_str().unwrap(),
+            "project roadmap"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_ignores_xml_thinking_wrapper() {
+        let response = r#"<tool_call>
+<thinking>Need to inspect memory first</thinking>
+<memory_recall>
+<query>recent deploy notes</query>
+</memory_recall>
+</tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "memory_recall");
+        assert_eq!(
+            calls[0].arguments.get("query").unwrap().as_str().unwrap(),
+            "recent deploy notes"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_xml_with_json_arguments() {
+        let response = r#"<tool_call>
+<shell>{"command":"pwd"}</shell>
 </tool_call>"#;
 
         let (text, calls) = parse_tool_calls(response);
@@ -2732,6 +3250,36 @@ Done."#;
     }
 
     #[test]
+    fn parse_tool_call_value_accepts_top_level_parameters_alias() {
+        let value = serde_json::json!({
+            "name": "schedule",
+            "parameters": {"action": "create", "message": "test"}
+        });
+        let result = parse_tool_call_value(&value).expect("tool call should parse");
+        assert_eq!(result.name, "schedule");
+        assert_eq!(
+            result.arguments.get("action").and_then(|v| v.as_str()),
+            Some("create")
+        );
+    }
+
+    #[test]
+    fn parse_tool_call_value_accepts_function_parameters_alias() {
+        let value = serde_json::json!({
+            "function": {
+                "name": "shell",
+                "parameters": {"command": "date"}
+            }
+        });
+        let result = parse_tool_call_value(&value).expect("tool call should parse");
+        assert_eq!(result.name, "shell");
+        assert_eq!(
+            result.arguments.get("command").and_then(|v| v.as_str()),
+            Some("date")
+        );
+    }
+
+    #[test]
     fn parse_tool_calls_from_json_value_handles_empty_array() {
         // Recovery: Empty tool_calls array should return empty vec
         let value = serde_json::json!({"tool_calls": []});
@@ -3037,5 +3585,62 @@ Let me check the result."#;
         assert_eq!(history.len(), 3); // system + 2 kept
         assert_eq!(history[0].role, "system");
         assert_eq!(history[1].content, "new msg");
+    }
+
+    /// When `build_system_prompt_with_mode` is called with `native_tools = true`,
+    /// the output must contain ZERO XML protocol artifacts. In the native path
+    /// `build_tool_instructions` is never called, so the system prompt alone
+    /// must be clean of XML tool-call protocol.
+    #[test]
+    fn native_tools_system_prompt_contains_zero_xml() {
+        use crate::channels::build_system_prompt_with_mode;
+
+        let tool_summaries: Vec<(&str, &str)> = vec![
+            ("shell", "Execute shell commands"),
+            ("file_read", "Read files"),
+        ];
+
+        let system_prompt = build_system_prompt_with_mode(
+            std::path::Path::new("/tmp"),
+            "test-model",
+            &tool_summaries,
+            &[],  // no skills
+            None, // no identity config
+            None, // no bootstrap_max_chars
+            true, // native_tools
+            crate::config::SkillsPromptInjectionMode::Full,
+        );
+
+        // Must contain zero XML protocol artifacts
+        assert!(
+            !system_prompt.contains("<tool_call>"),
+            "Native prompt must not contain <tool_call>"
+        );
+        assert!(
+            !system_prompt.contains("</tool_call>"),
+            "Native prompt must not contain </tool_call>"
+        );
+        assert!(
+            !system_prompt.contains("<tool_result>"),
+            "Native prompt must not contain <tool_result>"
+        );
+        assert!(
+            !system_prompt.contains("</tool_result>"),
+            "Native prompt must not contain </tool_result>"
+        );
+        assert!(
+            !system_prompt.contains("## Tool Use Protocol"),
+            "Native prompt must not contain XML protocol header"
+        );
+
+        // Positive: native prompt should still list tools and contain task instructions
+        assert!(
+            system_prompt.contains("shell"),
+            "Native prompt must list tool names"
+        );
+        assert!(
+            system_prompt.contains("## Your Task"),
+            "Native prompt should contain task instructions"
+        );
     }
 }

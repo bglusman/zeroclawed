@@ -71,9 +71,28 @@ fn default_version() -> String {
 
 /// Load all skills from the workspace skills directory
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
+    load_skills_with_open_skills_config(workspace_dir, None, None)
+}
+
+/// Load skills using runtime config values (preferred at runtime).
+pub fn load_skills_with_config(workspace_dir: &Path, config: &crate::config::Config) -> Vec<Skill> {
+    load_skills_with_open_skills_config(
+        workspace_dir,
+        Some(config.skills.open_skills_enabled),
+        config.skills.open_skills_dir.as_deref(),
+    )
+}
+
+fn load_skills_with_open_skills_config(
+    workspace_dir: &Path,
+    config_open_skills_enabled: Option<bool>,
+    config_open_skills_dir: Option<&str>,
+) -> Vec<Skill> {
     let mut skills = Vec::new();
 
-    if let Some(open_skills_dir) = ensure_open_skills_repo() {
+    if let Some(open_skills_dir) =
+        ensure_open_skills_repo(config_open_skills_enabled, config_open_skills_dir)
+    {
         skills.extend(load_open_skills(&open_skills_dir));
     }
 
@@ -158,33 +177,79 @@ fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
     skills
 }
 
-fn open_skills_enabled() -> bool {
-    if let Ok(raw) = std::env::var("ZEROCLAW_OPEN_SKILLS_ENABLED") {
-        let value = raw.trim().to_ascii_lowercase();
-        return !matches!(value.as_str(), "0" | "false" | "off" | "no");
+fn parse_open_skills_enabled(raw: &str) -> Option<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
     }
-
-    // Keep tests deterministic and network-free by default.
-    !cfg!(test)
 }
 
-fn resolve_open_skills_dir() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("ZEROCLAW_OPEN_SKILLS_DIR") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return Some(PathBuf::from(trimmed));
+fn open_skills_enabled_from_sources(
+    config_open_skills_enabled: Option<bool>,
+    env_override: Option<&str>,
+) -> bool {
+    if let Some(raw) = env_override {
+        if let Some(enabled) = parse_open_skills_enabled(&raw) {
+            return enabled;
+        }
+        if !raw.trim().is_empty() {
+            tracing::warn!(
+                "Ignoring invalid ZEROCLAW_OPEN_SKILLS_ENABLED (valid: 1|0|true|false|yes|no|on|off)"
+            );
         }
     }
 
-    UserDirs::new().map(|dirs| dirs.home_dir().join("open-skills"))
+    config_open_skills_enabled.unwrap_or(false)
 }
 
-fn ensure_open_skills_repo() -> Option<PathBuf> {
-    if !open_skills_enabled() {
+fn open_skills_enabled(config_open_skills_enabled: Option<bool>) -> bool {
+    let env_override = std::env::var("ZEROCLAW_OPEN_SKILLS_ENABLED").ok();
+    open_skills_enabled_from_sources(config_open_skills_enabled, env_override.as_deref())
+}
+
+fn resolve_open_skills_dir_from_sources(
+    env_dir: Option<&str>,
+    config_dir: Option<&str>,
+    home_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    let parse_dir = |raw: &str| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(trimmed))
+        }
+    };
+
+    if let Some(env_dir) = env_dir.and_then(parse_dir) {
+        return Some(env_dir);
+    }
+    if let Some(config_dir) = config_dir.and_then(parse_dir) {
+        return Some(config_dir);
+    }
+    home_dir.map(|home| home.join("open-skills"))
+}
+
+fn resolve_open_skills_dir(config_open_skills_dir: Option<&str>) -> Option<PathBuf> {
+    let env_dir = std::env::var("ZEROCLAW_OPEN_SKILLS_DIR").ok();
+    let home_dir = UserDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    resolve_open_skills_dir_from_sources(
+        env_dir.as_deref(),
+        config_open_skills_dir,
+        home_dir.as_deref(),
+    )
+}
+
+fn ensure_open_skills_repo(
+    config_open_skills_enabled: Option<bool>,
+    config_open_skills_dir: Option<&str>,
+) -> Option<PathBuf> {
+    if !open_skills_enabled(config_open_skills_enabled) {
         return None;
     }
 
-    let repo_dir = resolve_open_skills_dir()?;
+    let repo_dir = resolve_open_skills_dir(config_open_skills_dir)?;
 
     if !repo_dir.exists() {
         if !clone_open_skills_repo(&repo_dir) {
@@ -380,52 +445,92 @@ fn write_xml_text_element(out: &mut String, indent: usize, tag: &str, value: &st
     out.push_str(">\n");
 }
 
+fn resolve_skill_location(skill: &Skill, workspace_dir: &Path) -> PathBuf {
+    skill.location.clone().unwrap_or_else(|| {
+        workspace_dir
+            .join("skills")
+            .join(&skill.name)
+            .join("SKILL.md")
+    })
+}
+
+fn render_skill_location(skill: &Skill, workspace_dir: &Path, prefer_relative: bool) -> String {
+    let location = resolve_skill_location(skill, workspace_dir);
+    if prefer_relative {
+        if let Ok(relative) = location.strip_prefix(workspace_dir) {
+            return relative.display().to_string();
+        }
+    }
+    location.display().to_string()
+}
+
 /// Build the "Available Skills" system prompt section with full skill instructions.
 pub fn skills_to_prompt(skills: &[Skill], workspace_dir: &Path) -> String {
+    skills_to_prompt_with_mode(
+        skills,
+        workspace_dir,
+        crate::config::SkillsPromptInjectionMode::Full,
+    )
+}
+
+/// Build the "Available Skills" system prompt section with configurable verbosity.
+pub fn skills_to_prompt_with_mode(
+    skills: &[Skill],
+    workspace_dir: &Path,
+    mode: crate::config::SkillsPromptInjectionMode,
+) -> String {
     use std::fmt::Write;
 
     if skills.is_empty() {
         return String::new();
     }
 
-    let mut prompt = String::from(
-        "## Available Skills\n\n\
-         Skill instructions and tool metadata are preloaded below.\n\
-         Follow these instructions directly; do not read skill files at runtime unless the user asks.\n\n\
-         <available_skills>\n",
-    );
+    let mut prompt = match mode {
+        crate::config::SkillsPromptInjectionMode::Full => String::from(
+            "## Available Skills\n\n\
+             Skill instructions and tool metadata are preloaded below.\n\
+             Follow these instructions directly; do not read skill files at runtime unless the user asks.\n\n\
+             <available_skills>\n",
+        ),
+        crate::config::SkillsPromptInjectionMode::Compact => String::from(
+            "## Available Skills\n\n\
+             Skill summaries are preloaded below to keep context compact.\n\
+             Skill instructions are loaded on demand: read the skill file in `location` only when needed.\n\n\
+             <available_skills>\n",
+        ),
+    };
 
     for skill in skills {
         let _ = writeln!(prompt, "  <skill>");
         write_xml_text_element(&mut prompt, 4, "name", &skill.name);
         write_xml_text_element(&mut prompt, 4, "description", &skill.description);
+        let location = render_skill_location(
+            skill,
+            workspace_dir,
+            matches!(mode, crate::config::SkillsPromptInjectionMode::Compact),
+        );
+        write_xml_text_element(&mut prompt, 4, "location", &location);
 
-        let location = skill.location.clone().unwrap_or_else(|| {
-            workspace_dir
-                .join("skills")
-                .join(&skill.name)
-                .join("SKILL.md")
-        });
-        write_xml_text_element(&mut prompt, 4, "location", &location.display().to_string());
-
-        if !skill.prompts.is_empty() {
-            let _ = writeln!(prompt, "    <instructions>");
-            for instruction in &skill.prompts {
-                write_xml_text_element(&mut prompt, 6, "instruction", instruction);
+        if matches!(mode, crate::config::SkillsPromptInjectionMode::Full) {
+            if !skill.prompts.is_empty() {
+                let _ = writeln!(prompt, "    <instructions>");
+                for instruction in &skill.prompts {
+                    write_xml_text_element(&mut prompt, 6, "instruction", instruction);
+                }
+                let _ = writeln!(prompt, "    </instructions>");
             }
-            let _ = writeln!(prompt, "    </instructions>");
-        }
 
-        if !skill.tools.is_empty() {
-            let _ = writeln!(prompt, "    <tools>");
-            for tool in &skill.tools {
-                let _ = writeln!(prompt, "      <tool>");
-                write_xml_text_element(&mut prompt, 8, "name", &tool.name);
-                write_xml_text_element(&mut prompt, 8, "description", &tool.description);
-                write_xml_text_element(&mut prompt, 8, "kind", &tool.kind);
-                let _ = writeln!(prompt, "      </tool>");
+            if !skill.tools.is_empty() {
+                let _ = writeln!(prompt, "    <tools>");
+                for tool in &skill.tools {
+                    let _ = writeln!(prompt, "      <tool>");
+                    write_xml_text_element(&mut prompt, 8, "name", &tool.name);
+                    write_xml_text_element(&mut prompt, 8, "description", &tool.description);
+                    write_xml_text_element(&mut prompt, 8, "kind", &tool.kind);
+                    let _ = writeln!(prompt, "      </tool>");
+                }
+                let _ = writeln!(prompt, "    </tools>");
             }
-            let _ = writeln!(prompt, "    </tools>");
         }
 
         let _ = writeln!(prompt, "  </skill>");
@@ -470,13 +575,57 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
              The agent will read it and follow the instructions.\n\n\
              ## Installing community skills\n\n\
              ```bash\n\
-             zeroclaw skills install <github-url>\n\
+             zeroclaw skills install <source>\n\
              zeroclaw skills list\n\
              ```\n",
         )?;
     }
 
     Ok(())
+}
+
+fn is_git_source(source: &str) -> bool {
+    is_git_scheme_source(source, "https://")
+        || is_git_scheme_source(source, "http://")
+        || is_git_scheme_source(source, "ssh://")
+        || is_git_scheme_source(source, "git://")
+        || is_git_scp_source(source)
+}
+
+fn is_git_scheme_source(source: &str, scheme: &str) -> bool {
+    let Some(rest) = source.strip_prefix(scheme) else {
+        return false;
+    };
+    if rest.is_empty() || rest.starts_with('/') {
+        return false;
+    }
+
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    !host.is_empty()
+}
+
+fn is_git_scp_source(source: &str) -> bool {
+    // SCP-like syntax accepted by git, e.g. git@host:owner/repo.git
+    // Keep this strict enough to avoid treating local paths as git remotes.
+    let Some((user_host, remote_path)) = source.split_once(':') else {
+        return false;
+    };
+    if remote_path.is_empty() {
+        return false;
+    }
+    if source.contains("://") {
+        return false;
+    }
+
+    let Some((user, host)) = user_host.split_once('@') else {
+        return false;
+    };
+    !user.is_empty()
+        && !host.is_empty()
+        && !user.contains('/')
+        && !user.contains('\\')
+        && !host.contains('/')
+        && !host.contains('\\')
 }
 
 /// Recursively copy a directory (used as fallback when symlinks aren't available)
@@ -498,17 +647,18 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
 
 /// Handle the `skills` CLI command
 #[allow(clippy::too_many_lines)]
-pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Result<()> {
+pub fn handle_command(command: crate::SkillCommands, config: &crate::config::Config) -> Result<()> {
+    let workspace_dir = &config.workspace_dir;
     match command {
         crate::SkillCommands::List => {
-            let skills = load_skills(workspace_dir);
+            let skills = load_skills_with_config(workspace_dir, config);
             if skills.is_empty() {
                 println!("No skills installed.");
                 println!();
                 println!("  Create one: mkdir -p ~/.zeroclaw/workspace/skills/my-skill");
                 println!("              echo '# My Skill' > ~/.zeroclaw/workspace/skills/my-skill/SKILL.md");
                 println!();
-                println!("  Or install: zeroclaw skills install <github-url>");
+                println!("  Or install: zeroclaw skills install <source>");
             } else {
                 println!("Installed skills ({}):", skills.len());
                 println!();
@@ -544,7 +694,7 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
             let skills_path = skills_dir(workspace_dir);
             std::fs::create_dir_all(&skills_path)?;
 
-            if source.starts_with("https://") || source.starts_with("http://") {
+            if is_git_source(&source) {
                 // Git clone
                 let output = std::process::Command::new("git")
                     .args(["clone", "--depth", "1", &source])
@@ -667,6 +817,35 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    fn open_skills_env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn unset(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn load_empty_skills_dir() {
@@ -748,6 +927,39 @@ command = "echo hello"
         assert!(prompt.contains("<available_skills>"));
         assert!(prompt.contains("<name>test</name>"));
         assert!(prompt.contains("<instruction>Do the thing.</instruction>"));
+    }
+
+    #[test]
+    fn skills_to_prompt_compact_mode_omits_instructions_and_tools() {
+        let skills = vec![Skill {
+            name: "test".to_string(),
+            description: "A test".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![SkillTool {
+                name: "run".to_string(),
+                description: "Run task".to_string(),
+                kind: "shell".to_string(),
+                command: "echo hi".to_string(),
+                args: HashMap::new(),
+            }],
+            prompts: vec!["Do the thing.".to_string()],
+            location: Some(PathBuf::from("/tmp/workspace/skills/test/SKILL.md")),
+        }];
+        let prompt = skills_to_prompt_with_mode(
+            &skills,
+            Path::new("/tmp/workspace"),
+            crate::config::SkillsPromptInjectionMode::Compact,
+        );
+
+        assert!(prompt.contains("<available_skills>"));
+        assert!(prompt.contains("<name>test</name>"));
+        assert!(prompt.contains("<location>skills/test/SKILL.md</location>"));
+        assert!(prompt.contains("loaded on demand"));
+        assert!(!prompt.contains("<instructions>"));
+        assert!(!prompt.contains("<instruction>Do the thing.</instruction>"));
+        assert!(!prompt.contains("<tools>"));
     }
 
     #[test]
@@ -964,6 +1176,45 @@ description = "Bare minimum"
     }
 
     #[test]
+    fn git_source_detection_accepts_remote_protocols_and_scp_style() {
+        let sources = [
+            "https://github.com/some-org/some-skill.git",
+            "http://github.com/some-org/some-skill.git",
+            "ssh://git@github.com/some-org/some-skill.git",
+            "git://github.com/some-org/some-skill.git",
+            "git@github.com:some-org/some-skill.git",
+            "git@localhost:skills/some-skill.git",
+        ];
+
+        for source in sources {
+            assert!(
+                is_git_source(source),
+                "expected git source detection for '{source}'"
+            );
+        }
+    }
+
+    #[test]
+    fn git_source_detection_rejects_local_paths_and_invalid_inputs() {
+        let sources = [
+            "./skills/local-skill",
+            "/tmp/skills/local-skill",
+            "C:\\skills\\local-skill",
+            "git@github.com",
+            "ssh://",
+            "not-a-url",
+            "dir/git@github.com:org/repo.git",
+        ];
+
+        for source in sources {
+            assert!(
+                !is_git_source(source),
+                "expected local/invalid source detection for '{source}'"
+            );
+        }
+    }
+
+    #[test]
     fn skills_dir_path() {
         let base = std::path::Path::new("/home/user/.zeroclaw");
         let dir = skills_dir(base);
@@ -987,6 +1238,78 @@ description = "Bare minimum"
         let skills = load_skills(dir.path());
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "from-toml"); // TOML takes priority
+    }
+
+    #[test]
+    fn open_skills_enabled_resolution_prefers_env_then_config_then_default_false() {
+        assert!(!open_skills_enabled_from_sources(None, None));
+        assert!(open_skills_enabled_from_sources(Some(true), None));
+        assert!(!open_skills_enabled_from_sources(Some(true), Some("0")));
+        assert!(open_skills_enabled_from_sources(Some(false), Some("yes")));
+        // Invalid env values should fall back to config.
+        assert!(open_skills_enabled_from_sources(
+            Some(true),
+            Some("invalid")
+        ));
+        assert!(!open_skills_enabled_from_sources(
+            Some(false),
+            Some("invalid")
+        ));
+    }
+
+    #[test]
+    fn resolve_open_skills_dir_resolution_prefers_env_then_config_then_home() {
+        let home = Path::new("/tmp/home-dir");
+        assert_eq!(
+            resolve_open_skills_dir_from_sources(
+                Some("/tmp/env-skills"),
+                Some("/tmp/config"),
+                Some(home)
+            ),
+            Some(PathBuf::from("/tmp/env-skills"))
+        );
+        assert_eq!(
+            resolve_open_skills_dir_from_sources(
+                Some("   "),
+                Some("/tmp/config-skills"),
+                Some(home)
+            ),
+            Some(PathBuf::from("/tmp/config-skills"))
+        );
+        assert_eq!(
+            resolve_open_skills_dir_from_sources(None, None, Some(home)),
+            Some(PathBuf::from("/tmp/home-dir/open-skills"))
+        );
+        assert_eq!(resolve_open_skills_dir_from_sources(None, None, None), None);
+    }
+
+    #[test]
+    fn load_skills_with_config_reads_open_skills_dir_without_network() {
+        let _env_guard = open_skills_env_lock().lock().unwrap();
+        let _enabled_guard = EnvVarGuard::unset("ZEROCLAW_OPEN_SKILLS_ENABLED");
+        let _dir_guard = EnvVarGuard::unset("ZEROCLAW_OPEN_SKILLS_DIR");
+
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_dir = dir.path().join("workspace");
+        fs::create_dir_all(workspace_dir.join("skills")).unwrap();
+
+        let open_skills_dir = dir.path().join("open-skills-local");
+        fs::create_dir_all(&open_skills_dir).unwrap();
+        fs::write(open_skills_dir.join("README.md"), "# open skills\n").unwrap();
+        fs::write(
+            open_skills_dir.join("http_request.md"),
+            "# HTTP request\nFetch API responses.\n",
+        )
+        .unwrap();
+
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = workspace_dir.clone();
+        config.skills.open_skills_enabled = true;
+        config.skills.open_skills_dir = Some(open_skills_dir.to_string_lossy().to_string());
+
+        let skills = load_skills_with_config(&workspace_dir, &config);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "http_request");
     }
 }
 

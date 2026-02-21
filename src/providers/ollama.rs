@@ -92,6 +92,19 @@ struct OllamaFunction {
 // ─── Implementation ───────────────────────────────────────────────────────────
 
 impl OllamaProvider {
+    fn normalize_base_url(raw_url: &str) -> String {
+        let trimmed = raw_url.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            return String::new();
+        }
+
+        trimmed
+            .strip_suffix("/api")
+            .unwrap_or(trimmed)
+            .trim_end_matches('/')
+            .to_string()
+    }
+
     pub fn new(base_url: Option<&str>, api_key: Option<&str>) -> Self {
         Self::new_with_reasoning(base_url, api_key, None)
     }
@@ -107,10 +120,7 @@ impl OllamaProvider {
         });
 
         Self {
-            base_url: base_url
-                .unwrap_or("http://localhost:11434")
-                .trim_end_matches('/')
-                .to_string(),
+            base_url: Self::normalize_base_url(base_url.unwrap_or("http://localhost:11434")),
             api_key,
             reasoning_enabled,
         }
@@ -647,6 +657,44 @@ impl Provider for OllamaProvider {
         // definitions in the request and returns structured ToolCall objects.
         true
     }
+
+    async fn chat(
+        &self,
+        request: crate::providers::traits::ChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ChatResponse> {
+        // Convert ToolSpec to OpenAI-compatible JSON and delegate to chat_with_tools.
+        if let Some(specs) = request.tools {
+            if !specs.is_empty() {
+                let tools: Vec<serde_json::Value> = specs
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "type": "function",
+                            "function": {
+                                "name": s.name,
+                                "description": s.description,
+                                "parameters": s.parameters
+                            }
+                        })
+                    })
+                    .collect();
+                return self
+                    .chat_with_tools(request.messages, &tools, model, temperature)
+                    .await;
+            }
+        }
+
+        // No tools — fall back to plain text chat.
+        let text = self
+            .chat_with_history(request.messages, model, temperature)
+            .await?;
+        Ok(ChatResponse {
+            text: Some(text),
+            tool_calls: vec![],
+        })
+    }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -671,6 +719,12 @@ mod tests {
     fn custom_url_no_trailing_slash() {
         let p = OllamaProvider::new(Some("http://myserver:11434"), None);
         assert_eq!(p.base_url, "http://myserver:11434");
+    }
+
+    #[test]
+    fn custom_url_strips_api_suffix() {
+        let p = OllamaProvider::new(Some("https://ollama.com/api/"), None);
+        assert_eq!(p.base_url, "https://ollama.com");
     }
 
     #[test]
@@ -713,6 +767,14 @@ mod tests {
     fn remote_endpoint_auth_enabled_when_key_present() {
         let p = OllamaProvider::new(Some("https://ollama.com"), Some("ollama-key"));
         let (_model, should_auth) = p.resolve_request_details("qwen3").unwrap();
+        assert!(should_auth);
+    }
+
+    #[test]
+    fn remote_endpoint_with_api_suffix_still_allows_cloud_models() {
+        let p = OllamaProvider::new(Some("https://ollama.com/api"), Some("ollama-key"));
+        let (model, should_auth) = p.resolve_request_details("qwen3:cloud").unwrap();
+        assert_eq!(model, "qwen3");
         assert!(should_auth);
     }
 

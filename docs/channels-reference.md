@@ -10,6 +10,7 @@ For encrypted Matrix rooms, also read the dedicated runbook:
 - Need a full config reference by channel: jump to [Per-Channel Config Examples](#4-per-channel-config-examples).
 - Need a no-response diagnosis flow: jump to [Troubleshooting Checklist](#6-troubleshooting-checklist).
 - Need Matrix encrypted-room help: use [Matrix E2EE Guide](./matrix-e2ee-guide.md).
+- Need Nextcloud Talk bot setup: use [Nextcloud Talk Setup](./nextcloud-talk-setup.md).
 - Need deployment/network assumptions (polling vs webhook): use [Network Deployment](./network-deployment.md).
 
 ## FAQ: Matrix setup passes but no reply
@@ -69,24 +70,30 @@ Operational notes:
 
 ## Channel Matrix
 
-### Build Feature Toggle (`channel-matrix`)
+### Build Feature Toggles (`channel-matrix`, `channel-lark`)
 
-Matrix support is controlled at compile time by the `channel-matrix` Cargo feature.
+Matrix and Lark support are controlled at compile time.
 
-- Default builds include Matrix support (`default = ["hardware", "channel-matrix"]`).
-- For faster local iteration when Matrix is not needed:
-
-```bash
-cargo check --no-default-features --features hardware
-```
-
-- To explicitly enable Matrix support in custom feature sets:
+- Default builds are lean (`default = []`) and do not include Matrix/Lark.
+- Typical local check with only hardware support:
 
 ```bash
-cargo check --no-default-features --features hardware,channel-matrix
+cargo check --features hardware
 ```
 
-If `[channels_config.matrix]` is present but the binary was built without `channel-matrix`, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will log that Matrix is intentionally skipped for this build.
+- Enable Matrix explicitly when needed:
+
+```bash
+cargo check --features hardware,channel-matrix
+```
+
+- Enable Lark explicitly when needed:
+
+```bash
+cargo check --features hardware,channel-lark
+```
+
+If `[channels_config.matrix]` or `[channels_config.lark]` is present but the corresponding feature is not compiled in, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will report that the channel is intentionally skipped for this build.
 
 ---
 
@@ -101,13 +108,15 @@ If `[channels_config.matrix]` is present but the binary was built without `chann
 | Mattermost | polling | No |
 | Matrix | sync API (supports E2EE) | No |
 | Signal | signal-cli HTTP bridge | No (local bridge endpoint) |
-| WhatsApp | webhook | Yes (public HTTPS callback) |
+| WhatsApp | webhook (Cloud API) or websocket (Web mode) | Cloud API: Yes (public HTTPS callback), Web mode: No |
+| Nextcloud Talk | webhook (`/nextcloud-talk`) | Yes (public HTTPS callback) |
 | Webhook | gateway endpoint (`/webhook`) | Usually yes |
 | Email | IMAP polling + SMTP send | No |
 | IRC | IRC socket | No |
 | Lark/Feishu | websocket (default) or webhook | Webhook mode only |
 | DingTalk | stream mode | No |
 | QQ | bot gateway | No |
+| Linq | webhook (`/linq`) | Yes (public HTTPS callback) |
 | iMessage | local integration | No |
 
 ---
@@ -122,10 +131,10 @@ For channels with inbound sender allowlists:
 
 Field names differ by channel:
 
-- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/DingTalk/QQ)
+- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/DingTalk/QQ/Nextcloud Talk)
 - `allowed_from` (Signal)
 - `allowed_numbers` (WhatsApp)
-- `allowed_senders` (Email)
+- `allowed_senders` (Email/Linq)
 - `allowed_contacts` (iMessage)
 
 ---
@@ -208,6 +217,13 @@ ignore_stories = true
 
 ### 4.7 WhatsApp
 
+ZeroClaw supports two WhatsApp backends:
+
+- **Cloud API mode** (`phone_number_id` + `access_token` + `verify_token`)
+- **WhatsApp Web mode** (`session_path`, requires build flag `--features whatsapp-web`)
+
+Cloud API mode:
+
 ```toml
 [channels_config.whatsapp]
 access_token = "EAAB..."
@@ -216,6 +232,22 @@ verify_token = "your-verify-token"
 app_secret = "your-app-secret"     # optional but recommended
 allowed_numbers = ["*"]
 ```
+
+WhatsApp Web mode:
+
+```toml
+[channels_config.whatsapp]
+session_path = "~/.zeroclaw/state/whatsapp-web/session.db"
+pair_phone = "15551234567"         # optional; omit to use QR flow
+pair_code = ""                     # optional custom pair code
+allowed_numbers = ["*"]
+```
+
+Notes:
+
+- Build with `cargo build --features whatsapp-web` (or equivalent run command).
+- Keep `session_path` on persistent storage to avoid relinking after restart.
+- Reply routing uses the originating chat JID, so direct and group replies work correctly.
 
 ### 4.8 Webhook Channel Config (Gateway)
 
@@ -289,6 +321,12 @@ The wizard now includes a dedicated **Lark/Feishu** step with:
 - receive mode selection (`websocket` or `webhook`)
 - optional webhook verification token prompt (recommended for stronger callback authenticity checks)
 
+Runtime token behavior:
+
+- `tenant_access_token` is cached with a refresh deadline based on `expire`/`expires_in` from the auth response.
+- send requests automatically retry once after token invalidation when Feishu/Lark returns either HTTP `401` or business error code `99991663` (`Invalid access token`).
+- if the retry still returns token-invalid responses, the send call fails with the upstream status/body for easier troubleshooting.
+
 ### 4.12 DingTalk
 
 ```toml
@@ -307,7 +345,44 @@ app_secret = "qq-app-secret"
 allowed_users = ["*"]
 ```
 
-### 4.14 iMessage
+### 4.14 Nextcloud Talk
+
+```toml
+[channels_config.nextcloud_talk]
+base_url = "https://cloud.example.com"
+app_token = "nextcloud-talk-app-token"
+webhook_secret = "optional-webhook-secret"  # optional but recommended
+allowed_users = ["*"]
+```
+
+Notes:
+
+- Inbound webhook endpoint: `POST /nextcloud-talk`.
+- Signature verification uses `X-Nextcloud-Talk-Random` and `X-Nextcloud-Talk-Signature`.
+- If `webhook_secret` is set, invalid signatures are rejected with `401`.
+- `ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides config secret.
+- See [nextcloud-talk-setup.md](./nextcloud-talk-setup.md) for a full runbook.
+
+### 4.15 Linq
+
+```toml
+[channels_config.linq]
+api_token = "linq-partner-api-token"
+from_phone = "+15551234567"
+signing_secret = "optional-webhook-signing-secret"  # optional but recommended
+allowed_senders = ["*"]
+```
+
+Notes:
+
+- Linq uses the Partner V3 API for iMessage, RCS, and SMS.
+- Inbound webhook endpoint: `POST /linq`.
+- Signature verification uses `X-Webhook-Signature` (HMAC-SHA256) and `X-Webhook-Timestamp`.
+- If `signing_secret` is set, invalid or stale (>300s) signatures are rejected.
+- `ZEROCLAW_LINQ_SIGNING_SECRET` overrides config secret.
+- `allowed_senders` uses E.164 phone number format (e.g. `+1234567890`).
+
+### 4.16 iMessage
 
 ```toml
 [channels_config.imessage]
@@ -375,13 +450,14 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | Mattermost | `Mattermost channel listening on` | `Mattermost: ignoring message from unauthorized user:` | `Mattermost poll error:` / `Mattermost parse error:` |
 | Matrix | `Matrix channel listening on room` / `Matrix room ... is encrypted; E2EE decryption is enabled via matrix-sdk.` | `Matrix whoami failed; falling back to configured session hints for E2EE session restore:` / `Matrix whoami failed while resolving listener user_id; using configured user_id hint:` | `Matrix sync error: ... retrying...` |
 | Signal | `Signal channel listening via SSE on` | (allowlist checks are enforced by `allowed_from`) | `Signal SSE returned ...` / `Signal SSE connect error:` |
-| WhatsApp (channel) | `WhatsApp channel active (webhook mode).` | `WhatsApp: ignoring message from unauthorized number:` | `WhatsApp send failed:` |
+| WhatsApp (channel) | `WhatsApp channel active (webhook mode).` / `WhatsApp Web connected successfully` | `WhatsApp: ignoring message from unauthorized number:` / `WhatsApp Web: message from ... not in allowed list` | `WhatsApp send failed:` / `WhatsApp Web stream error:` |
 | Webhook / WhatsApp (gateway) | `WhatsApp webhook verified successfully` | `Webhook: rejected — not paired / invalid bearer token` / `Webhook: rejected request — invalid or missing X-Webhook-Secret` / `WhatsApp webhook verification failed — token mismatch` | `Webhook JSON parse error:` |
 | Email | `Email polling every ...` / `Email sent to ...` | `Blocked email from ...` | `Email poll failed:` / `Email poll task panicked:` |
 | IRC | `IRC channel connecting to ...` / `IRC registered as ...` | (allowlist checks are enforced by `allowed_users`) | `IRC SASL authentication failed (...)` / `IRC server does not support SASL...` / `IRC nickname ... is in use, trying ...` |
 | Lark / Feishu | `Lark: WS connected` / `Lark event callback server listening on` | `Lark WS: ignoring ... (not in allowed_users)` / `Lark: ignoring message from unauthorized user:` | `Lark: ping failed, reconnecting` / `Lark: heartbeat timeout, reconnecting` / `Lark: WS read error:` |
 | DingTalk | `DingTalk: connected and listening for messages...` | `DingTalk: ignoring message from unauthorized user:` | `DingTalk WebSocket error:` / `DingTalk: message channel closed` |
 | QQ | `QQ: connected and identified` | `QQ: ignoring C2C message from unauthorized user:` / `QQ: ignoring group message from unauthorized user:` | `QQ: received Reconnect (op 7)` / `QQ: received Invalid Session (op 9)` / `QQ: message channel closed` |
+| Nextcloud Talk (gateway) | `POST /nextcloud-talk — Nextcloud Talk bot webhook` | `Nextcloud Talk webhook signature verification failed` / `Nextcloud Talk: ignoring message from unauthorized actor:` | `Nextcloud Talk send failed:` / `LLM error for Nextcloud Talk message:` |
 | iMessage | `iMessage channel listening (AppleScript bridge)...` | (contact allowlist enforced by `allowed_contacts`) | `iMessage poll error:` |
 
 ### 7.3 Runtime supervisor keywords

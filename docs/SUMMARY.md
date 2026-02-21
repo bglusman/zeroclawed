@@ -10,10 +10,12 @@ Last refreshed: **February 18, 2026**.
 - Chinese README: [../README.zh-CN.md](../README.zh-CN.md)
 - Japanese README: [../README.ja.md](../README.ja.md)
 - Russian README: [../README.ru.md](../README.ru.md)
+- Vietnamese README: [../README.vi.md](../README.vi.md)
 - English Docs Hub: [README.md](README.md)
 - Chinese Docs Hub: [README.zh-CN.md](README.zh-CN.md)
 - Japanese Docs Hub: [README.ja.md](README.ja.md)
 - Russian Docs Hub: [README.ru.md](README.ru.md)
+- Vietnamese Docs Hub: [README.vi.md](README.vi.md)
 
 ## Collections
 
@@ -28,6 +30,7 @@ Last refreshed: **February 18, 2026**.
 - [commands-reference.md](commands-reference.md)
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
+- [nextcloud-talk-setup.md](nextcloud-talk-setup.md)
 - [config-reference.md](config-reference.md)
 - [custom-providers.md](custom-providers.md)
 - [zai-glm-setup.md](zai-glm-setup.md)
@@ -37,6 +40,7 @@ Last refreshed: **February 18, 2026**.
 
 - [operations/README.md](operations/README.md)
 - [operations-runbook.md](operations-runbook.md)
+- [release-process.md](release-process.md)
 - [troubleshooting.md](troubleshooting.md)
 - [network-deployment.md](network-deployment.md)
 - [mattermost-setup.md](mattermost-setup.md)

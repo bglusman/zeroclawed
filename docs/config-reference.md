@@ -26,6 +26,28 @@ Schema export command:
 | `default_model` | `anthropic/claude-sonnet-4-6` | model routed through selected provider |
 | `default_temperature` | `0.7` | model temperature |
 
+## `[observability]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `backend` | `none` | Observability backend: `none`, `noop`, `log`, `prometheus`, `otel`, `opentelemetry`, or `otlp` |
+| `otel_endpoint` | `http://localhost:4318` | OTLP HTTP endpoint used when backend is `otel` |
+| `otel_service_name` | `zeroclaw` | Service name emitted to OTLP collector |
+
+Notes:
+
+- `backend = "otel"` uses OTLP HTTP export with a blocking exporter client so spans and metrics can be emitted safely from non-Tokio contexts.
+- Alias values `opentelemetry` and `otlp` map to the same OTel backend.
+
+Example:
+
+```toml
+[observability]
+backend = "otel"
+otel_endpoint = "http://localhost:4318"
+otel_service_name = "zeroclaw"
+```
+
 ## Environment Provider Overrides
 
 Provider selection can also be controlled by environment variables. Precedence is:
@@ -53,6 +75,8 @@ Notes:
 
 - Setting `max_tool_iterations = 0` falls back to safe default `10`.
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
+- In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
+- `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
 
 ## `[agents.<name>]`
 
@@ -66,6 +90,15 @@ Delegate sub-agent configurations. Each key under `[agents]` defines a named sub
 | `api_key` | unset | Optional API key override (stored encrypted when `secrets.encrypt = true`) |
 | `temperature` | unset | Temperature override for the sub-agent |
 | `max_depth` | `3` | Max recursion depth for nested delegation |
+| `agentic` | `false` | Enable multi-turn tool-call loop mode for the sub-agent |
+| `allowed_tools` | `[]` | Tool allowlist for agentic mode |
+| `max_iterations` | `10` | Max tool-call iterations for agentic mode |
+
+Notes:
+
+- `agentic = false` preserves existing single prompt→response delegate behavior.
+- `agentic = true` requires at least one matching entry in `allowed_tools`.
+- The `delegate` tool is excluded from sub-agent allowlists to prevent re-entrant delegation loops.
 
 ```toml
 [agents.researcher]
@@ -73,6 +106,9 @@ provider = "openrouter"
 model = "anthropic/claude-sonnet-4-6"
 system_prompt = "You are a research assistant."
 max_depth = 2
+agentic = true
+allowed_tools = ["web_search", "http_request", "file_read"]
+max_iterations = 8
 
 [agents.coder]
 provider = "ollama"
@@ -92,6 +128,24 @@ Notes:
 - `reasoning_enabled = true` explicitly requests reasoning for supported providers (`think: true` on `ollama`).
 - Unset keeps provider defaults.
 
+## `[skills]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `open_skills_enabled` | `false` | Opt-in loading/sync of community `open-skills` repository |
+| `open_skills_dir` | unset | Optional local path for `open-skills` (defaults to `$HOME/open-skills` when enabled) |
+| `prompt_injection_mode` | `full` | Skill prompt verbosity: `full` (inline instructions/tools) or `compact` (name/description/location only) |
+
+Notes:
+
+- Security-first default: ZeroClaw does **not** clone or sync `open-skills` unless `open_skills_enabled = true`.
+- Environment overrides:
+  - `ZEROCLAW_OPEN_SKILLS_ENABLED` accepts `1/0`, `true/false`, `yes/no`, `on/off`.
+  - `ZEROCLAW_OPEN_SKILLS_DIR` overrides the repository path when non-empty.
+  - `ZEROCLAW_SKILLS_PROMPT_MODE` accepts `full` or `compact`.
+- Precedence for enable flag: `ZEROCLAW_OPEN_SKILLS_ENABLED` → `skills.open_skills_enabled` in `config.toml` → default `false`.
+- `prompt_injection_mode = "compact"` is recommended on low-context local models to reduce startup prompt size while keeping skill files available on demand.
+
 ## `[composio]`
 
 | Key | Default | Purpose |
@@ -104,6 +158,7 @@ Notes:
 
 - Backward compatibility: legacy `enable = true` is accepted as an alias for `enabled = true`.
 - If `enabled = false` or `api_key` is missing, the `composio` tool is not registered.
+- ZeroClaw requests Composio v3 tools with `toolkit_versions=latest` and executes tools with `version="latest"` to avoid stale default tool revisions.
 - Typical flow: call `connect`, complete browser OAuth, then run `execute` for the desired tool action.
 - If Composio returns a missing connected-account reference error, call `list_accounts` (optionally with `app`) and pass the returned `connected_account_id` to `execute`.
 
@@ -332,18 +387,22 @@ Top-level channel options are configured under `channels_config`.
 
 | Key | Default | Purpose |
 |---|---|---|
-| `message_timeout_secs` | `300` | Timeout in seconds for processing a single channel message (LLM + tools) |
+| `message_timeout_secs` | `300` | Base timeout in seconds for channel message processing; runtime scales this with tool-loop depth (up to 4x) |
 
 Examples:
 
 - `[channels_config.telegram]`
 - `[channels_config.discord]`
 - `[channels_config.whatsapp]`
+- `[channels_config.linq]`
+- `[channels_config.nextcloud_talk]`
 - `[channels_config.email]`
 
 Notes:
 
 - Default `300s` is optimized for on-device LLMs (Ollama) which are slower than cloud APIs.
+- Runtime timeout budget is `message_timeout_secs * scale`, where `scale = min(max_tool_iterations, 4)` and a minimum of `1`.
+- This scaling avoids false timeouts when the first LLM turn is slow/retried but later tool-loop turns still need to complete.
 - If using cloud APIs (OpenAI, Anthropic, etc.), you can reduce this to `60` or lower.
 - Values below `30` are clamped to `30` to avoid immediate timeout churn.
 - When a timeout occurs, users receive: `⚠️ Request timed out while waiting for the model. Please try again.`
@@ -352,6 +411,69 @@ Notes:
 - While `zeroclaw channel start` is running, updates to `default_provider`, `default_model`, `default_temperature`, `api_key`, `api_url`, and `reliability.*` are hot-applied from `config.toml` on the next inbound message.
 
 See detailed channel matrix and allowlist behavior in [channels-reference.md](channels-reference.md).
+
+### `[channels_config.whatsapp]`
+
+WhatsApp supports two backends under one config table.
+
+Cloud API mode (Meta webhook):
+
+| Key | Required | Purpose |
+|---|---|---|
+| `access_token` | Yes | Meta Cloud API bearer token |
+| `phone_number_id` | Yes | Meta phone number ID |
+| `verify_token` | Yes | Webhook verification token |
+| `app_secret` | Optional | Enables webhook signature verification (`X-Hub-Signature-256`) |
+| `allowed_numbers` | Recommended | Allowed inbound numbers (`[]` = deny all, `"*"` = allow all) |
+
+WhatsApp Web mode (native client):
+
+| Key | Required | Purpose |
+|---|---|---|
+| `session_path` | Yes | Persistent SQLite session path |
+| `pair_phone` | Optional | Pair-code flow phone number (digits only) |
+| `pair_code` | Optional | Custom pair code (otherwise auto-generated) |
+| `allowed_numbers` | Recommended | Allowed inbound numbers (`[]` = deny all, `"*"` = allow all) |
+
+Notes:
+
+- WhatsApp Web requires build flag `whatsapp-web`.
+- If both Cloud and Web fields are present, Cloud mode wins for backward compatibility.
+
+### `[channels_config.linq]`
+
+Linq Partner V3 API integration for iMessage, RCS, and SMS.
+
+| Key | Required | Purpose |
+|---|---|---|
+| `api_token` | Yes | Linq Partner API bearer token |
+| `from_phone` | Yes | Phone number to send from (E.164 format) |
+| `signing_secret` | Optional | Webhook signing secret for HMAC-SHA256 signature verification |
+| `allowed_senders` | Recommended | Allowed inbound phone numbers (`[]` = deny all, `"*"` = allow all) |
+
+Notes:
+
+- Webhook endpoint is `POST /linq`.
+- `ZEROCLAW_LINQ_SIGNING_SECRET` overrides `signing_secret` when set.
+- Signatures use `X-Webhook-Signature` and `X-Webhook-Timestamp` headers; stale timestamps (>300s) are rejected.
+- See [channels-reference.md](channels-reference.md) for full config examples.
+
+### `[channels_config.nextcloud_talk]`
+
+Native Nextcloud Talk bot integration (webhook receive + OCS send API).
+
+| Key | Required | Purpose |
+|---|---|---|
+| `base_url` | Yes | Nextcloud base URL (e.g. `https://cloud.example.com`) |
+| `app_token` | Yes | Bot app token used for OCS bearer auth |
+| `webhook_secret` | Optional | Enables webhook signature verification |
+| `allowed_users` | Recommended | Allowed Nextcloud actor IDs (`[]` = deny all, `"*"` = allow all) |
+
+Notes:
+
+- Webhook endpoint is `POST /nextcloud-talk`.
+- `ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides `webhook_secret` when set.
+- See [nextcloud-talk-setup.md](nextcloud-talk-setup.md) for setup and troubleshooting.
 
 ## `[hardware]`
 
