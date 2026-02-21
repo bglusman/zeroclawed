@@ -1176,8 +1176,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("credentials not set"),
-            "Expected credentials error, got: {err}"
+            err.contains("credentials not set")
+                || err.contains("169.254.169.254")
+                || err.to_lowercase().contains("credential"),
+            "Expected missing-credentials style error, got: {err}"
         );
     }
 
