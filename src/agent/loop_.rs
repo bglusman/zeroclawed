@@ -386,6 +386,20 @@ fn is_xml_meta_tag(tag: &str) -> bool {
 static XML_OPEN_TAG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<([a-zA-Z_][a-zA-Z0-9_-]*)>").unwrap());
 
+/// MiniMax XML invoke format:
+/// `<invoke name="shell"><parameter name="command">pwd</parameter></invoke>`
+static MINIMAX_INVOKE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?is)<invoke\b[^>]*\bname\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>(.*?)</invoke>"#)
+        .unwrap()
+});
+
+static MINIMAX_PARAMETER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?is)<parameter\b[^>]*\bname\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>(.*?)</parameter>"#,
+    )
+    .unwrap()
+});
+
 /// Extracts all `<tag>…</tag>` pairs from `input`, returning `(tag_name, inner_content)`.
 /// Handles matching closing tags without regex backreferences.
 fn extract_xml_pairs(input: &str) -> Vec<(&str, &str)> {
@@ -473,11 +487,108 @@ fn parse_xml_tool_calls(xml_content: &str) -> Option<Vec<ParsedToolCall>> {
     }
 }
 
-const TOOL_CALL_OPEN_TAGS: [&str; 5] = [
+/// Parse MiniMax-style XML tool calls with attributed invoke/parameter tags.
+fn parse_minimax_invoke_calls(response: &str) -> Option<(String, Vec<ParsedToolCall>)> {
+    let mut calls = Vec::new();
+    let mut text_parts = Vec::new();
+    let mut last_end = 0usize;
+
+    for cap in MINIMAX_INVOKE_RE.captures_iter(response) {
+        let Some(full_match) = cap.get(0) else {
+            continue;
+        };
+
+        let before = response[last_end..full_match.start()].trim();
+        if !before.is_empty() {
+            text_parts.push(before.to_string());
+        }
+
+        let name = cap
+            .get(1)
+            .or_else(|| cap.get(2))
+            .map(|m| m.as_str().trim())
+            .filter(|v| !v.is_empty());
+        let body = cap.get(3).map(|m| m.as_str()).unwrap_or("").trim();
+        last_end = full_match.end();
+
+        let Some(name) = name else {
+            continue;
+        };
+
+        let mut args = serde_json::Map::new();
+        for param_cap in MINIMAX_PARAMETER_RE.captures_iter(body) {
+            let key = param_cap
+                .get(1)
+                .or_else(|| param_cap.get(2))
+                .map(|m| m.as_str().trim())
+                .unwrap_or_default();
+            if key.is_empty() {
+                continue;
+            }
+            let value = param_cap
+                .get(3)
+                .map(|m| m.as_str().trim())
+                .unwrap_or_default();
+            if value.is_empty() {
+                continue;
+            }
+
+            let parsed = extract_json_values(value).into_iter().next();
+            args.insert(
+                key.to_string(),
+                parsed.unwrap_or_else(|| serde_json::Value::String(value.to_string())),
+            );
+        }
+
+        if args.is_empty() {
+            if let Some(first_json) = extract_json_values(body).into_iter().next() {
+                match first_json {
+                    serde_json::Value::Object(obj) => args = obj,
+                    other => {
+                        args.insert("value".to_string(), other);
+                    }
+                }
+            } else if !body.is_empty() {
+                args.insert(
+                    "content".to_string(),
+                    serde_json::Value::String(body.to_string()),
+                );
+            }
+        }
+
+        calls.push(ParsedToolCall {
+            name: name.to_string(),
+            arguments: serde_json::Value::Object(args),
+        });
+    }
+
+    if calls.is_empty() {
+        return None;
+    }
+
+    let after = response[last_end..].trim();
+    if !after.is_empty() {
+        text_parts.push(after.to_string());
+    }
+
+    let text = text_parts
+        .join("\n")
+        .replace("<minimax:tool_call>", "")
+        .replace("</minimax:tool_call>", "")
+        .replace("<minimax:toolcall>", "")
+        .replace("</minimax:toolcall>", "")
+        .trim()
+        .to_string();
+
+    Some((text, calls))
+}
+
+const TOOL_CALL_OPEN_TAGS: [&str; 6] = [
     "<tool_call>",
     "<toolcall>",
     "<tool-call>",
     "<invoke>",
+    "<minimax:tool_call>",
     "<minimax:toolcall>",
 ];
 
@@ -493,6 +604,7 @@ fn matching_tool_call_close_tag(open_tag: &str) -> Option<&'static str> {
         "<toolcall>" => Some("</toolcall>"),
         "<tool-call>" => Some("</tool-call>"),
         "<invoke>" => Some("</invoke>"),
+        "<minimax:tool_call>" => Some("</minimax:tool_call>"),
         "<minimax:toolcall>" => Some("</minimax:toolcall>"),
         _ => None,
     }
@@ -945,6 +1057,12 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
                 }
             }
             return (text_parts.join("\n"), calls);
+        }
+    }
+
+    if let Some((minimax_text, minimax_calls)) = parse_minimax_invoke_calls(response) {
+        if !minimax_calls.is_empty() {
+            return (minimax_text, minimax_calls);
         }
     }
 
@@ -3259,6 +3377,50 @@ Done."#;
         assert_eq!(
             calls[0].arguments.get("command").unwrap().as_str().unwrap(),
             "uptime"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_minimax_invoke_parameter_format() {
+        let response = r#"<minimax:tool_call>
+<invoke name="shell">
+<parameter name="command">sqlite3 /tmp/test.db ".tables"</parameter>
+</invoke>
+</minimax:tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
+            r#"sqlite3 /tmp/test.db ".tables""#
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_minimax_invoke_with_surrounding_text() {
+        let response = r#"Preface
+<minimax:tool_call>
+<invoke name='http_request'>
+<parameter name='url'>https://example.com</parameter>
+<parameter name='method'>GET</parameter>
+</invoke>
+</minimax:tool_call>
+Tail"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.contains("Preface"));
+        assert!(text.contains("Tail"));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "http_request");
+        assert_eq!(
+            calls[0].arguments.get("url").unwrap().as_str().unwrap(),
+            "https://example.com"
+        );
+        assert_eq!(
+            calls[0].arguments.get("method").unwrap().as_str().unwrap(),
+            "GET"
         );
     }
 

@@ -670,6 +670,11 @@ impl GeminiProvider {
     /// Resolve the GCP project ID for OAuth by calling the loadCodeAssist endpoint.
     /// Caches the result for subsequent calls.
     async fn resolve_oauth_project(&self, token: &str) -> anyhow::Result<String> {
+        let project_seed = Self::load_non_empty_env("GOOGLE_CLOUD_PROJECT")
+            .or_else(|| Self::load_non_empty_env("GOOGLE_CLOUD_PROJECT_ID"));
+        let project_seed_for_request = project_seed.clone();
+        let duet_project_for_request = project_seed.clone();
+
         // Check cache first
         {
             let cached = self.oauth_project.lock().await;
@@ -684,10 +689,12 @@ impl GeminiProvider {
             .post(LOAD_CODE_ASSIST_ENDPOINT)
             .bearer_auth(token)
             .json(&serde_json::json!({
+                "cloudaicompanionProject": project_seed_for_request,
                 "metadata": {
-                    "ideType": "IDE_UNSPECIFIED",
+                    "ideType": "GEMINI_CLI",
                     "platform": "PLATFORM_UNSPECIFIED",
-                    "pluginType": "GEMINI"
+                    "pluginType": "GEMINI",
+                    "duetProject": duet_project_for_request,
                 }
             }))
             .send()
@@ -696,6 +703,12 @@ impl GeminiProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
+            if let Some(seed) = project_seed {
+                tracing::warn!(
+                    "loadCodeAssist failed (HTTP {status}); using GOOGLE_CLOUD_PROJECT fallback"
+                );
+                return Ok(seed);
+            }
             anyhow::bail!("loadCodeAssist failed (HTTP {status}): {body}");
         }
 
@@ -709,9 +722,8 @@ impl GeminiProvider {
         let project = result
             .cloudaicompanion_project
             .filter(|p| !p.trim().is_empty())
-            .ok_or_else(|| {
-                anyhow::anyhow!("loadCodeAssist response missing cloudaicompanionProject")
-            })?;
+            .or(project_seed)
+            .ok_or_else(|| anyhow::anyhow!("loadCodeAssist response missing project context"))?;
 
         // Cache for future calls
         {
