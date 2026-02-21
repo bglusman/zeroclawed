@@ -2601,7 +2601,6 @@ mod tests {
 
         let msg = ch
             .parse_update_message(&update)
-            .map(|(m, _)| m)
             .expect("message should parse");
 
         assert_eq!(msg.sender, "alice");
@@ -2629,7 +2628,6 @@ mod tests {
 
         let msg = ch
             .parse_update_message(&update)
-            .map(|(m, _)| m)
             .expect("numeric allowlist should pass");
 
         assert_eq!(msg.sender, "555");
@@ -2657,7 +2655,6 @@ mod tests {
 
         let msg = ch
             .parse_update_message(&update)
-            .map(|(m, _)| m)
             .expect("message with thread_id should parse");
 
         assert_eq!(msg.sender, "alice");
@@ -3271,7 +3268,6 @@ mod tests {
 
         let parsed = ch
             .parse_update_message(&update)
-            .map(|(m, _)| m)
             .expect("mention should parse");
         assert_eq!(parsed.content, "Hi status please");
 

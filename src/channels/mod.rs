@@ -3254,6 +3254,7 @@ mod tests {
             provider_runtime_options: providers::ProviderRuntimeOptions::default(),
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
+            hooks: None,
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -3789,6 +3790,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         process_channel_message(
@@ -4071,6 +4073,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         process_channel_message(
@@ -4155,6 +4158,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         process_channel_message(
@@ -4532,6 +4536,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: true,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -4622,6 +4627,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: true,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -4752,6 +4758,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         process_channel_message(
@@ -5434,6 +5441,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         process_channel_message(
@@ -5979,6 +5987,7 @@ This is an example JSON object for profile settings."#;
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
+            hooks: None,
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.

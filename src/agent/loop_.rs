@@ -2720,6 +2720,7 @@ mod tests {
             3,
             None,
             None,
+            None,
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -2764,6 +2765,7 @@ mod tests {
             3,
             None,
             None,
+            None,
         )
         .await
         .expect_err("oversized payload must fail");
@@ -2800,6 +2802,7 @@ mod tests {
             "cli",
             &crate::config::MultimodalConfig::default(),
             3,
+            None,
             None,
             None,
         )
@@ -2920,6 +2923,7 @@ mod tests {
             "telegram",
             &crate::config::MultimodalConfig::default(),
             4,
+            None,
             None,
             None,
         )
