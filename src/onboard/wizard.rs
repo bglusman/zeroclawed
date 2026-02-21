@@ -2015,22 +2015,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ("opencode", "OpenCode Zen — code-focused AI"),
             ("cohere", "Cohere — Command R+ & embeddings"),
         ],
-        4 => vec![
-            ("ollama", "Ollama — local models (Llama, Mistral, Phi)"),
-            (
-                "llamacpp",
-                "llama.cpp server — local OpenAI-compatible endpoint",
-            ),
-            (
-                "sglang",
-                "SGLang — high-performance local serving framework",
-            ),
-            ("vllm", "vLLM — high-performance local inference engine"),
-            (
-                "osaurus",
-                "Osaurus — unified AI edge runtime (local MLX + cloud proxy + MCP)",
-            ),
-        ],
+        4 => local_provider_choices(),
         _ => vec![], // Custom — handled below
     };
 
@@ -2656,6 +2641,25 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
     );
 
     Ok((provider_name.to_string(), api_key, model, provider_api_url))
+}
+
+fn local_provider_choices() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("ollama", "Ollama — local models (Llama, Mistral, Phi)"),
+        (
+            "llamacpp",
+            "llama.cpp server — local OpenAI-compatible endpoint",
+        ),
+        (
+            "sglang",
+            "SGLang — high-performance local serving framework",
+        ),
+        ("vllm", "vLLM — high-performance local inference engine"),
+        (
+            "osaurus",
+            "Osaurus — unified AI edge runtime (local MLX + cloud proxy + MCP)",
+        ),
+    ]
 }
 
 /// Map provider name to its conventional env var
@@ -6895,6 +6899,12 @@ mod tests {
         assert!(provider_supports_keyless_local_usage("sglang"));
         assert!(provider_supports_keyless_local_usage("vllm"));
         assert!(!provider_supports_keyless_local_usage("openai"));
+    }
+
+    #[test]
+    fn local_provider_choices_include_sglang() {
+        let choices = local_provider_choices();
+        assert!(choices.iter().any(|(provider, _)| *provider == "sglang"));
     }
 
     #[test]
