@@ -100,6 +100,12 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
 
 // ── Main wizard entry point ──────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InteractiveOnboardingMode {
+    FullOnboarding,
+    UpdateProviderOnly,
+}
+
 pub async fn run_wizard(force: bool) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
 
@@ -117,7 +123,12 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     print_step(1, 9, "Workspace Setup");
     let (workspace_dir, config_path) = setup_workspace().await?;
-    ensure_onboard_overwrite_allowed(&config_path, force)?;
+    match resolve_interactive_onboarding_mode(&config_path, force)? {
+        InteractiveOnboardingMode::FullOnboarding => {}
+        InteractiveOnboardingMode::UpdateProviderOnly => {
+            return run_provider_update_wizard(&workspace_dir, &config_path).await;
+        }
+    }
 
     print_step(2, 9, "AI Provider & API Key");
     let (provider, api_key, model, provider_api_url) = setup_provider(&workspace_dir).await?;
@@ -286,6 +297,85 @@ pub async fn run_channels_repair_wizard() -> Result<Config> {
     }
 
     Ok(config)
+}
+
+/// Interactive flow: update only provider/model/api key while preserving existing config.
+async fn run_provider_update_wizard(workspace_dir: &Path, config_path: &Path) -> Result<Config> {
+    println!();
+    println!(
+        "  {} Existing config detected. Running provider-only update mode (preserving channels, memory, tunnel, hooks, and other settings).",
+        style("↻").cyan().bold()
+    );
+
+    let raw = fs::read_to_string(config_path).await.with_context(|| {
+        format!(
+            "Failed to read existing config at {}",
+            config_path.display()
+        )
+    })?;
+    let mut config: Config = toml::from_str(&raw).with_context(|| {
+        format!(
+            "Failed to parse existing config at {}",
+            config_path.display()
+        )
+    })?;
+    config.workspace_dir = workspace_dir.to_path_buf();
+    config.config_path = config_path.to_path_buf();
+
+    print_step(1, 1, "AI Provider & API Key");
+    let (provider, api_key, model, provider_api_url) = setup_provider(workspace_dir).await?;
+    apply_provider_update(&mut config, provider, api_key, model, provider_api_url);
+
+    config.save().await?;
+    persist_workspace_selection(&config.config_path).await?;
+
+    println!(
+        "  {} Provider settings updated at {}",
+        style("✓").green().bold(),
+        style(config.config_path.display()).green()
+    );
+    print_summary(&config);
+
+    let has_channels = has_launchable_channels(&config.channels_config);
+    if has_channels && config.api_key.is_some() {
+        let launch: bool = Confirm::new()
+            .with_prompt(format!(
+                "  {} Launch channels now? (connected channels → AI → reply)",
+                style("🚀").cyan()
+            ))
+            .default(true)
+            .interact()?;
+
+        if launch {
+            println!();
+            println!(
+                "  {} {}",
+                style("⚡").cyan(),
+                style("Starting channel server...").white().bold()
+            );
+            println!();
+            std::env::set_var("ZEROCLAW_AUTOSTART_CHANNELS", "1");
+        }
+    }
+
+    Ok(config)
+}
+
+fn apply_provider_update(
+    config: &mut Config,
+    provider: String,
+    api_key: String,
+    model: String,
+    provider_api_url: Option<String>,
+) {
+    config.default_provider = Some(provider);
+    config.default_model = Some(model);
+    config.api_url = provider_api_url;
+    config.api_key = if api_key.trim().is_empty() {
+        None
+    } else {
+        Some(api_key)
+    };
 }
 
 // ── Quick setup (zero prompts) ───────────────────────────────────
@@ -1665,6 +1755,52 @@ fn print_step(current: u8, total: u8, title: &str) {
 
 fn print_bullet(text: &str) {
     println!("  {} {}", style("›").cyan(), text);
+}
+
+fn resolve_interactive_onboarding_mode(
+    config_path: &Path,
+    force: bool,
+) -> Result<InteractiveOnboardingMode> {
+    if !config_path.exists() {
+        return Ok(InteractiveOnboardingMode::FullOnboarding);
+    }
+
+    if force {
+        println!(
+            "  {} Existing config detected at {}. Proceeding with full onboarding because --force was provided.",
+            style("!").yellow().bold(),
+            style(config_path.display()).yellow()
+        );
+        return Ok(InteractiveOnboardingMode::FullOnboarding);
+    }
+
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        bail!(
+            "Refusing to overwrite existing config at {} in non-interactive mode. Re-run with --force if overwrite is intentional.",
+            config_path.display()
+        );
+    }
+
+    let options = [
+        "Full onboarding (overwrite config.toml)",
+        "Update AI provider/model/API key only (preserve existing configuration)",
+        "Cancel",
+    ];
+
+    let mode = Select::new()
+        .with_prompt(format!(
+            "  Existing config found at {}. Select setup mode",
+            config_path.display()
+        ))
+        .items(&options)
+        .default(1)
+        .interact()?;
+
+    match mode {
+        0 => Ok(InteractiveOnboardingMode::FullOnboarding),
+        1 => Ok(InteractiveOnboardingMode::UpdateProviderOnly),
+        _ => bail!("Onboarding canceled: existing configuration was left unchanged."),
+    }
 }
 
 fn ensure_onboard_overwrite_allowed(config_path: &Path, force: bool) -> Result<()> {
@@ -5196,6 +5332,57 @@ mod tests {
         assert!(ctx.timezone.is_empty());
         assert!(ctx.agent_name.is_empty());
         assert!(ctx.communication_style.is_empty());
+    }
+
+    #[test]
+    fn apply_provider_update_preserves_non_provider_settings() {
+        let mut config = Config::default();
+        config.default_temperature = 1.23;
+        config.memory.backend = "markdown".to_string();
+        config.skills.open_skills_enabled = true;
+        config.channels_config.cli = false;
+
+        apply_provider_update(
+            &mut config,
+            "openrouter".to_string(),
+            "sk-updated".to_string(),
+            "openai/gpt-5.2".to_string(),
+            Some("https://openrouter.ai/api/v1".to_string()),
+        );
+
+        assert_eq!(config.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(config.default_model.as_deref(), Some("openai/gpt-5.2"));
+        assert_eq!(config.api_key.as_deref(), Some("sk-updated"));
+        assert_eq!(
+            config.api_url.as_deref(),
+            Some("https://openrouter.ai/api/v1")
+        );
+        assert_eq!(config.default_temperature, 1.23);
+        assert_eq!(config.memory.backend, "markdown");
+        assert!(config.skills.open_skills_enabled);
+        assert!(!config.channels_config.cli);
+    }
+
+    #[test]
+    fn apply_provider_update_clears_api_key_when_empty() {
+        let mut config = Config::default();
+        config.api_key = Some("sk-old".to_string());
+
+        apply_provider_update(
+            &mut config,
+            "anthropic".to_string(),
+            "".to_string(),
+            "claude-sonnet-4-5-20250929".to_string(),
+            None,
+        );
+
+        assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
+        assert_eq!(
+            config.default_model.as_deref(),
+            Some("claude-sonnet-4-5-20250929")
+        );
+        assert!(config.api_key.is_none());
+        assert!(config.api_url.is_none());
     }
 
     #[tokio::test]
