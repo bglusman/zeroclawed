@@ -143,6 +143,11 @@ Examples:
 pub enum SkillCommands {
     /// List all installed skills
     List,
+    /// Audit a skill source directory or installed skill name
+    Audit {
+        /// Skill path or installed skill name
+        source: String,
+    },
     /// Install a new skill from a URL or local path
     Install {
         /// Source URL or local path
