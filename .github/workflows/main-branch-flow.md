@@ -70,10 +70,11 @@ Notes:
    - `test`
    - `docs-quality`
 7. If `.github/workflows/**` changed, `workflow-owner-approval` must pass.
-8. `lint-feedback` posts actionable comment if lint/docs gates fail.
-9. `CI Required Gate` aggregates results to final pass/fail.
-10. Maintainer merges PR once checks and review policy are satisfied.
-11. Merge emits a `push` event on `main` (see scenario 3).
+8. If root license files (`LICENSE`, `LICENSE-APACHE`) changed, `license-file-owner-guard` requires PR author login in `LICENSE_FILE_OWNER_LOGINS` (fallback `willsarg`).
+9. `lint-feedback` posts actionable comment if lint/docs gates fail.
+10. `CI Required Gate` aggregates results to final pass/fail.
+11. Maintainer merges PR once checks and review policy are satisfied.
+12. Merge emits a `push` event on `main` (see scenario 3).
 
 ### 2) PR from fork -> `main`
 
@@ -107,6 +108,7 @@ Notes:
 8. Fork PR merge blockers to check first when diagnosing stalls:
    - run approval pending for fork workflows.
    - `workflow-owner-approval` failing on workflow-file changes.
+   - `license-file-owner-guard` failing when root license files are modified by non-owner PR author.
    - `CI Required Gate` failure caused by upstream jobs.
    - repeated `pull_request_target` reruns from label churn causing noisy signals.
 9. After merge, normal `push` workflows on `main` execute (scenario 3).

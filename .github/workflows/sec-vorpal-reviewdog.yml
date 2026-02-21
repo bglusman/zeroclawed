@@ -114,9 +114,11 @@ jobs:
                   if [ -n "${source_override}" ]; then
                       normalized="$(echo "${INPUT_SOURCE_PATH}" | tr '\n' ',' | sed -E 's/[[:space:]]+//g; s/,+/,/g; s/^,|,$//g')"
                       if [ -n "${normalized}" ]; then
-                          echo "scan=true" >> "${GITHUB_OUTPUT}"
-                          echo "source_path=${normalized}" >> "${GITHUB_OUTPUT}"
-                          echo "selection=manual" >> "${GITHUB_OUTPUT}"
+                          {
+                              echo "scan=true"
+                              echo "source_path=${normalized}"
+                              echo "selection=manual"
+                          } >> "${GITHUB_OUTPUT}"
                           exit 0
                       fi
                   fi
@@ -148,16 +150,20 @@ jobs:
                       source_files="$(printf '%s\n' "${source_files}" | grep -Ev "${exclude_tests}" || true)"
                   fi
                   if [ -z "${source_files}" ]; then
-                      echo "scan=false" >> "${GITHUB_OUTPUT}"
-                      echo "source_path=" >> "${GITHUB_OUTPUT}"
-                      echo "selection=none" >> "${GITHUB_OUTPUT}"
+                      {
+                          echo "scan=false"
+                          echo "source_path="
+                          echo "selection=none"
+                      } >> "${GITHUB_OUTPUT}"
                       exit 0
                   fi
 
                   source_path="$(printf '%s\n' "${source_files}" | paste -sd, -)"
-                  echo "scan=true" >> "${GITHUB_OUTPUT}"
-                  echo "source_path=${source_path}" >> "${GITHUB_OUTPUT}"
-                  echo "selection=auto-${INPUT_SCAN_SCOPE}" >> "${GITHUB_OUTPUT}"
+                  {
+                      echo "scan=true"
+                      echo "source_path=${source_path}"
+                      echo "selection=auto-${INPUT_SCAN_SCOPE}"
+                  } >> "${GITHUB_OUTPUT}"
 
             - name: No supported files to scan
               if: steps.sources.outputs.scan != 'true'
