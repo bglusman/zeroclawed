@@ -79,6 +79,7 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
         dingtalk,
         linq,
         qq,
+        nextcloud_talk,
         ..
     } = channels;
 
@@ -96,6 +97,7 @@ fn has_launchable_channels(channels: &ChannelsConfig) -> bool {
         || dingtalk.is_some()
         || linq.is_some()
         || qq.is_some()
+        || nextcloud_talk.is_some()
 }
 
 // ── Main wizard entry point ──────────────────────────────────────
@@ -6894,17 +6896,13 @@ mod tests {
     }
 
     #[test]
-    fn channel_menu_choices_include_signal() {
+    fn channel_menu_choices_include_signal_and_nextcloud_talk() {
         assert!(channel_menu_choices().contains(&ChannelMenuChoice::Signal));
-    }
-
-    #[test]
-    fn channel_menu_choices_include_nextcloud_talk() {
         assert!(channel_menu_choices().contains(&ChannelMenuChoice::NextcloudTalk));
     }
 
     #[test]
-    fn launchable_channels_include_signal_mattermost_and_qq() {
+    fn launchable_channels_include_signal_mattermost_qq_and_nextcloud_talk() {
         let mut channels = ChannelsConfig::default();
         assert!(!has_launchable_channels(&channels));
 
@@ -6933,6 +6931,15 @@ mod tests {
         channels.qq = Some(crate::config::schema::QQConfig {
             app_id: "app-id".into(),
             app_secret: "app-secret".into(),
+            allowed_users: vec!["*".into()],
+        });
+        assert!(has_launchable_channels(&channels));
+
+        channels.qq = None;
+        channels.nextcloud_talk = Some(crate::config::schema::NextcloudTalkConfig {
+            base_url: "https://cloud.example.com".into(),
+            app_token: "token".into(),
+            webhook_secret: Some("secret".into()),
             allowed_users: vec!["*".into()],
         });
         assert!(has_launchable_channels(&channels));
