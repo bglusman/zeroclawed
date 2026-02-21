@@ -973,4 +973,21 @@ mod tests {
 
         let _ = tokio::fs::remove_dir_all(&workspace).await;
     }
+
+    #[tokio::test]
+    async fn file_read_blocks_null_byte_in_path() {
+        let dir = std::env::temp_dir().join("zeroclaw_test_file_read_null_byte");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let tool = FileReadTool::new(test_security(dir.clone()));
+        let result = tool
+            .execute(json!({"path": "test\0evil.txt"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_ref().unwrap().contains("not allowed"));
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
 }
