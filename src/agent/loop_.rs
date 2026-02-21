@@ -1209,6 +1209,7 @@ fn parse_glm_shortened_body(body: &str) -> Option<ParsedToolCall> {
             return Some(ParsedToolCall {
                 name: tool_name.to_string(),
                 arguments: serde_json::Value::Object(args),
+                tool_call_id: None,
             });
         }
     }
@@ -1239,6 +1240,7 @@ fn parse_glm_shortened_body(body: &str) -> Option<ParsedToolCall> {
             return Some(ParsedToolCall {
                 name: tool_name.to_string(),
                 arguments: serde_json::Value::Object(args),
+                tool_call_id: None,
             });
         }
     }
@@ -1264,6 +1266,7 @@ fn parse_glm_shortened_body(body: &str) -> Option<ParsedToolCall> {
         return Some(ParsedToolCall {
             name: tool_name.to_string(),
             arguments,
+            tool_call_id: None,
         });
     }
 
