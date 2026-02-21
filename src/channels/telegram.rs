@@ -16,6 +16,7 @@ const TELEGRAM_MAX_MESSAGE_LENGTH: usize = 4096;
 /// Reserve space for continuation markers added by send_text_chunks:
 /// worst case is "(continued)\n\n" + chunk + "\n\n(continues...)" = 30 extra chars
 const TELEGRAM_CONTINUATION_OVERHEAD: usize = 30;
+const TELEGRAM_ACK_REACTIONS: &[&str] = &["⚡️", "🦀", "🙌", "💪", "👌", "👀", "👣"];
 
 /// Metadata for an incoming document or photo attachment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +90,38 @@ fn split_message_for_telegram(message: &str) -> Vec<String> {
     }
 
     chunks
+}
+
+fn pick_uniform_index(len: usize) -> usize {
+    debug_assert!(len > 0);
+    let upper = len as u64;
+    let reject_threshold = (u64::MAX / upper) * upper;
+
+    loop {
+        let value = rand::random::<u64>();
+        if value < reject_threshold {
+            return (value % upper) as usize;
+        }
+    }
+}
+
+fn random_telegram_ack_reaction() -> &'static str {
+    TELEGRAM_ACK_REACTIONS[pick_uniform_index(TELEGRAM_ACK_REACTIONS.len())]
+}
+
+fn build_telegram_ack_reaction_request(
+    chat_id: &str,
+    message_id: i64,
+    emoji: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "reaction": [{
+            "type": "emoji",
+            "emoji": emoji
+        }]
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,6 +350,46 @@ impl TelegramChannel {
         } else {
             (reply_target.to_string(), None)
         }
+    }
+
+    fn extract_update_message_target(update: &serde_json::Value) -> Option<(String, i64)> {
+        let message = update.get("message")?;
+        let chat_id = message
+            .get("chat")
+            .and_then(|chat| chat.get("id"))
+            .and_then(serde_json::Value::as_i64)?
+            .to_string();
+        let message_id = message
+            .get("message_id")
+            .and_then(serde_json::Value::as_i64)?;
+        Some((chat_id, message_id))
+    }
+
+    fn try_add_ack_reaction_nonblocking(&self, chat_id: String, message_id: i64) {
+        let client = self.http_client();
+        let url = self.api_url("setMessageReaction");
+        let emoji = random_telegram_ack_reaction().to_string();
+        let body = build_telegram_ack_reaction_request(&chat_id, message_id, &emoji);
+
+        tokio::spawn(async move {
+            let response = match client.post(&url).json(&body).send().await {
+                Ok(resp) => resp,
+                Err(err) => {
+                    tracing::warn!(
+                        "Telegram: failed to add ACK reaction to chat_id={chat_id}, message_id={message_id}: {err}"
+                    );
+                    return;
+                }
+            };
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let err_body = response.text().await.unwrap_or_default();
+                tracing::warn!(
+                    "Telegram: add ACK reaction failed for chat_id={chat_id}, message_id={message_id}: status={status}, body={err_body}"
+                );
+            }
+        });
     }
 
     fn http_client(&self) -> reqwest::Client {
@@ -2394,6 +2467,15 @@ Ensure only one `zeroclaw` process is using this bot token."
                         continue;
                     };
 
+                    if let Some((reaction_chat_id, reaction_message_id)) =
+                        Self::extract_update_message_target(update)
+                    {
+                        self.try_add_ack_reaction_nonblocking(
+                            reaction_chat_id,
+                            reaction_message_id,
+                        );
+                    }
+
                     // Send "typing" indicator immediately when we receive a message
                     let typing_body = serde_json::json!({
                         "chat_id": &msg.reply_target,
@@ -2477,6 +2559,37 @@ mod tests {
     fn telegram_channel_name() {
         let ch = TelegramChannel::new("fake-token".into(), vec!["*".into()], false);
         assert_eq!(ch.name(), "telegram");
+    }
+
+    #[test]
+    fn random_telegram_ack_reaction_is_from_pool() {
+        for _ in 0..128 {
+            let emoji = random_telegram_ack_reaction();
+            assert!(TELEGRAM_ACK_REACTIONS.contains(&emoji));
+        }
+    }
+
+    #[test]
+    fn telegram_ack_reaction_request_shape() {
+        let body = build_telegram_ack_reaction_request("-100200300", 42, "⚡️");
+        assert_eq!(body["chat_id"], "-100200300");
+        assert_eq!(body["message_id"], 42);
+        assert_eq!(body["reaction"][0]["type"], "emoji");
+        assert_eq!(body["reaction"][0]["emoji"], "⚡️");
+    }
+
+    #[test]
+    fn telegram_extract_update_message_target_parses_ids() {
+        let update = serde_json::json!({
+            "update_id": 1,
+            "message": {
+                "message_id": 99,
+                "chat": { "id": -100123456 }
+            }
+        });
+
+        let target = TelegramChannel::extract_update_message_target(&update);
+        assert_eq!(target, Some(("-100123456".to_string(), 99)));
     }
 
     #[test]

@@ -91,7 +91,7 @@ async-trait = "0.1"
 ring = "0.17"
 
 # Protobuf encode/decode (Lark WS frame codec, WhatsApp storage)
-prost = { version = "0.14", default-features = false, optional = true }
+prost = { version = "0.14", default-features = false, features = ["derive"], optional = true }
 
 # Memory / persistence
 rusqlite = { version = "0.37", features = ["bundled"] }

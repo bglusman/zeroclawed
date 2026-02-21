@@ -107,6 +107,7 @@ const BASE64_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstu
 ///
 /// Discord rejects longer payloads with `50035 Invalid Form Body`.
 const DISCORD_MAX_MESSAGE_LENGTH: usize = 2000;
+const DISCORD_ACK_REACTIONS: &[&str] = &["⚡️", "🦀", "🙌", "💪", "👌", "👀", "👣"];
 
 /// Split a message into chunks that respect Discord's 2000-character limit.
 /// Tries to split at word boundaries when possible.
@@ -156,6 +157,23 @@ fn split_message_for_discord(message: &str) -> Vec<String> {
     chunks
 }
 
+fn pick_uniform_index(len: usize) -> usize {
+    debug_assert!(len > 0);
+    let upper = len as u64;
+    let reject_threshold = (u64::MAX / upper) * upper;
+
+    loop {
+        let value = rand::random::<u64>();
+        if value < reject_threshold {
+            return (value % upper) as usize;
+        }
+    }
+}
+
+fn random_discord_ack_reaction() -> &'static str {
+    DISCORD_ACK_REACTIONS[pick_uniform_index(DISCORD_ACK_REACTIONS.len())]
+}
+
 /// URL-encode a Unicode emoji for use in Discord reaction API paths.
 ///
 /// Discord's reaction endpoints accept raw Unicode emoji in the URL path,
@@ -171,6 +189,14 @@ fn encode_emoji_for_discord(emoji: &str) -> String {
         encoded.push_str(&format!("%{byte:02X}"));
     }
     encoded
+}
+
+fn discord_reaction_url(channel_id: &str, message_id: &str, emoji: &str) -> String {
+    let raw_id = message_id.strip_prefix("discord_").unwrap_or(message_id);
+    let encoded_emoji = encode_emoji_for_discord(emoji);
+    format!(
+        "https://discord.com/api/v10/channels/{channel_id}/messages/{raw_id}/reactions/{encoded_emoji}/@me"
+    )
 }
 
 fn mention_tags(bot_user_id: &str) -> [String; 2] {
@@ -476,7 +502,38 @@ impl Channel for DiscordChannel {
                     };
 
                     let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                    let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                    let channel_id = d
+                        .get("channel_id")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    if !message_id.is_empty() && !channel_id.is_empty() {
+                        let reaction_channel = DiscordChannel::new(
+                            self.bot_token.clone(),
+                            self.guild_id.clone(),
+                            self.allowed_users.clone(),
+                            self.listen_to_bots,
+                            self.mention_only,
+                        );
+                        let reaction_channel_id = channel_id.clone();
+                        let reaction_message_id = message_id.to_string();
+                        let reaction_emoji = random_discord_ack_reaction().to_string();
+                        tokio::spawn(async move {
+                            if let Err(err) = reaction_channel
+                                .add_reaction(
+                                    &reaction_channel_id,
+                                    &reaction_message_id,
+                                    &reaction_emoji,
+                                )
+                                .await
+                            {
+                                tracing::debug!(
+                                    "Discord: failed to add ACK reaction for message {reaction_message_id}: {err}"
+                                );
+                            }
+                        });
+                    }
 
                     let channel_msg = ChannelMessage {
                         id: if message_id.is_empty() {
@@ -558,11 +615,7 @@ impl Channel for DiscordChannel {
         message_id: &str,
         emoji: &str,
     ) -> anyhow::Result<()> {
-        let raw_id = message_id.strip_prefix("discord_").unwrap_or(message_id);
-        let encoded_emoji = encode_emoji_for_discord(emoji);
-        let url = format!(
-            "https://discord.com/api/v10/channels/{channel_id}/messages/{raw_id}/reactions/{encoded_emoji}/@me"
-        );
+        let url = discord_reaction_url(channel_id, message_id, emoji);
 
         let resp = self
             .http_client()
@@ -590,11 +643,7 @@ impl Channel for DiscordChannel {
         message_id: &str,
         emoji: &str,
     ) -> anyhow::Result<()> {
-        let raw_id = message_id.strip_prefix("discord_").unwrap_or(message_id);
-        let encoded_emoji = encode_emoji_for_discord(emoji);
-        let url = format!(
-            "https://discord.com/api/v10/channels/{channel_id}/messages/{raw_id}/reactions/{encoded_emoji}/@me"
-        );
+        let url = discord_reaction_url(channel_id, message_id, emoji);
 
         let resp = self
             .http_client()
@@ -970,6 +1019,23 @@ mod tests {
     fn encode_emoji_simple_ascii_char() {
         let encoded = encode_emoji_for_discord("A");
         assert_eq!(encoded, "%41");
+    }
+
+    #[test]
+    fn random_discord_ack_reaction_is_from_pool() {
+        for _ in 0..128 {
+            let emoji = random_discord_ack_reaction();
+            assert!(DISCORD_ACK_REACTIONS.contains(&emoji));
+        }
+    }
+
+    #[test]
+    fn discord_reaction_url_encodes_emoji_and_strips_prefix() {
+        let url = discord_reaction_url("123", "discord_456", "👀");
+        assert_eq!(
+            url,
+            "https://discord.com/api/v10/channels/123/messages/456/reactions/%F0%9F%91%80/@me"
+        );
     }
 
     // ── Message ID edge cases ─────────────────────────────────────
