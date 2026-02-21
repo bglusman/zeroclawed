@@ -1859,6 +1859,7 @@ impl Default for AutonomyConfig {
                 "wc".into(),
                 "head".into(),
                 "tail".into(),
+                "date".into(),
             ],
             forbidden_paths: vec![
                 "/etc".into(),
