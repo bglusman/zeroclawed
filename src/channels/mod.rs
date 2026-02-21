@@ -3981,7 +3981,6 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Vec::new()),
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
-            non_cli_excluded_tools: Arc::new(Vec::new()),
         });
 
         process_channel_message(
