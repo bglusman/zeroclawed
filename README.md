@@ -300,7 +300,7 @@ zeroclaw agent -m "Hello, ZeroClaw!"
 zeroclaw agent
 
 # Start the gateway (webhook server)
-zeroclaw gateway                # default: 127.0.0.1:3000
+zeroclaw gateway                # default: 127.0.0.1:42617
 zeroclaw gateway --port 0       # random port (security hardened)
 
 # Start full autonomous runtime
@@ -599,7 +599,7 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
 4. **Start the gateway with a tunnel:**
    ```bash
-   zeroclaw gateway --port 3000
+   zeroclaw gateway --port 42617
    ```
    WhatsApp requires HTTPS, so use a tunnel (ngrok, Cloudflare, Tailscale Funnel).
 
@@ -649,7 +649,7 @@ keyword_weight = 0.3
 # connect_timeout_secs = 15
 
 [gateway]
-port = 3000                    # default
+port = 42617                    # default
 host = "127.0.0.1"            # default
 require_pairing = true         # require pairing code on first connect
 allow_public_bind = false      # refuse 0.0.0.0 without tunnel
@@ -944,7 +944,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 |---------|-------------|
 | `onboard` | Quick setup (default) |
 | `agent` | Interactive or single-message chat mode |
-| `gateway` | Start webhook server (default: `127.0.0.1:3000`) |
+| `gateway` | Start webhook server (default: `127.0.0.1:42617`) |
 | `daemon` | Start long-running autonomous runtime |
 | `service install/start/stop/status/uninstall` | Manage background service (systemd user-level or OpenRC system-wide) |
 | `doctor` | Diagnose daemon/scheduler/channel freshness |

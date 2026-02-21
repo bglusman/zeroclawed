@@ -296,7 +296,7 @@ zeroclaw agent -m "Hello, ZeroClaw!"
 zeroclaw agent
 
 # Khởi động gateway (webhook server)
-zeroclaw gateway                # mặc định: 127.0.0.1:3000
+zeroclaw gateway                # mặc định: 127.0.0.1:42617
 zeroclaw gateway --port 0       # cổng ngẫu nhiên (tăng cường bảo mật)
 
 # Khởi động runtime tự trị đầy đủ
@@ -588,7 +588,7 @@ WhatsApp dùng Cloud API của Meta với webhook (push-based, không phải pol
 
 4. **Khởi động gateway với tunnel:**
    ```bash
-   zeroclaw gateway --port 3000
+   zeroclaw gateway --port 42617
    ```
    WhatsApp yêu cầu HTTPS, vì vậy hãy dùng tunnel (ngrok, Cloudflare, Tailscale Funnel).
 
@@ -638,7 +638,7 @@ keyword_weight = 0.3
 # connect_timeout_secs = 15
 
 [gateway]
-port = 3000                    # mặc định
+port = 42617                    # mặc định
 host = "127.0.0.1"            # mặc định
 require_pairing = true         # yêu cầu pairing code khi kết nối lần đầu
 allow_public_bind = false      # từ chối 0.0.0.0 nếu không có tunnel
@@ -879,7 +879,7 @@ Xem [aieos.org](https://aieos.org) để có schema đầy đủ và ví dụ tr
 |---------|-------------|
 | `onboard` | Cài đặt nhanh (mặc định) |
 | `agent` | Chế độ chat tương tác hoặc một tin nhắn |
-| `gateway` | Khởi động webhook server (mặc định: `127.0.0.1:3000`) |
+| `gateway` | Khởi động webhook server (mặc định: `127.0.0.1:42617`) |
 | `daemon` | Khởi động runtime tự trị chạy lâu dài |
 | `service` | Quản lý dịch vụ nền cấp người dùng |
 | `doctor` | Chẩn đoán trạng thái hoạt động daemon/scheduler/channel |

@@ -1434,7 +1434,7 @@ mod tests {
     fn compute_backoff_uses_retry_after() {
         let provider = ReliableProvider::new(vec![], 0, 500);
         let err = anyhow::anyhow!("429 Retry-After: 3");
-        assert_eq!(provider.compute_backoff(500, &err), 3000);
+        assert_eq!(provider.compute_backoff(500, &err), 3_000);
     }
 
     #[test]

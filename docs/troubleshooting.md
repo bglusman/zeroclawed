@@ -154,7 +154,7 @@ zeroclaw doctor
 Verify `~/.zeroclaw/config.toml`:
 
 - `[gateway].host` (default `127.0.0.1`)
-- `[gateway].port` (default `3000`)
+- `[gateway].port` (default `42617`)
 - `allow_public_bind` only when intentionally exposing LAN/public interfaces
 
 ### Pairing / auth failures on webhook

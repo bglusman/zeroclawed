@@ -258,7 +258,7 @@ Notes:
 | Key | Default | Purpose |
 |---|---|---|
 | `host` | `127.0.0.1` | bind address |
-| `port` | `3000` | gateway listen port |
+| `port` | `42617` | gateway listen port |
 | `require_pairing` | `true` | require pairing before bearer auth |
 | `allow_public_bind` | `false` | block accidental public exposure |
 

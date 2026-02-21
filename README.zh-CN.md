@@ -140,7 +140,7 @@ zeroclaw onboard --interactive
 # 单次对话
 zeroclaw agent -m "Hello, ZeroClaw!"
 
-# 启动网关（默认: 127.0.0.1:3000）
+# 启动网关（默认: 127.0.0.1:42617）
 zeroclaw gateway
 
 # 启动长期运行模式
@@ -249,7 +249,7 @@ keyword_weight = 0.3
 
 ## 安全默认行为（关键）
 
-- Gateway 默认绑定：`127.0.0.1:3000`
+- Gateway 默认绑定：`127.0.0.1:42617`
 - Gateway 默认要求配对：`require_pairing = true`
 - 默认拒绝公网绑定：`allow_public_bind = false`
 - Channel allowlist 语义：
@@ -271,7 +271,7 @@ embedding_provider = "none"    # none | openai | custom:https://...
 
 [gateway]
 host = "127.0.0.1"
-port = 3000
+port = 42617
 require_pairing = true
 allow_public_bind = false
 ```

@@ -1557,7 +1557,7 @@ mod tests {
 
     #[test]
     fn client_key_defaults_to_peer_addr_when_untrusted_proxy_mode() {
-        let peer = SocketAddr::from(([10, 0, 0, 5], 3000));
+        let peer = SocketAddr::from(([10, 0, 0, 5], 42617));
         let mut headers = HeaderMap::new();
         headers.insert(
             "X-Forwarded-For",
@@ -1570,7 +1570,7 @@ mod tests {
 
     #[test]
     fn client_key_uses_forwarded_ip_only_in_trusted_proxy_mode() {
-        let peer = SocketAddr::from(([10, 0, 0, 5], 3000));
+        let peer = SocketAddr::from(([10, 0, 0, 5], 42617));
         let mut headers = HeaderMap::new();
         headers.insert(
             "X-Forwarded-For",
@@ -1583,7 +1583,7 @@ mod tests {
 
     #[test]
     fn client_key_falls_back_to_peer_when_forwarded_header_invalid() {
-        let peer = SocketAddr::from(([10, 0, 0, 5], 3000));
+        let peer = SocketAddr::from(([10, 0, 0, 5], 42617));
         let mut headers = HeaderMap::new();
         headers.insert("X-Forwarded-For", HeaderValue::from_static("garbage-value"));
 

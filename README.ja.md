@@ -136,7 +136,7 @@ zeroclaw onboard --interactive
 
 zeroclaw agent -m "Hello, ZeroClaw!"
 
-# default: 127.0.0.1:3000
+# default: 127.0.0.1:42617
 zeroclaw gateway
 
 zeroclaw daemon
@@ -244,7 +244,7 @@ keyword_weight = 0.3
 
 ## セキュリティのデフォルト
 
-- Gateway の既定バインド: `127.0.0.1:3000`
+- Gateway の既定バインド: `127.0.0.1:42617`
 - 既定でペアリング必須: `require_pairing = true`
 - 既定で公開バインド禁止: `allow_public_bind = false`
 - Channel allowlist:
@@ -266,7 +266,7 @@ embedding_provider = "none"
 
 [gateway]
 host = "127.0.0.1"
-port = 3000
+port = 42617
 require_pairing = true
 allow_public_bind = false
 ```

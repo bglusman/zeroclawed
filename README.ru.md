@@ -136,7 +136,7 @@ zeroclaw onboard --interactive
 
 zeroclaw agent -m "Hello, ZeroClaw!"
 
-# default: 127.0.0.1:3000
+# default: 127.0.0.1:42617
 zeroclaw gateway
 
 zeroclaw daemon
@@ -244,7 +244,7 @@ keyword_weight = 0.3
 
 ## Важные security-дефолты
 
-- Gateway по умолчанию: `127.0.0.1:3000`
+- Gateway по умолчанию: `127.0.0.1:42617`
 - Pairing обязателен по умолчанию: `require_pairing = true`
 - Публичный bind запрещён по умолчанию: `allow_public_bind = false`
 - Семантика allowlist каналов:
@@ -266,7 +266,7 @@ embedding_provider = "none"
 
 [gateway]
 host = "127.0.0.1"
-port = 3000
+port = 42617
 require_pairing = true
 allow_public_bind = false
 ```
