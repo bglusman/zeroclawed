@@ -332,15 +332,22 @@ jobs:
                   sleep_seconds=20
 
                   for attempt in $(seq 1 "$max_attempts"); do
-                    code="$(curl -sS -o /tmp/ghcr-release-manifest.json -w "%{http_code}" \
-                      -u "${GITHUB_ACTOR}:${{ secrets.GITHUB_TOKEN }}" \
-                      -H "Accept: ${accept_header}" \
-                      "${manifest_url}" || true)"
+                    token_resp="$(curl -sS "https://ghcr.io/token?scope=repository:${repo}:pull" || true)"
+                    token="$(echo "$token_resp" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+
+                    if [ -z "$token" ]; then
+                      code="000"
+                    else
+                      code="$(curl -sS -o /tmp/ghcr-release-manifest.json -w "%{http_code}" \
+                        -H "Authorization: Bearer ${token}" \
+                        -H "Accept: ${accept_header}" \
+                        "${manifest_url}" || true)"
+                    fi
 
                     if [ "$code" = "200" ]; then
                       echo "GHCR release tag is available: ${repo}:${RELEASE_TAG}"
                       exit 0
-                    fi
+                  fi
 
                     if [ "$attempt" -lt "$max_attempts" ]; then
                       echo "Waiting for GHCR tag ${repo}:${RELEASE_TAG} (attempt ${attempt}/${max_attempts}, HTTP ${code})..."
