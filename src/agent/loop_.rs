@@ -2658,6 +2658,10 @@ pub async fn run(
         "schedule",
         "Manage scheduled tasks (create/list/get/cancel/pause/resume). Supports recurring cron and one-shot delays.",
     ));
+    tool_descs.push((
+        "model_routing_config",
+        "Configure default model, scenario routing, and delegate agents. Use for natural-language requests like: 'set conversation to kimi and coding to gpt-5.3-codex'.",
+    ));
     if !config.agents.is_empty() {
         tool_descs.push((
             "delegate",
@@ -3035,6 +3039,10 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         ("memory_store", "Save to memory."),
         ("memory_recall", "Search memory."),
         ("memory_forget", "Delete a memory entry."),
+        (
+            "model_routing_config",
+            "Configure default model, scenario routing, and delegate agents.",
+        ),
         ("screenshot", "Capture a screenshot."),
         ("image_info", "Read image metadata."),
     ];
