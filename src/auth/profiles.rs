@@ -51,7 +51,7 @@ impl TokenSet {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AuthProfile {
     pub id: String,
     pub provider: String,
@@ -69,6 +69,21 @@ pub struct AuthProfile {
     pub metadata: BTreeMap<String, String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for AuthProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthProfile")
+            .field("id", &self.id)
+            .field("provider", &self.provider)
+            .field("profile_name", &self.profile_name)
+            .field("kind", &self.kind)
+            .field("workspace_id", &self.workspace_id)
+            .field("metadata", &self.metadata)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuthProfile {

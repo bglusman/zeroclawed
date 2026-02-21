@@ -100,8 +100,7 @@ impl std::fmt::Debug for ResolvedEmbeddingConfig {
             .field("provider", &self.provider)
             .field("model", &self.model)
             .field("dimensions", &self.dimensions)
-            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
