@@ -119,7 +119,10 @@ impl AwsCredentials {
             region.trim().to_string()
         };
 
-        tracing::info!("Loaded AWS credentials from EC2 instance metadata (role: {})", role);
+        tracing::info!(
+            "Loaded AWS credentials from EC2 instance metadata (role: {})",
+            role
+        );
 
         Ok(Self {
             access_key_id,
