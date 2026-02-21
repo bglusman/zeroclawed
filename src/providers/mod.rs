@@ -1026,12 +1026,14 @@ fn create_provider_with_url_and_options(
                 .or_else(|| qwen_oauth_context.as_ref().and_then(|context| context.base_url.clone()))
                 .unwrap_or_else(|| QWEN_OAUTH_BASE_FALLBACK_URL.to_string());
 
-            Ok(Box::new(OpenAiCompatibleProvider::new_with_user_agent(
+            Ok(Box::new(
+                OpenAiCompatibleProvider::new_with_user_agent_and_vision(
                 "Qwen Code",
                 &base_url,
                 key,
                 AuthStyle::Bearer,
                 "QwenCode/1.0",
+                true,
             )))
         }
         name if is_qianfan_alias(name) => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -1043,11 +1045,12 @@ fn create_provider_with_url_and_options(
             key,
             AuthStyle::Bearer,
         ))),
-        name if qwen_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new(
+        name if qwen_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new_with_vision(
             "Qwen",
             qwen_base_url(name).expect("checked in guard"),
             key,
             AuthStyle::Bearer,
+            true,
         ))),
 
         // ── Extended ecosystem (community favorites) ─────────
@@ -2066,6 +2069,16 @@ mod tests {
     }
 
     #[test]
+    fn qwen_provider_supports_vision() {
+        let provider = create_provider("qwen", Some("key")).expect("qwen provider should build");
+        assert!(provider.supports_vision());
+
+        let oauth_provider =
+            create_provider("qwen-code", Some("key")).expect("qwen oauth provider should build");
+        assert!(oauth_provider.supports_vision());
+    }
+
+    #[test]
     fn factory_lmstudio() {
         assert!(create_provider("lmstudio", Some("key")).is_ok());
         assert!(create_provider("lm-studio", Some("key")).is_ok());
@@ -2144,6 +2157,13 @@ mod tests {
     #[test]
     fn factory_deepseek() {
         assert!(create_provider("deepseek", Some("key")).is_ok());
+    }
+
+    #[test]
+    fn deepseek_provider_keeps_vision_disabled() {
+        let provider =
+            create_provider("deepseek", Some("key")).expect("deepseek provider should build");
+        assert!(!provider.supports_vision());
     }
 
     #[test]

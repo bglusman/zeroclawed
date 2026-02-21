@@ -2,6 +2,7 @@
 //! Most LLM APIs follow the same `/v1/chat/completions` format.
 //! This module provides a single implementation that works for all of them.
 
+use crate::multimodal;
 use crate::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
     Provider, StreamChunk, StreamError, StreamOptions, StreamResult, TokenUsage,
@@ -23,6 +24,7 @@ pub struct OpenAiCompatibleProvider {
     pub(crate) base_url: String,
     pub(crate) credential: Option<String>,
     pub(crate) auth_header: AuthStyle,
+    supports_vision: bool,
     /// When false, do not fall back to /v1/responses on chat completions 404.
     /// GLM/Zhipu does not support the responses API.
     supports_responses_fallback: bool,
@@ -51,7 +53,28 @@ impl OpenAiCompatibleProvider {
         credential: Option<&str>,
         auth_style: AuthStyle,
     ) -> Self {
-        Self::new_with_options(name, base_url, credential, auth_style, true, None, false)
+        Self::new_with_options(
+            name, base_url, credential, auth_style, false, true, None, false,
+        )
+    }
+
+    pub fn new_with_vision(
+        name: &str,
+        base_url: &str,
+        credential: Option<&str>,
+        auth_style: AuthStyle,
+        supports_vision: bool,
+    ) -> Self {
+        Self::new_with_options(
+            name,
+            base_url,
+            credential,
+            auth_style,
+            supports_vision,
+            true,
+            None,
+            false,
+        )
     }
 
     /// Same as `new` but skips the /v1/responses fallback on 404.
@@ -62,7 +85,9 @@ impl OpenAiCompatibleProvider {
         credential: Option<&str>,
         auth_style: AuthStyle,
     ) -> Self {
-        Self::new_with_options(name, base_url, credential, auth_style, false, None, false)
+        Self::new_with_options(
+            name, base_url, credential, auth_style, false, false, None, false,
+        )
     }
 
     /// Create a provider with a custom User-Agent header.
@@ -81,6 +106,27 @@ impl OpenAiCompatibleProvider {
             base_url,
             credential,
             auth_style,
+            false,
+            true,
+            Some(user_agent),
+            false,
+        )
+    }
+
+    pub fn new_with_user_agent_and_vision(
+        name: &str,
+        base_url: &str,
+        credential: Option<&str>,
+        auth_style: AuthStyle,
+        user_agent: &str,
+        supports_vision: bool,
+    ) -> Self {
+        Self::new_with_options(
+            name,
+            base_url,
+            credential,
+            auth_style,
+            supports_vision,
             true,
             Some(user_agent),
             false,
@@ -95,7 +141,9 @@ impl OpenAiCompatibleProvider {
         credential: Option<&str>,
         auth_style: AuthStyle,
     ) -> Self {
-        Self::new_with_options(name, base_url, credential, auth_style, false, None, true)
+        Self::new_with_options(
+            name, base_url, credential, auth_style, false, false, None, true,
+        )
     }
 
     fn new_with_options(
@@ -103,6 +151,7 @@ impl OpenAiCompatibleProvider {
         base_url: &str,
         credential: Option<&str>,
         auth_style: AuthStyle,
+        supports_vision: bool,
         supports_responses_fallback: bool,
         user_agent: Option<&str>,
         merge_system_into_user: bool,
@@ -112,6 +161,7 @@ impl OpenAiCompatibleProvider {
             base_url: base_url.trim_end_matches('/').to_string(),
             credential: credential.map(ToString::to_string),
             auth_header: auth_style,
+            supports_vision,
             supports_responses_fallback,
             user_agent: user_agent.map(ToString::to_string),
             merge_system_into_user,
@@ -267,7 +317,26 @@ struct ApiChatRequest {
 #[derive(Debug, Serialize)]
 struct Message {
     role: String,
-    content: String,
+    content: MessageContent,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum MessageContent {
+    Text(String),
+    Parts(Vec<MessagePart>),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum MessagePart {
+    Text { text: String },
+    ImageUrl { image_url: ImageUrlPart },
+}
+
+#[derive(Debug, Serialize)]
+struct ImageUrlPart {
+    url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -441,7 +510,7 @@ struct NativeChatRequest {
 struct NativeMessage {
     role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: Option<MessageContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -806,6 +875,33 @@ impl OpenAiCompatibleProvider {
         })
     }
 
+    fn to_message_content(role: &str, content: &str) -> MessageContent {
+        if role != "user" {
+            return MessageContent::Text(content.to_string());
+        }
+
+        let (cleaned_text, image_refs) = multimodal::parse_image_markers(content);
+        if image_refs.is_empty() {
+            return MessageContent::Text(content.to_string());
+        }
+
+        let mut parts = Vec::with_capacity(image_refs.len() + 1);
+        let trimmed_text = cleaned_text.trim();
+        if !trimmed_text.is_empty() {
+            parts.push(MessagePart::Text {
+                text: trimmed_text.to_string(),
+            });
+        }
+
+        for image_ref in image_refs {
+            parts.push(MessagePart::ImageUrl {
+                image_url: ImageUrlPart { url: image_ref },
+            });
+        }
+
+        MessageContent::Parts(parts)
+    }
+
     fn convert_messages_for_native(messages: &[ChatMessage]) -> Vec<NativeMessage> {
         messages
             .iter()
@@ -837,7 +933,7 @@ impl OpenAiCompatibleProvider {
                                 let content = value
                                     .get("content")
                                     .and_then(serde_json::Value::as_str)
-                                    .map(ToString::to_string);
+                                    .map(|value| MessageContent::Text(value.to_string()));
 
                                 return NativeMessage {
                                     role: "assistant".to_string(),
@@ -859,8 +955,8 @@ impl OpenAiCompatibleProvider {
                         let content = value
                             .get("content")
                             .and_then(serde_json::Value::as_str)
-                            .map(ToString::to_string)
-                            .or_else(|| Some(message.content.clone()));
+                            .map(|value| MessageContent::Text(value.to_string()))
+                            .or_else(|| Some(MessageContent::Text(message.content.clone())));
 
                         return NativeMessage {
                             role: "tool".to_string(),
@@ -873,7 +969,7 @@ impl OpenAiCompatibleProvider {
 
                 NativeMessage {
                     role: message.role.clone(),
-                    content: Some(message.content.clone()),
+                    content: Some(Self::to_message_content(&message.role, &message.content)),
                     tool_call_id: None,
                     tool_calls: None,
                 }
@@ -970,7 +1066,7 @@ impl Provider for OpenAiCompatibleProvider {
     fn capabilities(&self) -> crate::providers::traits::ProviderCapabilities {
         crate::providers::traits::ProviderCapabilities {
             native_tool_calling: true,
-            vision: false,
+            vision: self.supports_vision,
         }
     }
 
@@ -997,18 +1093,18 @@ impl Provider for OpenAiCompatibleProvider {
             };
             messages.push(Message {
                 role: "user".to_string(),
-                content,
+                content: Self::to_message_content("user", &content),
             });
         } else {
             if let Some(sys) = system_prompt {
                 messages.push(Message {
                     role: "system".to_string(),
-                    content: sys.to_string(),
+                    content: MessageContent::Text(sys.to_string()),
                 });
             }
             messages.push(Message {
                 role: "user".to_string(),
-                content: message.to_string(),
+                content: Self::to_message_content("user", message),
             });
         }
 
@@ -1126,7 +1222,7 @@ impl Provider for OpenAiCompatibleProvider {
             .iter()
             .map(|m| Message {
                 role: m.role.clone(),
-                content: m.content.clone(),
+                content: Self::to_message_content(&m.role, &m.content),
             })
             .collect();
 
@@ -1232,7 +1328,7 @@ impl Provider for OpenAiCompatibleProvider {
             .iter()
             .map(|m| Message {
                 role: m.role.clone(),
-                content: m.content.clone(),
+                content: Self::to_message_content(&m.role, &m.content),
             })
             .collect();
 
@@ -1465,12 +1561,12 @@ impl Provider for OpenAiCompatibleProvider {
         if let Some(sys) = system_prompt {
             messages.push(Message {
                 role: "system".to_string(),
-                content: sys.to_string(),
+                content: MessageContent::Text(sys.to_string()),
             });
         }
         messages.push(Message {
             role: "user".to_string(),
-            content: message.to_string(),
+            content: Self::to_message_content("user", message),
         });
 
         let request = ApiChatRequest {
@@ -1610,11 +1706,11 @@ mod tests {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "You are ZeroClaw".to_string(),
+                    content: MessageContent::Text("You are ZeroClaw".to_string()),
                 },
                 Message {
                     role: "user".to_string(),
-                    content: "hello".to_string(),
+                    content: MessageContent::Text("hello".to_string()),
                 },
             ],
             temperature: 0.4,
@@ -2055,7 +2151,10 @@ mod tests {
         assert_eq!(converted.len(), 1);
         assert_eq!(converted[0].role, "tool");
         assert_eq!(converted[0].tool_call_id.as_deref(), Some("call_abc"));
-        assert_eq!(converted[0].content.as_deref(), Some("done"));
+        assert!(matches!(
+            converted[0].content.as_ref(),
+            Some(MessageContent::Text(value)) if value == "done"
+        ));
     }
 
     #[test]
@@ -2153,6 +2252,48 @@ mod tests {
         let p = make_provider("test", "https://example.com", None);
         let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
         assert!(caps.native_tool_calling);
+        assert!(!caps.vision);
+    }
+
+    #[test]
+    fn capabilities_reports_vision_for_qwen_compatible_provider() {
+        let p = OpenAiCompatibleProvider::new_with_vision(
+            "Qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            Some("k"),
+            AuthStyle::Bearer,
+            true,
+        );
+        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
+        assert!(caps.native_tool_calling);
+        assert!(caps.vision);
+    }
+
+    #[test]
+    fn to_message_content_converts_image_markers_to_openai_parts() {
+        let content = "Describe this\n\n[IMAGE:data:image/png;base64,abcd]";
+        let value = serde_json::to_value(OpenAiCompatibleProvider::to_message_content(
+            "user", content,
+        ))
+        .unwrap();
+        let parts = value
+            .as_array()
+            .expect("multimodal content should be an array");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "Describe this");
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[1]["image_url"]["url"], "data:image/png;base64,abcd");
+    }
+
+    #[test]
+    fn to_message_content_keeps_plain_text_for_non_user_roles() {
+        let value = serde_json::to_value(OpenAiCompatibleProvider::to_message_content(
+            "system",
+            "You are a helpful assistant.",
+        ))
+        .unwrap();
+        assert_eq!(value, serde_json::json!("You are a helpful assistant."));
     }
 
     #[test]
@@ -2195,7 +2336,7 @@ mod tests {
             model: "test-model".to_string(),
             messages: vec![Message {
                 role: "user".to_string(),
-                content: "What is the weather?".to_string(),
+                content: MessageContent::Text("What is the weather?".to_string()),
             }],
             temperature: 0.7,
             stream: Some(false),
