@@ -425,9 +425,9 @@ enum ConfigCommands {
 
 #[derive(Subcommand, Debug)]
 enum AuthCommands {
-    /// Login with OpenAI Codex OAuth
+    /// Login with OAuth (OpenAI Codex or Gemini)
     Login {
-        /// Provider (`openai-codex`)
+        /// Provider (`openai-codex` or `gemini`)
         #[arg(long)]
         provider: String,
         /// Profile name (default: default)
@@ -948,8 +948,12 @@ fn write_shell_completion<W: Write>(shell: CompletionShell, writer: &mut W) -> R
     Ok(())
 }
 
+// ─── Generic Pending OAuth Login ────────────────────────────────────────────
+
+/// Generic pending OAuth login state, shared across providers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PendingOpenAiLogin {
+struct PendingOAuthLogin {
+    provider: String,
     profile: String,
     code_verifier: String,
     state: String,
@@ -957,7 +961,9 @@ struct PendingOpenAiLogin {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PendingOpenAiLoginFile {
+struct PendingOAuthLoginFile {
+    #[serde(default)]
+    provider: Option<String>,
     profile: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     code_verifier: Option<String>,
@@ -967,11 +973,12 @@ struct PendingOpenAiLoginFile {
     created_at: String,
 }
 
-fn pending_openai_login_path(config: &Config) -> std::path::PathBuf {
-    auth::state_dir_from_config(config).join("auth-openai-pending.json")
+fn pending_oauth_login_path(config: &Config, provider: &str) -> std::path::PathBuf {
+    let filename = format!("auth-{}-pending.json", provider);
+    auth::state_dir_from_config(config).join(filename)
 }
 
-fn pending_openai_secret_store(config: &Config) -> security::secrets::SecretStore {
+fn pending_oauth_secret_store(config: &Config) -> security::secrets::SecretStore {
     security::secrets::SecretStore::new(
         &auth::state_dir_from_config(config),
         config.secrets.encrypt,
@@ -990,14 +997,15 @@ fn set_owner_only_permissions(_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn save_pending_openai_login(config: &Config, pending: &PendingOpenAiLogin) -> Result<()> {
-    let path = pending_openai_login_path(config);
+fn save_pending_oauth_login(config: &Config, pending: &PendingOAuthLogin) -> Result<()> {
+    let path = pending_oauth_login_path(config, &pending.provider);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let secret_store = pending_openai_secret_store(config);
+    let secret_store = pending_oauth_secret_store(config);
     let encrypted_code_verifier = secret_store.encrypt(&pending.code_verifier)?;
-    let persisted = PendingOpenAiLoginFile {
+    let persisted = PendingOAuthLoginFile {
+        provider: Some(pending.provider.clone()),
         profile: pending.profile.clone(),
         code_verifier: None,
         encrypted_code_verifier: Some(encrypted_code_verifier),
@@ -1017,25 +1025,26 @@ fn save_pending_openai_login(config: &Config, pending: &PendingOpenAiLogin) -> R
     Ok(())
 }
 
-fn load_pending_openai_login(config: &Config) -> Result<Option<PendingOpenAiLogin>> {
-    let path = pending_openai_login_path(config);
+fn load_pending_oauth_login(config: &Config, provider: &str) -> Result<Option<PendingOAuthLogin>> {
+    let path = pending_oauth_login_path(config, provider);
     if !path.exists() {
         return Ok(None);
     }
-    let bytes = std::fs::read(path)?;
+    let bytes = std::fs::read(&path)?;
     if bytes.is_empty() {
         return Ok(None);
     }
-    let persisted: PendingOpenAiLoginFile = serde_json::from_slice(&bytes)?;
-    let secret_store = pending_openai_secret_store(config);
+    let persisted: PendingOAuthLoginFile = serde_json::from_slice(&bytes)?;
+    let secret_store = pending_oauth_secret_store(config);
     let code_verifier = if let Some(encrypted) = persisted.encrypted_code_verifier {
         secret_store.decrypt(&encrypted)?
     } else if let Some(plaintext) = persisted.code_verifier {
         plaintext
     } else {
-        bail!("Pending OpenAI login is missing code verifier");
+        bail!("Pending {} login is missing code verifier", provider);
     };
-    Ok(Some(PendingOpenAiLogin {
+    Ok(Some(PendingOAuthLogin {
+        provider: persisted.provider.unwrap_or_else(|| provider.to_string()),
         profile: persisted.profile,
         code_verifier,
         state: persisted.state,
@@ -1043,8 +1052,8 @@ fn load_pending_openai_login(config: &Config) -> Result<Option<PendingOpenAiLogi
     }))
 }
 
-fn clear_pending_openai_login(config: &Config) {
-    let path = pending_openai_login_path(config);
+fn clear_pending_oauth_login(config: &Config, provider: &str) {
+    let path = pending_oauth_login_path(config, provider);
     if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&path) {
         let _ = file.set_len(0);
         let _ = file.sync_all();
@@ -1106,90 +1115,184 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
             device_code,
         } => {
             let provider = auth::normalize_provider(&provider)?;
-            if provider != "openai-codex" {
-                bail!("`auth login` currently supports only --provider openai-codex");
-            }
-
             let client = reqwest::Client::new();
 
-            if device_code {
-                match auth::openai_oauth::start_device_code_flow(&client).await {
-                    Ok(device) => {
-                        println!("OpenAI device-code login started.");
-                        println!("Visit: {}", device.verification_uri);
-                        println!("Code:  {}", device.user_code);
-                        if let Some(uri_complete) = &device.verification_uri_complete {
-                            println!("Fast link: {uri_complete}");
+            match provider.as_str() {
+                "gemini" => {
+                    // Gemini OAuth flow
+                    if device_code {
+                        match auth::gemini_oauth::start_device_code_flow(&client).await {
+                            Ok(device) => {
+                                println!("Google/Gemini device-code login started.");
+                                println!("Visit: {}", device.verification_uri);
+                                println!("Code:  {}", device.user_code);
+                                if let Some(uri_complete) = &device.verification_uri_complete {
+                                    println!("Fast link: {uri_complete}");
+                                }
+
+                                let token_set =
+                                    auth::gemini_oauth::poll_device_code_tokens(&client, &device)
+                                        .await?;
+                                let account_id = token_set.id_token.as_deref().and_then(
+                                    auth::gemini_oauth::extract_account_email_from_id_token,
+                                );
+
+                                auth_service
+                                    .store_gemini_tokens(&profile, token_set, account_id, true)
+                                    .await?;
+
+                                println!("Saved profile {profile}");
+                                println!("Active profile for gemini: {profile}");
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                println!(
+                                    "Device-code flow unavailable: {e}. Falling back to browser flow."
+                                );
+                            }
                         }
-                        if let Some(message) = &device.message {
-                            println!("{message}");
+                    }
+
+                    let pkce = auth::gemini_oauth::generate_pkce_state();
+                    let authorize_url = auth::gemini_oauth::build_authorize_url(&pkce)?;
+
+                    // Save pending login for paste-redirect fallback
+                    let pending = PendingOAuthLogin {
+                        provider: "gemini".to_string(),
+                        profile: profile.clone(),
+                        code_verifier: pkce.code_verifier.clone(),
+                        state: pkce.state.clone(),
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                    };
+                    save_pending_oauth_login(config, &pending)?;
+
+                    println!("Open this URL in your browser and authorize access:");
+                    println!("{authorize_url}");
+                    println!();
+
+                    let code = match auth::gemini_oauth::receive_loopback_code(
+                        &pkce.state,
+                        std::time::Duration::from_secs(180),
+                    )
+                    .await
+                    {
+                        Ok(code) => {
+                            clear_pending_oauth_login(config, "gemini");
+                            code
                         }
+                        Err(e) => {
+                            println!("Callback capture failed: {e}");
+                            println!(
+                                "Run `zeroclaw auth paste-redirect --provider gemini --profile {profile}`"
+                            );
+                            return Ok(());
+                        }
+                    };
 
-                        let token_set =
-                            auth::openai_oauth::poll_device_code_tokens(&client, &device).await?;
-                        let account_id =
-                            extract_openai_account_id_for_profile(&token_set.access_token);
+                    let token_set =
+                        auth::gemini_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+                    let account_id = token_set
+                        .id_token
+                        .as_deref()
+                        .and_then(auth::gemini_oauth::extract_account_email_from_id_token);
 
-                        auth_service
-                            .store_openai_tokens(&profile, token_set, account_id, true)
-                            .await?;
-                        clear_pending_openai_login(config);
+                    auth_service
+                        .store_gemini_tokens(&profile, token_set, account_id, true)
+                        .await?;
 
-                        println!("Saved profile {profile}");
-                        println!("Active profile for openai-codex: {profile}");
-                        return Ok(());
+                    println!("Saved profile {profile}");
+                    println!("Active profile for gemini: {profile}");
+                    Ok(())
+                }
+                "openai-codex" => {
+                    // OpenAI Codex OAuth flow
+                    if device_code {
+                        match auth::openai_oauth::start_device_code_flow(&client).await {
+                            Ok(device) => {
+                                println!("OpenAI device-code login started.");
+                                println!("Visit: {}", device.verification_uri);
+                                println!("Code:  {}", device.user_code);
+                                if let Some(uri_complete) = &device.verification_uri_complete {
+                                    println!("Fast link: {uri_complete}");
+                                }
+                                if let Some(message) = &device.message {
+                                    println!("{message}");
+                                }
+
+                                let token_set =
+                                    auth::openai_oauth::poll_device_code_tokens(&client, &device)
+                                        .await?;
+                                let account_id =
+                                    extract_openai_account_id_for_profile(&token_set.access_token);
+
+                                auth_service
+                                    .store_openai_tokens(&profile, token_set, account_id, true)
+                                    .await?;
+                                clear_pending_oauth_login(config, "openai");
+
+                                println!("Saved profile {profile}");
+                                println!("Active profile for openai-codex: {profile}");
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                println!(
+                                    "Device-code flow unavailable: {e}. Falling back to browser/paste flow."
+                                );
+                            }
+                        }
                     }
-                    Err(e) => {
-                        println!(
-                            "Device-code flow unavailable: {e}. Falling back to browser/paste flow."
-                        );
-                    }
+
+                    let pkce = auth::openai_oauth::generate_pkce_state();
+                    let pending = PendingOAuthLogin {
+                        provider: "openai".to_string(),
+                        profile: profile.clone(),
+                        code_verifier: pkce.code_verifier.clone(),
+                        state: pkce.state.clone(),
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                    };
+                    save_pending_oauth_login(config, &pending)?;
+
+                    let authorize_url = auth::openai_oauth::build_authorize_url(&pkce);
+                    println!("Open this URL in your browser and authorize access:");
+                    println!("{authorize_url}");
+                    println!();
+                    println!("Waiting for callback at http://localhost:1455/auth/callback ...");
+
+                    let code = match auth::openai_oauth::receive_loopback_code(
+                        &pkce.state,
+                        std::time::Duration::from_secs(180),
+                    )
+                    .await
+                    {
+                        Ok(code) => code,
+                        Err(e) => {
+                            println!("Callback capture failed: {e}");
+                            println!(
+                                "Run `zeroclaw auth paste-redirect --provider openai-codex --profile {profile}`"
+                            );
+                            return Ok(());
+                        }
+                    };
+
+                    let token_set =
+                        auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+                    let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
+
+                    auth_service
+                        .store_openai_tokens(&profile, token_set, account_id, true)
+                        .await?;
+                    clear_pending_oauth_login(config, "openai");
+
+                    println!("Saved profile {profile}");
+                    println!("Active profile for openai-codex: {profile}");
+                    Ok(())
+                }
+                _ => {
+                    bail!(
+                        "`auth login` supports --provider openai-codex or gemini, got: {provider}"
+                    );
                 }
             }
-
-            let pkce = auth::openai_oauth::generate_pkce_state();
-            let pending = PendingOpenAiLogin {
-                profile: profile.clone(),
-                code_verifier: pkce.code_verifier.clone(),
-                state: pkce.state.clone(),
-                created_at: chrono::Utc::now().to_rfc3339(),
-            };
-            save_pending_openai_login(config, &pending)?;
-
-            let authorize_url = auth::openai_oauth::build_authorize_url(&pkce);
-            println!("Open this URL in your browser and authorize access:");
-            println!("{authorize_url}");
-            println!();
-            println!("Waiting for callback at http://localhost:1455/auth/callback ...");
-
-            let code = match auth::openai_oauth::receive_loopback_code(
-                &pkce.state,
-                std::time::Duration::from_secs(180),
-            )
-            .await
-            {
-                Ok(code) => code,
-                Err(e) => {
-                    println!("Callback capture failed: {e}");
-                    println!(
-                            "Run `zeroclaw auth paste-redirect --provider openai-codex --profile {profile}`"
-                        );
-                    return Ok(());
-                }
-            };
-
-            let token_set =
-                auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
-            let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
-
-            auth_service
-                .store_openai_tokens(&profile, token_set, account_id, true)
-                .await?;
-            clear_pending_openai_login(config);
-
-            println!("Saved profile {profile}");
-            println!("Active profile for openai-codex: {profile}");
-            Ok(())
         }
 
         AuthCommands::PasteRedirect {
@@ -1198,52 +1301,103 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
             input,
         } => {
             let provider = auth::normalize_provider(&provider)?;
-            if provider != "openai-codex" {
-                bail!("`auth paste-redirect` currently supports only --provider openai-codex");
+
+            match provider.as_str() {
+                "openai-codex" => {
+                    let pending = load_pending_oauth_login(config, "openai")?.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No pending OpenAI login found. Run `zeroclaw auth login --provider openai-codex` first."
+                        )
+                    })?;
+
+                    if pending.profile != profile {
+                        bail!(
+                            "Pending login profile mismatch: pending={}, requested={}",
+                            pending.profile,
+                            profile
+                        );
+                    }
+
+                    let redirect_input = match input {
+                        Some(value) => value,
+                        None => read_plain_input("Paste redirect URL or OAuth code")?,
+                    };
+
+                    let code = auth::openai_oauth::parse_code_from_redirect(
+                        &redirect_input,
+                        Some(&pending.state),
+                    )?;
+
+                    let pkce = auth::openai_oauth::PkceState {
+                        code_verifier: pending.code_verifier.clone(),
+                        code_challenge: String::new(),
+                        state: pending.state.clone(),
+                    };
+
+                    let client = reqwest::Client::new();
+                    let token_set =
+                        auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+                    let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
+
+                    auth_service
+                        .store_openai_tokens(&profile, token_set, account_id, true)
+                        .await?;
+                    clear_pending_oauth_login(config, "openai");
+
+                    println!("Saved profile {profile}");
+                    println!("Active profile for openai-codex: {profile}");
+                }
+                "gemini" => {
+                    let pending = load_pending_oauth_login(config, "gemini")?.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "No pending Gemini login found. Run `zeroclaw auth login --provider gemini` first."
+                        )
+                    })?;
+
+                    if pending.profile != profile {
+                        bail!(
+                            "Pending login profile mismatch: pending={}, requested={}",
+                            pending.profile,
+                            profile
+                        );
+                    }
+
+                    let redirect_input = match input {
+                        Some(value) => value,
+                        None => read_plain_input("Paste redirect URL or OAuth code")?,
+                    };
+
+                    let code = auth::gemini_oauth::parse_code_from_redirect(
+                        &redirect_input,
+                        Some(&pending.state),
+                    )?;
+
+                    let pkce = auth::gemini_oauth::PkceState {
+                        code_verifier: pending.code_verifier.clone(),
+                        code_challenge: String::new(),
+                        state: pending.state.clone(),
+                    };
+
+                    let client = reqwest::Client::new();
+                    let token_set =
+                        auth::gemini_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+                    let account_id = token_set
+                        .id_token
+                        .as_deref()
+                        .and_then(auth::gemini_oauth::extract_account_email_from_id_token);
+
+                    auth_service
+                        .store_gemini_tokens(&profile, token_set, account_id, true)
+                        .await?;
+                    clear_pending_oauth_login(config, "gemini");
+
+                    println!("Saved profile {profile}");
+                    println!("Active profile for gemini: {profile}");
+                }
+                _ => {
+                    bail!("`auth paste-redirect` supports --provider openai-codex or gemini");
+                }
             }
-
-            let pending = load_pending_openai_login(config)?.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No pending OpenAI login found. Run `zeroclaw auth login --provider openai-codex` first."
-                )
-            })?;
-
-            if pending.profile != profile {
-                bail!(
-                    "Pending login profile mismatch: pending={}, requested={}",
-                    pending.profile,
-                    profile
-                );
-            }
-
-            let redirect_input = match input {
-                Some(value) => value,
-                None => read_plain_input("Paste redirect URL or OAuth code")?,
-            };
-
-            let code = auth::openai_oauth::parse_code_from_redirect(
-                &redirect_input,
-                Some(&pending.state),
-            )?;
-
-            let pkce = auth::openai_oauth::PkceState {
-                code_verifier: pending.code_verifier.clone(),
-                code_challenge: String::new(),
-                state: pending.state.clone(),
-            };
-
-            let client = reqwest::Client::new();
-            let token_set =
-                auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
-            let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
-
-            auth_service
-                .store_openai_tokens(&profile, token_set, account_id, true)
-                .await?;
-            clear_pending_openai_login(config);
-
-            println!("Saved profile {profile}");
-            println!("Active profile for openai-codex: {profile}");
             Ok(())
         }
 

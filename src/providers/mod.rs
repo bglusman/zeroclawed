@@ -36,6 +36,7 @@ pub use traits::{
     ToolCall, ToolResultMessage,
 };
 
+use crate::auth::AuthService;
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
 use serde::Deserialize;
@@ -960,7 +961,21 @@ fn create_provider_with_url_and_options(
             options.reasoning_enabled,
         ))),
         "gemini" | "google" | "google-gemini" => {
-            Ok(Box::new(gemini::GeminiProvider::new(key)))
+            let state_dir = options
+                .zeroclaw_dir
+                .clone()
+                .unwrap_or_else(|| {
+                    directories::UserDirs::new().map_or_else(
+                        || PathBuf::from(".zeroclaw"),
+                        |dirs| dirs.home_dir().join(".zeroclaw"),
+                    )
+                });
+            let auth_service = AuthService::new(&state_dir, options.secrets_encrypt);
+            Ok(Box::new(gemini::GeminiProvider::new_with_auth(
+                key,
+                auth_service,
+                options.auth_profile_override.clone(),
+            )))
         }
         "telnyx" => Ok(Box::new(telnyx::TelnyxProvider::new(key))),
 
