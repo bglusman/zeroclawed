@@ -29,6 +29,9 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA) and policy/license checks (`cargo deny`)
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
     - Purpose: scheduled/manual static analysis for security findings
+- `.github/workflows/sec-vorpal-reviewdog.yml` (`Sec Vorpal Reviewdog`)
+    - Purpose: manual secure-coding feedback scan for supported non-Rust files (`.py`, `.js`, `.jsx`, `.ts`, `.tsx`) using reviewdog annotations
+    - Noise control: excludes common test/fixture paths and test file patterns by default (`include_tests=false`)
 - `.github/workflows/pub-release.yml` (`Release`)
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
@@ -69,6 +72,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `Docker`: push to `main` when Docker build inputs change, tag push (`v*`), matching PRs, manual dispatch
 - `Release`: tag push (`v*`), weekly schedule (verification-only), manual dispatch (verification or publish)
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
+- `Sec Vorpal Reviewdog`: manual dispatch only
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `PR Intake Checks`: `pull_request_target` on opened/reopened/synchronize/edited/ready_for_review
 - `Label Policy Sanity`: PR/push when `.github/label-policy.json`, `.github/workflows/pr-labeler.yml`, or `.github/workflows/pr-auto-response.yml` changes
