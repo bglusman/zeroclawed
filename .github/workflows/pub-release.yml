@@ -313,10 +313,11 @@ jobs:
                   set -euo pipefail
                   while IFS= read -r -d '' file; do
                     cosign sign-blob --yes \
+                      --bundle="${file}.sigstore.json" \
                       --output-signature="${file}.sig" \
                       --output-certificate="${file}.pem" \
                       "$file"
-                  done < <(find artifacts -type f ! -name '*.sig' ! -name '*.pem' -print0)
+                  done < <(find artifacts -type f ! -name '*.sig' ! -name '*.pem' ! -name '*.sigstore.json' -print0)
 
             - name: Verify GHCR release tag availability
               shell: bash
