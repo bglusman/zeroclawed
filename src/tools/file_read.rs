@@ -709,6 +709,7 @@ mod tests {
                     return Ok(ChatResponse {
                         text: Some("done".into()),
                         tool_calls: vec![],
+                        usage: None,
                     });
                 }
                 Ok(guard.remove(0))
@@ -767,11 +768,13 @@ mod tests {
                     name: "file_read".into(),
                     arguments: r#"{"path": "report.pdf"}"#.into(),
                 }],
+                usage: None,
             },
             // Turn 1 continued: provider sees tool result and answers
             ChatResponse {
                 text: Some("The PDF contains a greeting: Hello PDF".into()),
                 tool_calls: vec![],
+                usage: None,
             },
         ]);
 
@@ -856,10 +859,12 @@ mod tests {
                     name: "file_read".into(),
                     arguments: r#"{"path": "data.bin"}"#.into(),
                 }],
+                usage: None,
             },
             ChatResponse {
                 text: Some("The file appears to be binary data.".into()),
                 tool_calls: vec![],
+                usage: None,
             },
         ]);
 
