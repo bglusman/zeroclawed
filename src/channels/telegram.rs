@@ -359,7 +359,6 @@ impl TelegramChannel {
             bot_username: Mutex::new(None),
             api_base: "https://api.telegram.org".to_string(),
             transcription: None,
-            api_base: "https://api.telegram.org".to_string(),
         }
     }
 
