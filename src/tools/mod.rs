@@ -19,6 +19,7 @@ pub mod browser;
 pub mod browser_open;
 pub mod cli_discovery;
 pub mod composio;
+pub mod content_search;
 pub mod cron_add;
 pub mod cron_list;
 pub mod cron_remove;
@@ -53,6 +54,7 @@ pub mod web_search_tool;
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
+pub use content_search::ContentSearchTool;
 pub use cron_add::CronAddTool;
 pub use cron_list::CronListTool;
 pub use cron_remove::CronRemoveTool;
@@ -144,7 +146,8 @@ pub fn default_tools_with_runtime(
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(FileEditTool::new(security.clone())),
-        Box::new(GlobSearchTool::new(security)),
+        Box::new(GlobSearchTool::new(security.clone())),
+        Box::new(ContentSearchTool::new(security)),
     ]
 }
 
@@ -201,6 +204,7 @@ pub fn all_tools_with_runtime(
         Arc::new(FileWriteTool::new(security.clone())),
         Arc::new(FileEditTool::new(security.clone())),
         Arc::new(GlobSearchTool::new(security.clone())),
+        Arc::new(ContentSearchTool::new(security.clone())),
         Arc::new(CronAddTool::new(config.clone(), security.clone())),
         Arc::new(CronListTool::new(config.clone())),
         Arc::new(CronRemoveTool::new(config.clone(), security.clone())),
@@ -340,7 +344,7 @@ mod tests {
     fn default_tools_has_expected_count() {
         let security = Arc::new(SecurityPolicy::default());
         let tools = default_tools(security);
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
     }
 
     #[test]
