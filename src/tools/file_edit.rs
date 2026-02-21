@@ -665,4 +665,25 @@ mod tests {
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
+
+    #[tokio::test]
+    async fn file_edit_blocks_null_byte_in_path() {
+        let dir = std::env::temp_dir().join("zeroclaw_test_file_edit_null_byte");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let tool = FileEditTool::new(test_security(dir.clone()));
+        let result = tool
+            .execute(json!({
+                "path": "test\0evil.txt",
+                "old_string": "old",
+                "new_string": "new"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_ref().unwrap().contains("not allowed"));
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
 }

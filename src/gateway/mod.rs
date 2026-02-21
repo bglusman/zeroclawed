@@ -2409,4 +2409,147 @@ mod tests {
         assert!(!keys.contains_key("old-key"));
         assert!(keys.contains_key("new-key"));
     }
+
+    #[test]
+    fn rate_limiter_allows_after_window_expires() {
+        let window = Duration::from_millis(50);
+        let limiter = SlidingWindowRateLimiter::new(2, window, 100);
+        assert!(limiter.allow("ip-1"));
+        assert!(limiter.allow("ip-1"));
+        assert!(!limiter.allow("ip-1")); // blocked
+
+        // Wait for window to expire
+        std::thread::sleep(Duration::from_millis(60));
+
+        // Should be allowed again
+        assert!(limiter.allow("ip-1"));
+    }
+
+    #[test]
+    fn rate_limiter_independent_keys_tracked_separately() {
+        let limiter = SlidingWindowRateLimiter::new(2, Duration::from_secs(60), 100);
+        assert!(limiter.allow("ip-1"));
+        assert!(limiter.allow("ip-1"));
+        assert!(!limiter.allow("ip-1")); // ip-1 blocked
+
+        // ip-2 should still work
+        assert!(limiter.allow("ip-2"));
+        assert!(limiter.allow("ip-2"));
+        assert!(!limiter.allow("ip-2")); // ip-2 now blocked
+    }
+
+    #[test]
+    fn rate_limiter_exact_boundary_at_max_keys() {
+        let limiter = SlidingWindowRateLimiter::new(10, Duration::from_secs(60), 3);
+        assert!(limiter.allow("ip-1"));
+        assert!(limiter.allow("ip-2"));
+        assert!(limiter.allow("ip-3"));
+        // At capacity now
+        assert!(limiter.allow("ip-4")); // should evict ip-1
+
+        let guard = limiter.requests.lock();
+        assert_eq!(guard.0.len(), 3);
+        assert!(!guard.0.contains_key("ip-1"), "ip-1 should have been evicted");
+        assert!(guard.0.contains_key("ip-2"));
+        assert!(guard.0.contains_key("ip-3"));
+        assert!(guard.0.contains_key("ip-4"));
+    }
+
+    #[test]
+    fn gateway_rate_limiter_pair_and_webhook_are_independent() {
+        let limiter = GatewayRateLimiter::new(2, 3, 100);
+
+        // Exhaust pair limit
+        assert!(limiter.allow_pair("ip-1"));
+        assert!(limiter.allow_pair("ip-1"));
+        assert!(!limiter.allow_pair("ip-1")); // pair blocked
+
+        // Webhook should still work
+        assert!(limiter.allow_webhook("ip-1"));
+        assert!(limiter.allow_webhook("ip-1"));
+        assert!(limiter.allow_webhook("ip-1"));
+        assert!(!limiter.allow_webhook("ip-1")); // webhook now blocked
+    }
+
+    #[test]
+    fn rate_limiter_single_key_max_allows_one_request() {
+        let limiter = SlidingWindowRateLimiter::new(5, Duration::from_secs(60), 1);
+        assert!(limiter.allow("ip-1"));
+        assert!(limiter.allow("ip-2")); // evicts ip-1
+
+        let guard = limiter.requests.lock();
+        assert_eq!(guard.0.len(), 1);
+        assert!(guard.0.contains_key("ip-2"));
+        assert!(!guard.0.contains_key("ip-1"));
+    }
+
+    #[test]
+    fn rate_limiter_concurrent_access_safe() {
+        use std::sync::Arc;
+
+        let limiter = Arc::new(SlidingWindowRateLimiter::new(
+            1000,
+            Duration::from_secs(60),
+            1000,
+        ));
+        let mut handles = Vec::new();
+
+        for i in 0..10 {
+            let limiter = limiter.clone();
+            handles.push(std::thread::spawn(move || {
+                for j in 0..100 {
+                    limiter.allow(&format!("thread-{i}-req-{j}"));
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        // Should not panic or deadlock
+        let guard = limiter.requests.lock();
+        assert!(guard.0.len() <= 1000, "should respect max_keys");
+    }
+
+    #[test]
+    fn idempotency_store_concurrent_access_safe() {
+        use std::sync::Arc;
+
+        let store = Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000));
+        let mut handles = Vec::new();
+
+        for i in 0..10 {
+            let store = store.clone();
+            handles.push(std::thread::spawn(move || {
+                for j in 0..100 {
+                    store.record_if_new(&format!("thread-{i}-key-{j}"));
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let keys = store.keys.lock();
+        assert!(keys.len() <= 1000, "should respect max_keys");
+    }
+
+    #[test]
+    fn rate_limiter_rapid_burst_then_cooldown() {
+        let limiter = SlidingWindowRateLimiter::new(5, Duration::from_millis(50), 100);
+
+        // Burst: use all 5 requests
+        for _ in 0..5 {
+            assert!(limiter.allow("burst-ip"));
+        }
+        assert!(!limiter.allow("burst-ip")); // 6th should fail
+
+        // Cooldown
+        std::thread::sleep(Duration::from_millis(60));
+
+        // Should be allowed again
+        assert!(limiter.allow("burst-ip"));
+    }
 }
