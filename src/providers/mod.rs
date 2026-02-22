@@ -85,6 +85,28 @@ const ZAI_CN_BASE_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4";
 const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
 const VERCEL_AI_GATEWAY_BASE_URL: &str = "https://ai-gateway.vercel.sh/v1";
 
+struct PluginProvider {
+    name: String,
+}
+
+#[async_trait::async_trait]
+impl Provider for PluginProvider {
+    async fn chat_with_system(
+        &self,
+        system_prompt: Option<&str>,
+        message: &str,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<String> {
+        plugins::runtime::execute_plugin_provider_chat(
+            &self.name,
+            system_prompt,
+            message,
+            model,
+            temperature,
+        )
+    }
+}
 pub(crate) fn is_minimax_intl_alias(name: &str) -> bool {
     matches!(
         name,
