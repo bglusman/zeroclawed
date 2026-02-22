@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
+  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache%202.0-blue.svg" alt="License: MIT OR Apache-2.0" /></a>
   <a href="NOTICE"><img src="https://img.shields.io/badge/contributors-27+-green.svg" alt="Contributors" /></a>
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
   <a href="https://x.com/zeroclawlabs?s=21"><img src="https://img.shields.io/badge/X-%40zeroclawlabs-000000?style=flat&logo=x&logoColor=white" alt="X: @zeroclawlabs" /></a>
@@ -1016,7 +1016,7 @@ ZeroClaw được cấp phép kép để tối đa hóa tính mở và bảo v�
 
 | Giấy phép | Trường hợp sử dụng |
 |---|---|
-| [MIT](LICENSE) | Mã nguồn mở, nghiên cứu, học thuật, sử dụng cá nhân |
+| [MIT](LICENSE-MIT) | Mã nguồn mở, nghiên cứu, học thuật, sử dụng cá nhân |
 | [Apache 2.0](LICENSE-APACHE) | Bảo hộ bằng sáng chế, triển khai tổ chức, thương mại |
 
 Bạn có thể chọn một trong hai giấy phép. **Người đóng góp tự động cấp quyền theo cả hai** — xem [CLA.md](CLA.md) để biết thỏa thuận đóng góp đầy đủ.

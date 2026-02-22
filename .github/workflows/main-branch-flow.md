@@ -16,7 +16,7 @@ Use this with:
 | PR activity (`pull_request`) | `ci-run.yml`, `sec-audit.yml`, `main-promotion-gate.yml` (for `main` PRs), plus path-scoped workflows |
 | Push to `dev`/`main` | `ci-run.yml`, `sec-audit.yml`, plus path-scoped workflows |
 | Tag push (`v*`) | `pub-release.yml` publish mode, `pub-docker-img.yml` publish job |
-| Scheduled/manual | `pub-release.yml` verification mode, `sec-codeql.yml`, `feature-matrix.yml`, `test-fuzz.yml`, `pr-check-stale.yml`, `pr-check-status.yml`, `sync-contributors.yml`, `test-benchmarks.yml`, `test-e2e.yml` |
+| Scheduled/manual | `pub-release.yml` verification mode, `pub-homebrew-core.yml` (manual), `sec-codeql.yml`, `feature-matrix.yml`, `test-fuzz.yml`, `pr-check-stale.yml`, `pr-check-status.yml`, `sync-contributors.yml`, `test-benchmarks.yml`, `test-e2e.yml` |
 
 ## Runtime and Docker Matrix
 
@@ -34,6 +34,7 @@ Observed averages below are from recent completed runs (sampled from GitHub Acti
 | `pub-docker-img.yml` (`pull_request`) | Docker build-input PR changes | 240.4s | Yes | Yes | No |
 | `pub-docker-img.yml` (`push`) | tag push `v*` | 139.9s | Yes | No | Yes |
 | `pub-release.yml` | Tag push `v*` (publish) + manual/scheduled verification (no publish) | N/A in recent sample | No | No | No |
+| `pub-homebrew-core.yml` | Manual workflow dispatch only | N/A in recent sample | No | No | No |
 
 Notes:
 
@@ -70,7 +71,7 @@ Notes:
    - `test`
    - `docs-quality`
 7. If `.github/workflows/**` changed, `workflow-owner-approval` must pass.
-8. If root license files (`LICENSE`, `LICENSE-APACHE`) changed, `license-file-owner-guard` allows only PR author `willsarg`.
+8. If root license files (`LICENSE-APACHE`, `LICENSE-MIT`) changed, `license-file-owner-guard` allows only PR author `willsarg`.
 9. `lint-feedback` posts actionable comment if lint/docs gates fail.
 10. `CI Required Gate` aggregates results to final pass/fail.
 11. Maintainer merges PR once checks and review policy are satisfied.
@@ -116,10 +117,11 @@ Notes:
 ### 3) Promotion PR `dev` -> `main`
 
 1. Maintainer opens PR with head `dev` and base `main`.
-2. `main-promotion-gate.yml` runs and fails if head repo/branch is not `<this-repo>:dev`.
-3. `ci-run.yml` and `sec-audit.yml` run on the promotion PR.
-4. Maintainer merges PR once checks and review policy pass.
-5. Merge emits a `push` event on `main`.
+2. `main-promotion-gate.yml` runs and fails unless PR author is `willsarg` or `theonlyhennygod`.
+3. `main-promotion-gate.yml` also fails if head repo/branch is not `<this-repo>:dev`.
+4. `ci-run.yml` and `sec-audit.yml` run on the promotion PR.
+5. Maintainer merges PR once checks and review policy pass.
+6. Merge emits a `push` event on `main`.
 
 ### 4) Push to `dev` or `main` (including after merge)
 
@@ -166,10 +168,17 @@ Workflow: `.github/workflows/pub-release.yml`
    - Manual dispatch -> verification-only or publish mode (input-driven).
    - Weekly schedule -> verification-only mode.
 2. `prepare` resolves release context (`release_ref`, `release_tag`, publish/draft mode) and validates manual publish inputs.
+   - publish mode enforces `release_tag` == `Cargo.toml` version at the tag commit.
 3. `build-release` builds matrix artifacts across Linux/macOS/Windows targets.
 4. `verify-artifacts` enforces presence of all expected archives before any publish attempt.
 5. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, keyless cosign signatures, and verifies GHCR release-tag availability.
 6. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish.
+
+Manual Homebrew formula flow:
+
+1. Run `.github/workflows/pub-homebrew-core.yml` with `release_tag=vX.Y.Z`.
+2. Use `dry_run=true` first to validate formula patch and metadata.
+3. Use `dry_run=false` to push from bot fork and open `homebrew-core` PR.
 
 ## Merge/Policy Notes
 
