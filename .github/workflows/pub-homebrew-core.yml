@@ -85,8 +85,8 @@ jobs:
               id: patch_formula
               shell: bash
               env:
-                  HOMEBREW_CORE_BOT_TOKEN: ${{ secrets.HOMEBREW_CORE_BOT_TOKEN }}
-                  GH_TOKEN: ${{ secrets.HOMEBREW_CORE_BOT_TOKEN }}
+                  HOMEBREW_CORE_BOT_TOKEN: ${{ secrets.HOMEBREW_UPSTREAM_PR_TOKEN || secrets.HOMEBREW_CORE_BOT_TOKEN }}
+                  GH_TOKEN: ${{ secrets.HOMEBREW_UPSTREAM_PR_TOKEN || secrets.HOMEBREW_CORE_BOT_TOKEN }}
               run: |
                   set -euo pipefail
 
@@ -163,7 +163,7 @@ jobs:
               if: ${{ inputs.dry_run == false }}
               shell: bash
               env:
-                  GH_TOKEN: ${{ secrets.HOMEBREW_CORE_BOT_TOKEN }}
+                  GH_TOKEN: ${{ secrets.HOMEBREW_UPSTREAM_PR_TOKEN || secrets.HOMEBREW_CORE_BOT_TOKEN }}
               run: |
                   set -euo pipefail
 
