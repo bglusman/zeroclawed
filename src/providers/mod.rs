@@ -105,6 +105,7 @@ impl Provider for PluginProvider {
             model,
             temperature,
         )
+        .await
     }
 }
 pub(crate) fn is_minimax_intl_alias(name: &str) -> bool {
