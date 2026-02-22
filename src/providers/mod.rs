@@ -2085,6 +2085,16 @@ mod tests {
     }
 
     #[test]
+    fn factory_minimax_disables_native_tool_calling() {
+        let minimax = create_provider("minimax", Some("key")).expect("provider should resolve");
+        assert!(!minimax.supports_native_tools());
+
+        let minimax_cn =
+            create_provider("minimax-cn", Some("key")).expect("provider should resolve");
+        assert!(!minimax_cn.supports_native_tools());
+    }
+
+    #[test]
     fn factory_bedrock() {
         // Bedrock uses AWS env vars for credentials, not API key.
         assert!(create_provider("bedrock", None).is_ok());
