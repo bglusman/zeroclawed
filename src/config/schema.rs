@@ -2287,6 +2287,15 @@ pub struct HeartbeatConfig {
     pub enabled: bool,
     /// Interval in minutes between heartbeat pings. Default: `30`.
     pub interval_minutes: u32,
+    /// Optional fallback task text when `HEARTBEAT.md` has no task entries.
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Optional delivery channel for heartbeat output (for example: `telegram`).
+    #[serde(default, alias = "channel")]
+    pub target: Option<String>,
+    /// Optional delivery recipient/chat identifier (required when `target` is set).
+    #[serde(default, alias = "recipient")]
+    pub to: Option<String>,
 }
 
 impl Default for HeartbeatConfig {
@@ -2294,6 +2303,9 @@ impl Default for HeartbeatConfig {
         Self {
             enabled: false,
             interval_minutes: 30,
+            message: None,
+            target: None,
+            to: None,
         }
     }
 }
@@ -4588,6 +4600,26 @@ mod tests {
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
         assert_eq!(h.interval_minutes, 30);
+        assert!(h.message.is_none());
+        assert!(h.target.is_none());
+        assert!(h.to.is_none());
+    }
+
+    #[test]
+    async fn heartbeat_config_parses_delivery_aliases() {
+        let raw = r#"
+enabled = true
+interval_minutes = 10
+message = "Ping"
+channel = "telegram"
+recipient = "42"
+"#;
+        let parsed: HeartbeatConfig = toml::from_str(raw).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.interval_minutes, 10);
+        assert_eq!(parsed.message.as_deref(), Some("Ping"));
+        assert_eq!(parsed.target.as_deref(), Some("telegram"));
+        assert_eq!(parsed.to.as_deref(), Some("42"));
     }
 
     #[test]
@@ -4697,6 +4729,9 @@ default_temperature = 0.7
             heartbeat: HeartbeatConfig {
                 enabled: true,
                 interval_minutes: 15,
+                message: Some("Check London time".into()),
+                target: Some("telegram".into()),
+                to: Some("123456".into()),
             },
             cron: CronConfig::default(),
             channels_config: ChannelsConfig {
@@ -4764,6 +4799,12 @@ default_temperature = 0.7
         assert_eq!(parsed.runtime.kind, "docker");
         assert!(parsed.heartbeat.enabled);
         assert_eq!(parsed.heartbeat.interval_minutes, 15);
+        assert_eq!(
+            parsed.heartbeat.message.as_deref(),
+            Some("Check London time")
+        );
+        assert_eq!(parsed.heartbeat.target.as_deref(), Some("telegram"));
+        assert_eq!(parsed.heartbeat.to.as_deref(), Some("123456"));
         assert!(parsed.channels_config.telegram.is_some());
         assert_eq!(
             parsed.channels_config.telegram.unwrap().bot_token,

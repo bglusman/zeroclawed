@@ -680,6 +680,9 @@ allowed_workspace_roots = []   # optional allowlist for workspace mount validati
 [heartbeat]
 enabled = false
 interval_minutes = 30
+message = "Check London time"     # optional fallback task when HEARTBEAT.md has no `- ` entries
+target = "telegram"               # optional announce channel: telegram, discord, slack, mattermost
+to = "123456789"                  # optional target recipient/chat/channel id
 
 [tunnel]
 provider = "none"              # "none", "cloudflare", "tailscale", "ngrok", "custom"

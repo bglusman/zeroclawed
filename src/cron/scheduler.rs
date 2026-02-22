@@ -296,6 +296,15 @@ async fn deliver_if_configured(config: &Config, job: &CronJob, output: &str) -> 
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("delivery.to is required for announce mode"))?;
 
+    deliver_announcement(config, channel, target, output).await
+}
+
+pub(crate) async fn deliver_announcement(
+    config: &Config,
+    channel: &str,
+    target: &str,
+    output: &str,
+) -> Result<()> {
     match channel.to_ascii_lowercase().as_str() {
         "telegram" => {
             let tg = config
