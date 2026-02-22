@@ -63,6 +63,7 @@ mod cron;
 mod daemon;
 mod doctor;
 mod gateway;
+mod goals;
 mod hardware;
 mod health;
 mod heartbeat;
