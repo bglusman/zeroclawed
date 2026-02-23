@@ -151,6 +151,7 @@ enum ChannelRuntimeCommand {
     SetProvider(String),
     ShowModel,
     SetModel(String),
+    NewSession,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -491,6 +492,7 @@ fn parse_runtime_command(channel_name: &str, content: &str) -> Option<ChannelRun
                 Some(ChannelRuntimeCommand::SetModel(model))
             }
         }
+        "/new" => Some(ChannelRuntimeCommand::NewSession),
         _ => None,
     }
 }
@@ -1027,6 +1029,10 @@ async fn handle_runtime_command_if_needed(
                     current.provider
                 )
             }
+        }
+        ChannelRuntimeCommand::NewSession => {
+            clear_sender_history(ctx, &sender_key);
+            "Conversation history cleared. Starting fresh.".to_string()
         }
     };
 
