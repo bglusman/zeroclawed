@@ -941,9 +941,24 @@ impl SecurityPolicy {
     /// Validate that a resolved path is inside the workspace or an allowed root.
     /// Call this AFTER joining `workspace_dir` + relative path and canonicalizing.
     pub fn is_resolved_path_allowed(&self, resolved: &Path) -> bool {
-        // Must be under workspace_dir (prevents symlink escapes).
-        // Prefer canonical workspace root so `/a/../b` style config paths don't
-        // cause false positives or negatives.
+        // Always block forbidden paths at the resolved level to prevent
+        // symlink-based bypasses (e.g. workspace/link -> /etc).
+        for forbidden in &self.forbidden_paths {
+            let forbidden_path = expand_user_path(forbidden);
+            if resolved.starts_with(&forbidden_path) {
+                return false;
+            }
+        }
+
+        // When workspace_only is disabled the user explicitly opted out of
+        // workspace confinement.  The first-pass `is_path_allowed` already
+        // handled traversal, null-byte, tilde, and forbidden-path checks on
+        // the raw input path.
+        if !self.workspace_only {
+            return true;
+        }
+
+        // workspace_only=true: must be under workspace_dir or allowed_roots.
         let workspace_root = self
             .workspace_dir
             .canonicalize()
@@ -1929,6 +1944,77 @@ mod tests {
         };
         assert!(!p.is_path_allowed("/etc/shadow"));
         assert!(!p.is_path_allowed("/root/.bashrc"));
+    }
+
+    #[test]
+    fn workspace_only_false_allows_resolved_outside_workspace() {
+        let workspace = std::env::temp_dir().join("zeroclaw_test_ws_only_false");
+        let _ = std::fs::create_dir_all(&workspace);
+        let canonical_workspace = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.clone());
+
+        let p = SecurityPolicy {
+            workspace_dir: canonical_workspace.clone(),
+            workspace_only: false,
+            ..SecurityPolicy::default()
+        };
+
+        // Path outside workspace should be allowed when workspace_only=false
+        let outside = std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("zeroclaw_outside_ws");
+        assert!(
+            p.is_resolved_path_allowed(&outside),
+            "workspace_only=false must allow resolved paths outside workspace"
+        );
+
+        // Forbidden paths must still be blocked even with workspace_only=false
+        assert!(
+            !p.is_resolved_path_allowed(Path::new("/etc/passwd")),
+            "forbidden paths must be blocked even when workspace_only=false"
+        );
+        assert!(
+            !p.is_resolved_path_allowed(Path::new("/var/run/docker.sock")),
+            "forbidden /var must be blocked even when workspace_only=false"
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn workspace_only_true_blocks_resolved_outside_workspace() {
+        let workspace = std::env::temp_dir().join("zeroclaw_test_ws_only_true");
+        let _ = std::fs::create_dir_all(&workspace);
+        let canonical_workspace = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.clone());
+
+        let p = SecurityPolicy {
+            workspace_dir: canonical_workspace.clone(),
+            workspace_only: true,
+            ..SecurityPolicy::default()
+        };
+
+        // Path inside workspace — allowed
+        let inside = canonical_workspace.join("subdir");
+        assert!(
+            p.is_resolved_path_allowed(&inside),
+            "path inside workspace must be allowed"
+        );
+
+        // Path outside workspace — blocked
+        let outside = std::env::temp_dir()
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("zeroclaw_outside_ws_true");
+        assert!(
+            !p.is_resolved_path_allowed(&outside),
+            "workspace_only=true must block resolved paths outside workspace"
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 
     // ── Edge cases: from_config preserves tracker ────────────
