@@ -93,6 +93,18 @@ export async function pair(code: string): Promise<{ token: string }> {
 }
 
 // ---------------------------------------------------------------------------
+// Public health (no auth required)
+// ---------------------------------------------------------------------------
+
+export async function getPublicHealth(): Promise<{ require_pairing: boolean; paired: boolean }> {
+  const response = await fetch('/health');
+  if (!response.ok) {
+    throw new Error(`Health check failed (${response.status})`);
+  }
+  return response.json() as Promise<{ require_pairing: boolean; paired: boolean }>;
+}
+
+// ---------------------------------------------------------------------------
 // Status / Health
 // ---------------------------------------------------------------------------
 

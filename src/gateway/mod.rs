@@ -712,6 +712,7 @@ async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     let body = serde_json::json!({
         "status": "ok",
         "paired": state.pairing.is_paired(),
+        "require_pairing": state.pairing.require_pairing(),
         "runtime": crate::health::snapshot_json(),
     });
     Json(body)
