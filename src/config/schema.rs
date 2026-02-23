@@ -33,6 +33,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.signal",
     "channel.slack",
     "channel.telegram",
+    "channel.wati",
     "channel.whatsapp",
     "tool.browser",
     "tool.composio",
@@ -2507,6 +2508,8 @@ pub struct ChannelsConfig {
     pub whatsapp: Option<WhatsAppConfig>,
     /// Linq Partner API channel configuration.
     pub linq: Option<LinqConfig>,
+    /// WATI WhatsApp Business API channel configuration.
+    pub wati: Option<WatiConfig>,
     /// Nextcloud Talk bot channel configuration.
     pub nextcloud_talk: Option<NextcloudTalkConfig>,
     /// Email channel configuration.
@@ -2575,6 +2578,10 @@ impl ChannelsConfig {
                 self.linq.is_some(),
             ),
             (
+                Box::new(ConfigWrapper::new(&self.wati)),
+                self.wati.is_some(),
+            ),
+            (
                 Box::new(ConfigWrapper::new(&self.nextcloud_talk)),
                 self.nextcloud_talk.is_some(),
             ),
@@ -2641,6 +2648,7 @@ impl Default for ChannelsConfig {
             signal: None,
             whatsapp: None,
             linq: None,
+            wati: None,
             nextcloud_talk: None,
             email: None,
             irc: None,
@@ -2947,6 +2955,35 @@ impl ChannelConfig for LinqConfig {
     }
     fn desc() -> &'static str {
         "iMessage/RCS/SMS via Linq API"
+    }
+}
+
+/// WATI WhatsApp Business API channel configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WatiConfig {
+    /// WATI API token (Bearer auth).
+    pub api_token: String,
+    /// WATI API base URL (default: https://live-mt-server.wati.io).
+    #[serde(default = "default_wati_api_url")]
+    pub api_url: String,
+    /// Tenant ID for multi-channel setups (optional).
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    /// Allowed phone numbers (E.164 format) or "*" for all.
+    #[serde(default)]
+    pub allowed_numbers: Vec<String>,
+}
+
+fn default_wati_api_url() -> String {
+    "https://live-mt-server.wati.io".to_string()
+}
+
+impl ChannelConfig for WatiConfig {
+    fn name() -> &'static str {
+        "WATI"
+    }
+    fn desc() -> &'static str {
+        "WhatsApp via WATI Business API"
     }
 }
 
@@ -4839,6 +4876,7 @@ default_temperature = 0.7
                 signal: None,
                 whatsapp: None,
                 linq: None,
+                wati: None,
                 nextcloud_talk: None,
                 email: None,
                 irc: None,
@@ -5401,6 +5439,7 @@ allowed_users = ["@ops:matrix.org"]
             signal: None,
             whatsapp: None,
             linq: None,
+            wati: None,
             nextcloud_talk: None,
             email: None,
             irc: None,
@@ -5614,6 +5653,7 @@ channel_id = "C123"
                 allowed_numbers: vec!["+1".into()],
             }),
             linq: None,
+            wati: None,
             nextcloud_talk: None,
             email: None,
             irc: None,
