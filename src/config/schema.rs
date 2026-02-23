@@ -3656,6 +3656,15 @@ fn active_workspace_state_path(default_dir: &Path) -> PathBuf {
     default_dir.join(ACTIVE_WORKSPACE_STATE_FILE)
 }
 
+/// Returns `true` if `path` lives under the OS temp directory.
+fn is_temp_directory(path: &Path) -> bool {
+    let temp = std::env::temp_dir();
+    // Canonicalize when possible to handle symlinks (macOS /var → /private/var)
+    let canon_temp = temp.canonicalize().unwrap_or_else(|_| temp.clone());
+    let canon_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    canon_path.starts_with(&canon_temp)
+}
+
 async fn load_persisted_workspace_dirs(
     default_config_dir: &Path,
 ) -> Result<Option<(PathBuf, PathBuf)>> {
@@ -3707,6 +3716,18 @@ async fn load_persisted_workspace_dirs(
 pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Result<()> {
     let default_config_dir = default_config_dir()?;
     let state_path = active_workspace_state_path(&default_config_dir);
+
+    // Guard: never persist a temp-directory path as the active workspace.
+    // This prevents transient test runs or one-off invocations from hijacking
+    // the daemon's config resolution.
+    #[cfg(not(test))]
+    if is_temp_directory(config_dir) {
+        tracing::warn!(
+            path = %config_dir.display(),
+            "Refusing to persist temp directory as active workspace marker"
+        );
+        return Ok(());
+    }
 
     if config_dir == default_config_dir {
         if state_path.exists() {
@@ -4769,11 +4790,18 @@ impl Config {
             anyhow::bail!("Failed to atomically replace config file: {e}");
         }
 
-        // Ensure config file is not world-readable (may contain API keys).
         #[cfg(unix)]
         {
             use std::{fs::Permissions, os::unix::fs::PermissionsExt};
-            let _ = fs::set_permissions(&self.config_path, Permissions::from_mode(0o600)).await;
+            if let Err(err) =
+                fs::set_permissions(&self.config_path, Permissions::from_mode(0o600)).await
+            {
+                tracing::warn!(
+                    "Failed to harden config permissions to 0600 at {}: {}",
+                    self.config_path.display(),
+                    err
+                );
+            }
         }
 
         sync_directory(parent_dir).await?;
