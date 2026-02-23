@@ -7,8 +7,8 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
-mod openai_compat;
 pub mod api;
+mod openai_compat;
 pub mod sse;
 pub mod static_files;
 pub mod ws;

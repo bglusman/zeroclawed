@@ -1147,53 +1147,43 @@ fn bedrock_event_stream_to_chunks(
                     buffer.extend_from_slice(&bytes);
 
                     // Try to parse complete messages from the buffer
-                    loop {
-                        match parse_event_stream_message(&buffer) {
-                            Some((event_type, payload, consumed)) => {
-                                buffer.drain(..consumed);
+                    while let Some((event_type, payload, consumed)) =
+                        parse_event_stream_message(&buffer)
+                    {
+                        buffer.drain(..consumed);
 
-                                match event_type.as_str() {
-                                    "contentBlockDelta" => {
-                                        if let Ok(delta) =
-                                            serde_json::from_slice::<ContentBlockDelta>(&payload)
-                                        {
-                                            if let Some(text) = delta.delta.text {
-                                                if !text.is_empty() {
-                                                    let mut chunk = StreamChunk::delta(text);
-                                                    if count_tokens {
-                                                        chunk = chunk.with_token_estimate();
-                                                    }
-                                                    if tx.send(Ok(chunk)).await.is_err() {
-                                                        return;
-                                                    }
-                                                }
+                        match event_type.as_str() {
+                            "contentBlockDelta" => {
+                                if let Ok(delta) =
+                                    serde_json::from_slice::<ContentBlockDelta>(&payload)
+                                {
+                                    if let Some(text) = delta.delta.text {
+                                        if !text.is_empty() {
+                                            let mut chunk = StreamChunk::delta(text);
+                                            if count_tokens {
+                                                chunk = chunk.with_token_estimate();
+                                            }
+                                            if tx.send(Ok(chunk)).await.is_err() {
+                                                return;
                                             }
                                         }
                                     }
-                                    "messageStop" | "metadata" => {
-                                        // Will send final chunk after the loop
-                                    }
-                                    "messageStart" | "contentBlockStart"
-                                    | "contentBlockStop" => {
-                                        // Informational, skip
-                                    }
-                                    other if other.contains("Exception")
-                                        || other.contains("Error") =>
-                                    {
-                                        let msg = String::from_utf8_lossy(&payload).to_string();
-                                        let _ = tx
-                                            .send(Err(StreamError::Provider(format!(
-                                                "Bedrock stream error ({other}): {msg}"
-                                            ))))
-                                            .await;
-                                        return;
-                                    }
-                                    _ => {
-                                        // Unknown event type, skip
-                                    }
                                 }
                             }
-                            None => break, // Not enough data yet
+                            "messageStop" | "metadata" | "messageStart" | "contentBlockStart"
+                            | "contentBlockStop" => {
+                                // Informational or final — skip (final chunk sent after loop)
+                            }
+                            other if other.contains("Exception") || other.contains("Error") => {
+                                let msg = String::from_utf8_lossy(&payload).to_string();
+                                let _ = tx
+                                    .send(Err(StreamError::Provider(format!(
+                                        "Bedrock stream error ({other}): {msg}"
+                                    ))))
+                                    .await;
+                                return;
+                            }
+                            _ => {} // Unknown event type, skip
                         }
                     }
                 }
@@ -1208,7 +1198,10 @@ fn bedrock_event_stream_to_chunks(
         let _ = tx.send(Ok(StreamChunk::final_chunk())).await;
     });
 
-    stream::unfold(rx, |mut rx| async { rx.recv().await.map(|chunk| (chunk, rx)) }).boxed()
+    stream::unfold(rx, |mut rx| async {
+        rx.recv().await.map(|chunk| (chunk, rx))
+    })
+    .boxed()
 }
 
 // ── Provider trait implementation ───────────────────────────────
@@ -1482,48 +1475,39 @@ impl Provider for BedrockProvider {
                     Ok(bytes) => {
                         buffer.extend_from_slice(&bytes);
 
-                        loop {
-                            match parse_event_stream_message(&buffer) {
-                                Some((event_type, payload_bytes, consumed)) => {
-                                    buffer.drain(..consumed);
+                        while let Some((event_type, payload_bytes, consumed)) =
+                            parse_event_stream_message(&buffer)
+                        {
+                            buffer.drain(..consumed);
 
-                                    match event_type.as_str() {
-                                        "contentBlockDelta" => {
-                                            if let Ok(delta) =
-                                                serde_json::from_slice::<ContentBlockDelta>(
-                                                    &payload_bytes,
-                                                )
-                                            {
-                                                if let Some(text) = delta.delta.text {
-                                                    if !text.is_empty() {
-                                                        let mut chunk = StreamChunk::delta(text);
-                                                        if count_tokens {
-                                                            chunk = chunk.with_token_estimate();
-                                                        }
-                                                        if tx.send(Ok(chunk)).await.is_err() {
-                                                            return;
-                                                        }
-                                                    }
+                            match event_type.as_str() {
+                                "contentBlockDelta" => {
+                                    if let Ok(delta) =
+                                        serde_json::from_slice::<ContentBlockDelta>(&payload_bytes)
+                                    {
+                                        if let Some(text) = delta.delta.text {
+                                            if !text.is_empty() {
+                                                let mut chunk = StreamChunk::delta(text);
+                                                if count_tokens {
+                                                    chunk = chunk.with_token_estimate();
+                                                }
+                                                if tx.send(Ok(chunk)).await.is_err() {
+                                                    return;
                                                 }
                                             }
                                         }
-                                        other
-                                            if other.contains("Exception")
-                                                || other.contains("Error") =>
-                                        {
-                                            let msg =
-                                                String::from_utf8_lossy(&payload_bytes).to_string();
-                                            let _ = tx
-                                                .send(Err(StreamError::Provider(format!(
-                                                    "Bedrock stream error ({other}): {msg}"
-                                                ))))
-                                                .await;
-                                            return;
-                                        }
-                                        _ => {} // messageStart, contentBlockStart, contentBlockStop, messageStop, metadata — skip
                                     }
                                 }
-                                None => break,
+                                other if other.contains("Exception") || other.contains("Error") => {
+                                    let msg = String::from_utf8_lossy(&payload_bytes).to_string();
+                                    let _ = tx
+                                        .send(Err(StreamError::Provider(format!(
+                                            "Bedrock stream error ({other}): {msg}"
+                                        ))))
+                                        .await;
+                                    return;
+                                }
+                                _ => {} // messageStart, contentBlockStart, contentBlockStop, messageStop, metadata — skip
                             }
                         }
                     }
@@ -1537,7 +1521,10 @@ impl Provider for BedrockProvider {
             let _ = tx.send(Ok(StreamChunk::final_chunk())).await;
         });
 
-        stream::unfold(rx, |mut rx| async { rx.recv().await.map(|chunk| (chunk, rx)) }).boxed()
+        stream::unfold(rx, |mut rx| async {
+            rx.recv().await.map(|chunk| (chunk, rx))
+        })
+        .boxed()
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
@@ -2143,8 +2130,7 @@ mod tests {
 
     #[test]
     fn stream_canonical_uri_encodes_colon() {
-        let uri =
-            BedrockProvider::stream_canonical_uri("anthropic.claude-3-5-haiku-20241022-v1:0");
+        let uri = BedrockProvider::stream_canonical_uri("anthropic.claude-3-5-haiku-20241022-v1:0");
         assert_eq!(
             uri,
             "/model/anthropic.claude-3-5-haiku-20241022-v1%3A0/converse-stream"
@@ -2172,6 +2158,7 @@ mod tests {
     // ── Event-stream parser tests ────────────────────────────────
 
     /// Helper: build a minimal AWS event-stream message with a string `:event-type` header.
+    #[allow(clippy::cast_possible_truncation)]
     fn build_event_stream_message(event_type: &str, payload: &[u8]) -> Vec<u8> {
         // Header: `:event-type` as string (type 7)
         let header_name = b":event-type";

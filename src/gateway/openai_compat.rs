@@ -237,12 +237,26 @@ pub async fn handle_v1_chat_completions(
         });
 
     if stream {
-        handle_streaming(state, messages, model, temperature, provider_label, started_at)
-            .into_response()
+        handle_streaming(
+            state,
+            messages,
+            model,
+            temperature,
+            provider_label,
+            started_at,
+        )
+        .into_response()
     } else {
-        handle_non_streaming(state, messages, model, temperature, provider_label, started_at)
-            .await
-            .into_response()
+        handle_non_streaming(
+            state,
+            messages,
+            model,
+            temperature,
+            provider_label,
+            started_at,
+        )
+        .await
+        .into_response()
     }
 }
 
@@ -264,7 +278,9 @@ async fn handle_non_streaming(
             let duration = started_at.elapsed();
             record_success(&state, &provider_label, &model, duration);
 
+            #[allow(clippy::cast_possible_truncation)]
             let completion_tokens = (response_text.len() / 4) as u32;
+            #[allow(clippy::cast_possible_truncation)]
             let prompt_tokens = messages.iter().map(|m| m.content.len() / 4).sum::<usize>() as u32;
 
             let response = ChatCompletionsResponse {
@@ -287,7 +303,11 @@ async fn handle_non_streaming(
                 },
             };
 
-            (StatusCode::OK, Json(serde_json::to_value(response).unwrap())).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(response).unwrap()),
+            )
+                .into_response()
         }
         Err(e) => {
             let duration = started_at.elapsed();
@@ -348,8 +368,7 @@ fn handle_streaming(
                             finish_reason: Some("stop"),
                         }],
                     };
-                    let json =
-                        serde_json::to_string(&chunk).unwrap_or_else(|_| "{}".to_string());
+                    let json = serde_json::to_string(&chunk).unwrap_or_else(|_| "{}".to_string());
                     let mut output = format!("data: {json}\n\n");
                     output.push_str("data: [DONE]\n\n");
                     Ok::<_, std::io::Error>(axum::body::Bytes::from(output))
@@ -390,67 +409,63 @@ fn handle_streaming(
     let mut first_chunk = true;
     let mut errored = false;
 
-    let sse_stream = provider_stream
-        .map(move |result| {
-            match result {
-                Ok(chunk) if chunk.is_final => {
-                    if !errored {
-                        let duration = started_at.elapsed();
-                        record_success(
-                            &state_for_stream,
-                            &provider_label_for_stream,
-                            &model_for_stream,
-                            duration,
-                        );
-                    }
-                    Ok::<_, std::io::Error>(axum::body::Bytes::from("data: [DONE]\n\n"))
-                }
-                Ok(chunk) => {
-                    let role = if first_chunk {
-                        first_chunk = false;
-                        Some("assistant")
-                    } else {
-                        None
-                    };
-
-                    let sse_chunk = ChatCompletionsChunk {
-                        id: request_id.clone(),
-                        object: "chat.completion.chunk",
-                        created,
-                        model: model_for_stream.clone(),
-                        choices: vec![ChunkChoice {
-                            index: 0,
-                            delta: ChunkDelta {
-                                role,
-                                content: if chunk.delta.is_empty() {
-                                    None
-                                } else {
-                                    Some(chunk.delta)
-                                },
-                            },
-                            finish_reason: None,
-                        }],
-                    };
-                    let json = serde_json::to_string(&sse_chunk)
-                        .unwrap_or_else(|_| "{}".to_string());
-                    Ok(axum::body::Bytes::from(format!("data: {json}\n\n")))
-                }
-                Err(e) => {
-                    errored = true;
-                    let duration = started_at.elapsed();
-                    let msg = e.to_string();
-                    record_failure(
-                        &state_for_stream,
-                        &provider_label_for_stream,
-                        &model_for_stream,
-                        duration,
-                        &msg,
-                    );
-                    let error_json = serde_json::json!({"error": msg});
-                    Ok(axum::body::Bytes::from(format!("data: {error_json}\n\n")))
-                }
+    let sse_stream = provider_stream.map(move |result| match result {
+        Ok(chunk) if chunk.is_final => {
+            if !errored {
+                let duration = started_at.elapsed();
+                record_success(
+                    &state_for_stream,
+                    &provider_label_for_stream,
+                    &model_for_stream,
+                    duration,
+                );
             }
-        });
+            Ok::<_, std::io::Error>(axum::body::Bytes::from("data: [DONE]\n\n"))
+        }
+        Ok(chunk) => {
+            let role = if first_chunk {
+                first_chunk = false;
+                Some("assistant")
+            } else {
+                None
+            };
+
+            let sse_chunk = ChatCompletionsChunk {
+                id: request_id.clone(),
+                object: "chat.completion.chunk",
+                created,
+                model: model_for_stream.clone(),
+                choices: vec![ChunkChoice {
+                    index: 0,
+                    delta: ChunkDelta {
+                        role,
+                        content: if chunk.delta.is_empty() {
+                            None
+                        } else {
+                            Some(chunk.delta)
+                        },
+                    },
+                    finish_reason: None,
+                }],
+            };
+            let json = serde_json::to_string(&sse_chunk).unwrap_or_else(|_| "{}".to_string());
+            Ok(axum::body::Bytes::from(format!("data: {json}\n\n")))
+        }
+        Err(e) => {
+            errored = true;
+            let duration = started_at.elapsed();
+            let msg = e.to_string();
+            record_failure(
+                &state_for_stream,
+                &provider_label_for_stream,
+                &model_for_stream,
+                duration,
+                &msg,
+            );
+            let error_json = serde_json::json!({"error": msg});
+            Ok(axum::body::Bytes::from(format!("data: {error_json}\n\n")))
+        }
+    });
 
     axum::response::Response::builder()
         .status(StatusCode::OK)
@@ -496,7 +511,10 @@ pub async fn handle_v1_models(
         }],
     };
 
-    (StatusCode::OK, Json(serde_json::to_value(response).unwrap()))
+    (
+        StatusCode::OK,
+        Json(serde_json::to_value(response).unwrap()),
+    )
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -529,9 +547,7 @@ fn record_success(
         });
     state
         .observer
-        .record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(
-            duration,
-        ));
+        .record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
 }
 
 fn record_failure(
@@ -554,9 +570,7 @@ fn record_failure(
         });
     state
         .observer
-        .record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(
-            duration,
-        ));
+        .record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
     state
         .observer
         .record_event(&crate::observability::ObserverEvent::Error {
@@ -608,7 +622,7 @@ mod tests {
         let response = ChatCompletionsResponse {
             id: "chatcmpl-test".to_string(),
             object: "chat.completion",
-            created: 1234567890,
+            created: 1_234_567_890,
             model: "test-model".to_string(),
             choices: vec![ChatCompletionsChoice {
                 index: 0,
@@ -638,7 +652,7 @@ mod tests {
             data: vec![ModelObject {
                 id: "anthropic/claude-sonnet-4".to_string(),
                 object: "model",
-                created: 1234567890,
+                created: 1_234_567_890,
                 owned_by: "zeroclaw".to_string(),
             }],
         };
@@ -653,7 +667,7 @@ mod tests {
         let chunk = ChatCompletionsChunk {
             id: "chatcmpl-test".to_string(),
             object: "chat.completion.chunk",
-            created: 1234567890,
+            created: 1_234_567_890,
             model: "test-model".to_string(),
             choices: vec![ChunkChoice {
                 index: 0,
@@ -675,7 +689,7 @@ mod tests {
         let chunk = ChatCompletionsChunk {
             id: "chatcmpl-test".to_string(),
             object: "chat.completion.chunk",
-            created: 1234567890,
+            created: 1_234_567_890,
             model: "test-model".to_string(),
             choices: vec![ChunkChoice {
                 index: 0,
