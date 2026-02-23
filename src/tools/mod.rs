@@ -54,6 +54,10 @@ pub mod schedule;
 pub mod schema;
 pub mod screenshot;
 pub mod shell;
+pub mod subagent_list;
+pub mod subagent_manage;
+pub mod subagent_registry;
+pub mod subagent_spawn;
 pub mod task_plan;
 pub mod traits;
 pub mod url_validation;
@@ -99,6 +103,10 @@ pub use schedule::ScheduleTool;
 pub use schema::{CleaningStrategy, SchemaCleanr};
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
+pub use subagent_list::SubAgentListTool;
+pub use subagent_manage::SubAgentManageTool;
+pub use subagent_registry::SubAgentRegistry;
+pub use subagent_spawn::SubAgentSpawnTool;
 pub use task_plan::TaskPlanTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
@@ -388,7 +396,7 @@ pub fn all_tools_with_runtime(
         }
     }
 
-    // Add delegation tool when agents are configured
+    // Add delegation and sub-agent orchestration tools when agents are configured
     if !agents.is_empty() {
         let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
             .iter()
@@ -398,29 +406,30 @@ pub fn all_tools_with_runtime(
             let trimmed_value = value.trim();
             (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
         });
+        let provider_runtime_options = crate::providers::ProviderRuntimeOptions {
+            auth_profile_override: None,
+            provider_api_url: root_config.api_url.clone(),
+            zeroclaw_dir: root_config
+                .config_path
+                .parent()
+                .map(std::path::PathBuf::from),
+            secrets_encrypt: root_config.secrets.encrypt,
+            reasoning_enabled: root_config.runtime.reasoning_enabled,
+            reasoning_level: root_config.effective_provider_reasoning_level(),
+            custom_provider_api_mode: root_config
+                .provider_api
+                .map(|mode| mode.as_compatible_mode()),
+            max_tokens_override: None,
+            model_support_vision: root_config.model_support_vision,
+        };
         let parent_tools = Arc::new(tool_arcs.clone());
         let mut delegate_tool = DelegateTool::new_with_options(
-            delegate_agents,
-            delegate_fallback_credential,
+            delegate_agents.clone(),
+            delegate_fallback_credential.clone(),
             security.clone(),
-            crate::providers::ProviderRuntimeOptions {
-                auth_profile_override: None,
-                provider_api_url: root_config.api_url.clone(),
-                zeroclaw_dir: root_config
-                    .config_path
-                    .parent()
-                    .map(std::path::PathBuf::from),
-                secrets_encrypt: root_config.secrets.encrypt,
-                reasoning_enabled: root_config.runtime.reasoning_enabled,
-                reasoning_level: root_config.effective_provider_reasoning_level(),
-                custom_provider_api_mode: root_config
-                    .provider_api
-                    .map(|mode| mode.as_compatible_mode()),
-                max_tokens_override: None,
-                model_support_vision: root_config.model_support_vision,
-            },
+            provider_runtime_options.clone(),
         )
-        .with_parent_tools(parent_tools)
+        .with_parent_tools(parent_tools.clone())
         .with_multimodal_config(root_config.multimodal.clone());
 
         if root_config.coordination.enabled {
@@ -466,6 +475,22 @@ pub fn all_tools_with_runtime(
             delegate_tool = delegate_tool.with_coordination_disabled();
             tool_arcs.push(Arc::new(delegate_tool));
         }
+
+        let subagent_registry = Arc::new(SubAgentRegistry::new());
+        tool_arcs.push(Arc::new(SubAgentSpawnTool::new(
+            delegate_agents,
+            delegate_fallback_credential,
+            security.clone(),
+            provider_runtime_options,
+            subagent_registry.clone(),
+            parent_tools,
+            root_config.multimodal.clone(),
+        )));
+        tool_arcs.push(Arc::new(SubAgentListTool::new(subagent_registry.clone())));
+        tool_arcs.push(Arc::new(SubAgentManageTool::new(
+            subagent_registry,
+            security.clone(),
+        )));
     }
 
     // Inter-process agent communication (opt-in)
