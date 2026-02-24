@@ -576,6 +576,7 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
     mask_optional_secret(&mut masked.browser.computer_use.api_key);
     mask_optional_secret(&mut masked.web_search.brave_api_key);
     mask_optional_secret(&mut masked.storage.provider.config.db_url);
+    mask_optional_secret(&mut masked.memory.qdrant.api_key);
     if let Some(cloudflare) = masked.tunnel.cloudflare.as_mut() {
         mask_required_secret(&mut cloudflare.token);
     }
@@ -585,6 +586,12 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
 
     for agent in masked.agents.values_mut() {
         mask_optional_secret(&mut agent.api_key);
+    }
+    for route in &mut masked.model_routes {
+        mask_optional_secret(&mut route.api_key);
+    }
+    for route in &mut masked.embedding_routes {
+        mask_optional_secret(&mut route.api_key);
     }
 
     if let Some(telegram) = masked.channels_config.telegram.as_mut() {
@@ -632,6 +639,11 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
         mask_optional_secret(&mut lark.encrypt_key);
         mask_optional_secret(&mut lark.verification_token);
     }
+    if let Some(feishu) = masked.channels_config.feishu.as_mut() {
+        mask_required_secret(&mut feishu.app_secret);
+        mask_optional_secret(&mut feishu.encrypt_key);
+        mask_optional_secret(&mut feishu.verification_token);
+    }
     if let Some(dingtalk) = masked.channels_config.dingtalk.as_mut() {
         mask_required_secret(&mut dingtalk.client_secret);
     }
@@ -674,6 +686,10 @@ fn restore_masked_sensitive_fields(
         &mut incoming.storage.provider.config.db_url,
         &current.storage.provider.config.db_url,
     );
+    restore_optional_secret(
+        &mut incoming.memory.qdrant.api_key,
+        &current.memory.qdrant.api_key,
+    );
     if let (Some(incoming_tunnel), Some(current_tunnel)) = (
         incoming.tunnel.cloudflare.as_mut(),
         current.tunnel.cloudflare.as_ref(),
@@ -691,6 +707,20 @@ fn restore_masked_sensitive_fields(
         if let Some(current_agent) = current.agents.get(name) {
             restore_optional_secret(&mut agent.api_key, &current_agent.api_key);
         }
+    }
+    for (incoming_route, current_route) in incoming
+        .model_routes
+        .iter_mut()
+        .zip(current.model_routes.iter())
+    {
+        restore_optional_secret(&mut incoming_route.api_key, &current_route.api_key);
+    }
+    for (incoming_route, current_route) in incoming
+        .embedding_routes
+        .iter_mut()
+        .zip(current.embedding_routes.iter())
+    {
+        restore_optional_secret(&mut incoming_route.api_key, &current_route.api_key);
     }
 
     if let (Some(incoming_ch), Some(current_ch)) = (
@@ -784,6 +814,17 @@ fn restore_masked_sensitive_fields(
         );
     }
     if let (Some(incoming_ch), Some(current_ch)) = (
+        incoming.channels_config.feishu.as_mut(),
+        current.channels_config.feishu.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_ch.app_secret, &current_ch.app_secret);
+        restore_optional_secret(&mut incoming_ch.encrypt_key, &current_ch.encrypt_key);
+        restore_optional_secret(
+            &mut incoming_ch.verification_token,
+            &current_ch.verification_token,
+        );
+    }
+    if let (Some(incoming_ch), Some(current_ch)) = (
         incoming.channels_config.dingtalk.as_mut(),
         current.channels_config.dingtalk.as_ref(),
     ) {
@@ -834,12 +875,35 @@ mod tests {
         cfg.tunnel.cloudflare = Some(crate::config::schema::CloudflareTunnelConfig {
             token: "cf-token".to_string(),
         });
+        cfg.memory.qdrant.api_key = Some("qdrant-key".to_string());
         cfg.channels_config.wati = Some(crate::config::schema::WatiConfig {
             api_token: "wati-token".to_string(),
             api_url: "https://live-mt-server.wati.io".to_string(),
             tenant_id: None,
             allowed_numbers: vec![],
         });
+        cfg.channels_config.feishu = Some(crate::config::schema::FeishuConfig {
+            app_id: "cli_aabbcc".to_string(),
+            app_secret: "feishu-secret".to_string(),
+            encrypt_key: Some("feishu-encrypt".to_string()),
+            verification_token: Some("feishu-verify".to_string()),
+            allowed_users: vec!["*".to_string()],
+            receive_mode: crate::config::schema::LarkReceiveMode::Websocket,
+            port: None,
+        });
+        cfg.model_routes = vec![crate::config::schema::ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "anthropic/claude-sonnet-4.6".to_string(),
+            api_key: Some("route-model-key".to_string()),
+        }];
+        cfg.embedding_routes = vec![crate::config::schema::EmbeddingRouteConfig {
+            hint: "semantic".to_string(),
+            provider: "openai".to_string(),
+            model: "text-embedding-3-small".to_string(),
+            dimensions: Some(1536),
+            api_key: Some("route-embed-key".to_string()),
+        }];
 
         let masked = mask_sensitive_fields(&cfg);
         let toml = toml::to_string_pretty(&masked).expect("masked config should serialize");
@@ -867,6 +931,45 @@ mod tests {
                 .map(|v| v.api_token.as_str()),
             Some(MASKED_SECRET)
         );
+        assert_eq!(parsed.memory.qdrant.api_key.as_deref(), Some(MASKED_SECRET));
+        assert_eq!(
+            parsed
+                .channels_config
+                .feishu
+                .as_ref()
+                .map(|v| v.app_secret.as_str()),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            parsed
+                .channels_config
+                .feishu
+                .as_ref()
+                .and_then(|v| v.encrypt_key.as_deref()),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            parsed
+                .channels_config
+                .feishu
+                .as_ref()
+                .and_then(|v| v.verification_token.as_deref()),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            parsed
+                .model_routes
+                .first()
+                .and_then(|v| v.api_key.as_deref()),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            parsed
+                .embedding_routes
+                .first()
+                .and_then(|v| v.api_key.as_deref()),
+            Some(MASKED_SECRET)
+        );
     }
 
     #[test]
@@ -884,12 +987,52 @@ mod tests {
             auth_token: "ngrok-token-real".to_string(),
             domain: None,
         });
+        current.memory.qdrant.api_key = Some("qdrant-real".to_string());
         current.channels_config.wati = Some(crate::config::schema::WatiConfig {
             api_token: "wati-real".to_string(),
             api_url: "https://live-mt-server.wati.io".to_string(),
             tenant_id: None,
             allowed_numbers: vec![],
         });
+        current.channels_config.feishu = Some(crate::config::schema::FeishuConfig {
+            app_id: "cli_current".to_string(),
+            app_secret: "feishu-secret-real".to_string(),
+            encrypt_key: Some("feishu-encrypt-real".to_string()),
+            verification_token: Some("feishu-verify-real".to_string()),
+            allowed_users: vec!["*".to_string()],
+            receive_mode: crate::config::schema::LarkReceiveMode::Websocket,
+            port: None,
+        });
+        current.model_routes = vec![
+            crate::config::schema::ModelRouteConfig {
+                hint: "reasoning".to_string(),
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4.6".to_string(),
+                api_key: Some("route-model-key-1".to_string()),
+            },
+            crate::config::schema::ModelRouteConfig {
+                hint: "fast".to_string(),
+                provider: "openrouter".to_string(),
+                model: "openai/gpt-4.1-mini".to_string(),
+                api_key: Some("route-model-key-2".to_string()),
+            },
+        ];
+        current.embedding_routes = vec![
+            crate::config::schema::EmbeddingRouteConfig {
+                hint: "semantic".to_string(),
+                provider: "openai".to_string(),
+                model: "text-embedding-3-small".to_string(),
+                dimensions: Some(1536),
+                api_key: Some("route-embed-key-1".to_string()),
+            },
+            crate::config::schema::EmbeddingRouteConfig {
+                hint: "archive".to_string(),
+                provider: "custom:https://emb.example.com/v1".to_string(),
+                model: "bge-m3".to_string(),
+                dimensions: Some(1024),
+                api_key: Some("route-embed-key-2".to_string()),
+            },
+        ];
 
         let mut incoming = mask_sensitive_fields(&current);
         incoming.default_model = Some("gpt-4.1-mini".to_string());
@@ -902,9 +1045,17 @@ mod tests {
         if let Some(ngrok) = incoming.tunnel.ngrok.as_mut() {
             ngrok.auth_token = MASKED_SECRET.to_string();
         }
+        incoming.memory.qdrant.api_key = Some(MASKED_SECRET.to_string());
         if let Some(wati) = incoming.channels_config.wati.as_mut() {
             wati.api_token = MASKED_SECRET.to_string();
         }
+        if let Some(feishu) = incoming.channels_config.feishu.as_mut() {
+            feishu.app_secret = MASKED_SECRET.to_string();
+            feishu.encrypt_key = Some(MASKED_SECRET.to_string());
+            feishu.verification_token = Some("feishu-verify-new".to_string());
+        }
+        incoming.model_routes[1].api_key = Some("route-model-key-2-new".to_string());
+        incoming.embedding_routes[1].api_key = Some("route-embed-key-2-new".to_string());
 
         let hydrated = hydrate_config_for_save(incoming, &current);
 
@@ -937,12 +1088,56 @@ mod tests {
             Some("ngrok-token-real")
         );
         assert_eq!(
+            hydrated.memory.qdrant.api_key.as_deref(),
+            Some("qdrant-real")
+        );
+        assert_eq!(
             hydrated
                 .channels_config
                 .wati
                 .as_ref()
                 .map(|v| v.api_token.as_str()),
             Some("wati-real")
+        );
+        assert_eq!(
+            hydrated
+                .channels_config
+                .feishu
+                .as_ref()
+                .map(|v| v.app_secret.as_str()),
+            Some("feishu-secret-real")
+        );
+        assert_eq!(
+            hydrated
+                .channels_config
+                .feishu
+                .as_ref()
+                .and_then(|v| v.encrypt_key.as_deref()),
+            Some("feishu-encrypt-real")
+        );
+        assert_eq!(
+            hydrated
+                .channels_config
+                .feishu
+                .as_ref()
+                .and_then(|v| v.verification_token.as_deref()),
+            Some("feishu-verify-new")
+        );
+        assert_eq!(
+            hydrated.model_routes[0].api_key.as_deref(),
+            Some("route-model-key-1")
+        );
+        assert_eq!(
+            hydrated.model_routes[1].api_key.as_deref(),
+            Some("route-model-key-2-new")
+        );
+        assert_eq!(
+            hydrated.embedding_routes[0].api_key.as_deref(),
+            Some("route-embed-key-1")
+        );
+        assert_eq!(
+            hydrated.embedding_routes[1].api_key.as_deref(),
+            Some("route-embed-key-2-new")
         );
     }
 }
