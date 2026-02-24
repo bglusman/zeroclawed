@@ -76,23 +76,23 @@ Operational notes:
 
 Matrix and Lark support are controlled at compile time.
 
-- Default builds are lean (`default = []`) and do not include Matrix/Lark.
-- Typical local check with only hardware support:
+- Default builds include Matrix and Lark/Feishu (`default = ["channel-matrix", "channel-lark"]`).
+- For a lean local build without these channels:
 
 ```bash
-cargo check --features hardware
+cargo check --no-default-features --features hardware
 ```
 
-- Enable Matrix explicitly when needed:
+- Enable Matrix explicitly in a custom feature set:
 
 ```bash
-cargo check --features hardware,channel-matrix
+cargo check --no-default-features --features hardware,channel-matrix
 ```
 
-- Enable Lark explicitly when needed:
+- Enable Lark explicitly in a custom feature set:
 
 ```bash
-cargo check --features hardware,channel-lark
+cargo check --no-default-features --features hardware,channel-lark
 ```
 
 If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.feishu]` is present but the corresponding feature is not compiled in, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will report that the channel is intentionally skipped for this build.

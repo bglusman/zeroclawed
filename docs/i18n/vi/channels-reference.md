@@ -69,11 +69,11 @@ Lưu ý vận hành:
 
 ## Channel Matrix
 
-### Tùy chọn Build Feature (`channel-matrix`)
+### Tùy chọn Build Feature (`channel-matrix`, `channel-lark`)
 
-Hỗ trợ Matrix được kiểm soát tại thời điểm biên dịch bằng Cargo feature `channel-matrix`.
+Hỗ trợ Matrix và Lark/Feishu được kiểm soát tại thời điểm biên dịch bằng Cargo features.
 
-- Các bản build mặc định đã bao gồm hỗ trợ Matrix (`default = ["hardware", "channel-matrix"]`).
+- Các bản build mặc định đã bao gồm Matrix và Lark/Feishu (`default = ["channel-matrix", "channel-lark"]`).
 - Để lặp lại nhanh hơn khi không cần Matrix:
 
 ```bash
@@ -86,7 +86,13 @@ cargo check --no-default-features --features hardware
 cargo check --no-default-features --features hardware,channel-matrix
 ```
 
-Nếu `[channels_config.matrix]` có mặt nhưng binary được build mà không có `channel-matrix`, các lệnh `zeroclaw channel list`, `zeroclaw channel doctor`, và `zeroclaw channel start` sẽ ghi log rằng Matrix bị bỏ qua có chủ ý trong bản build này.
+- Để bật tường minh hỗ trợ Lark/Feishu trong feature set tùy chỉnh:
+
+```bash
+cargo check --no-default-features --features hardware,channel-lark
+```
+
+Nếu `[channels_config.matrix]`, `[channels_config.lark]`, hoặc `[channels_config.feishu]` có mặt nhưng binary được build mà không có feature tương ứng, các lệnh `zeroclaw channel list`, `zeroclaw channel doctor`, và `zeroclaw channel start` sẽ ghi log rằng channel đó bị bỏ qua có chủ ý trong bản build này.
 
 ---
 
