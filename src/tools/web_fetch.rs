@@ -39,42 +39,12 @@ impl WebFetchTool {
     }
 
     fn validate_url(&self, raw_url: &str) -> anyhow::Result<String> {
-        let url = raw_url.trim();
-
-        if url.is_empty() {
-            anyhow::bail!("URL cannot be empty");
-        }
-
-        if url.chars().any(char::is_whitespace) {
-            anyhow::bail!("URL cannot contain whitespace");
-        }
-
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            anyhow::bail!("Only http:// and https:// URLs are allowed");
-        }
-
-        if self.allowed_domains.is_empty() {
-            anyhow::bail!(
-                "web_fetch tool is enabled but no allowed_domains are configured. \
-                 Add [web_fetch].allowed_domains in config.toml"
-            );
-        }
-
-        let host = extract_host(url)?;
-
-        if is_private_or_local_host(&host) {
-            anyhow::bail!("Blocked local/private host: {host}");
-        }
-
-        if host_matches_allowlist(&host, &self.blocked_domains) {
-            anyhow::bail!("Host '{host}' is in web_fetch.blocked_domains");
-        }
-
-        if !host_matches_allowlist(&host, &self.allowed_domains) {
-            anyhow::bail!("Host '{host}' is not in web_fetch.allowed_domains");
-        }
-
-        Ok(url.to_string())
+        validate_target_url(
+            raw_url,
+            &self.allowed_domains,
+            &self.blocked_domains,
+            "web_fetch",
+        )
     }
 
     fn truncate_response(&self, text: &str) -> String {
@@ -159,10 +129,32 @@ impl Tool for WebFetchTool {
             self.timeout_secs
         };
 
+        let allowed_domains = self.allowed_domains.clone();
+        let blocked_domains = self.blocked_domains.clone();
+        let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= 10 {
+                return attempt.error(std::io::Error::other("Too many redirects (max 10)"));
+            }
+
+            if let Err(err) = validate_target_url(
+                attempt.url().as_str(),
+                &allowed_domains,
+                &blocked_domains,
+                "web_fetch",
+            ) {
+                return attempt.error(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("Blocked redirect target: {err}"),
+                ));
+            }
+
+            attempt.follow()
+        });
+
         let builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(10))
+            .redirect(redirect_policy)
             .user_agent("ZeroClaw/0.1 (web_fetch)");
         let builder = crate::config::apply_runtime_proxy_to_builder(builder, "tool.web_fetch");
         let client = match builder.build() {
@@ -251,6 +243,50 @@ impl Tool for WebFetchTool {
 }
 
 // ── Helper functions (independent from http_request.rs per DRY rule-of-three) ──
+
+fn validate_target_url(
+    raw_url: &str,
+    allowed_domains: &[String],
+    blocked_domains: &[String],
+    tool_name: &str,
+) -> anyhow::Result<String> {
+    let url = raw_url.trim();
+
+    if url.is_empty() {
+        anyhow::bail!("URL cannot be empty");
+    }
+
+    if url.chars().any(char::is_whitespace) {
+        anyhow::bail!("URL cannot contain whitespace");
+    }
+
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        anyhow::bail!("Only http:// and https:// URLs are allowed");
+    }
+
+    if allowed_domains.is_empty() {
+        anyhow::bail!(
+            "{tool_name} tool is enabled but no allowed_domains are configured. \
+             Add [{tool_name}].allowed_domains in config.toml"
+        );
+    }
+
+    let host = extract_host(url)?;
+
+    if is_private_or_local_host(&host) {
+        anyhow::bail!("Blocked local/private host: {host}");
+    }
+
+    if host_matches_allowlist(&host, blocked_domains) {
+        anyhow::bail!("Host '{host}' is in {tool_name}.blocked_domains");
+    }
+
+    if !host_matches_allowlist(&host, allowed_domains) {
+        anyhow::bail!("Host '{host}' is not in {tool_name}.allowed_domains");
+    }
+
+    Ok(url.to_string())
+}
 
 fn normalize_allowed_domains(domains: Vec<String>) -> Vec<String> {
     let mut normalized = domains
@@ -559,6 +595,39 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("local/private"));
+    }
+
+    #[test]
+    fn redirect_target_validation_allows_permitted_host() {
+        let allowed = vec!["example.com".to_string()];
+        let blocked = vec![];
+        assert!(validate_target_url(
+            "https://docs.example.com/page",
+            &allowed,
+            &blocked,
+            "web_fetch"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn redirect_target_validation_blocks_private_host() {
+        let allowed = vec!["example.com".to_string()];
+        let blocked = vec![];
+        let err = validate_target_url("https://127.0.0.1/admin", &allowed, &blocked, "web_fetch")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("local/private"));
+    }
+
+    #[test]
+    fn redirect_target_validation_blocks_blocklisted_host() {
+        let allowed = vec!["*".to_string()];
+        let blocked = vec!["evil.com".to_string()];
+        let err = validate_target_url("https://evil.com/phish", &allowed, &blocked, "web_fetch")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("blocked_domains"));
     }
 
     // ── Security policy ──────────────────────────────────────────

@@ -571,10 +571,17 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
 
     mask_optional_secret(&mut masked.api_key);
     mask_vec_secrets(&mut masked.reliability.api_keys);
+    mask_vec_secrets(&mut masked.gateway.paired_tokens);
     mask_optional_secret(&mut masked.composio.api_key);
     mask_optional_secret(&mut masked.browser.computer_use.api_key);
     mask_optional_secret(&mut masked.web_search.brave_api_key);
     mask_optional_secret(&mut masked.storage.provider.config.db_url);
+    if let Some(cloudflare) = masked.tunnel.cloudflare.as_mut() {
+        mask_required_secret(&mut cloudflare.token);
+    }
+    if let Some(ngrok) = masked.tunnel.ngrok.as_mut() {
+        mask_required_secret(&mut ngrok.auth_token);
+    }
 
     for agent in masked.agents.values_mut() {
         mask_optional_secret(&mut agent.api_key);
@@ -612,6 +619,9 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
         mask_required_secret(&mut nextcloud.app_token);
         mask_optional_secret(&mut nextcloud.webhook_secret);
     }
+    if let Some(wati) = masked.channels_config.wati.as_mut() {
+        mask_required_secret(&mut wati.api_token);
+    }
     if let Some(irc) = masked.channels_config.irc.as_mut() {
         mask_optional_secret(&mut irc.server_password);
         mask_optional_secret(&mut irc.nickserv_password);
@@ -644,6 +654,10 @@ fn restore_masked_sensitive_fields(
 ) {
     restore_optional_secret(&mut incoming.api_key, &current.api_key);
     restore_vec_secrets(
+        &mut incoming.gateway.paired_tokens,
+        &current.gateway.paired_tokens,
+    );
+    restore_vec_secrets(
         &mut incoming.reliability.api_keys,
         &current.reliability.api_keys,
     );
@@ -660,6 +674,18 @@ fn restore_masked_sensitive_fields(
         &mut incoming.storage.provider.config.db_url,
         &current.storage.provider.config.db_url,
     );
+    if let (Some(incoming_tunnel), Some(current_tunnel)) = (
+        incoming.tunnel.cloudflare.as_mut(),
+        current.tunnel.cloudflare.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_tunnel.token, &current_tunnel.token);
+    }
+    if let (Some(incoming_tunnel), Some(current_tunnel)) = (
+        incoming.tunnel.ngrok.as_mut(),
+        current.tunnel.ngrok.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_tunnel.auth_token, &current_tunnel.auth_token);
+    }
 
     for (name, agent) in incoming.agents.iter_mut() {
         if let Some(current_agent) = current.agents.get(name) {
@@ -725,6 +751,12 @@ fn restore_masked_sensitive_fields(
     ) {
         restore_required_secret(&mut incoming_ch.app_token, &current_ch.app_token);
         restore_optional_secret(&mut incoming_ch.webhook_secret, &current_ch.webhook_secret);
+    }
+    if let (Some(incoming_ch), Some(current_ch)) = (
+        incoming.channels_config.wati.as_mut(),
+        current.channels_config.wati.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_ch.api_token, &current_ch.api_token);
     }
     if let (Some(incoming_ch), Some(current_ch)) = (
         incoming.channels_config.irc.as_mut(),
@@ -798,6 +830,16 @@ mod tests {
         let mut cfg = crate::config::Config::default();
         cfg.api_key = Some("sk-live-123".to_string());
         cfg.reliability.api_keys = vec!["rk-1".to_string(), "rk-2".to_string()];
+        cfg.gateway.paired_tokens = vec!["pair-token-1".to_string()];
+        cfg.tunnel.cloudflare = Some(crate::config::CloudflareTunnelConfig {
+            token: "cf-token".to_string(),
+        });
+        cfg.channels_config.wati = Some(crate::config::WatiConfig {
+            api_token: "wati-token".to_string(),
+            api_url: "https://live-mt-server.wati.io".to_string(),
+            tenant_id: None,
+            allowed_numbers: vec![],
+        });
 
         let masked = mask_sensitive_fields(&cfg);
         let toml = toml::to_string_pretty(&masked).expect("masked config should serialize");
@@ -809,6 +851,22 @@ mod tests {
             parsed.reliability.api_keys,
             vec![MASKED_SECRET.to_string(), MASKED_SECRET.to_string()]
         );
+        assert_eq!(
+            parsed.gateway.paired_tokens,
+            vec![MASKED_SECRET.to_string()]
+        );
+        assert_eq!(
+            parsed.tunnel.cloudflare.as_ref().map(|v| v.token.as_str()),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            parsed
+                .channels_config
+                .wati
+                .as_ref()
+                .map(|v| v.api_token.as_str()),
+            Some(MASKED_SECRET)
+        );
     }
 
     #[test]
@@ -818,11 +876,35 @@ mod tests {
         current.workspace_dir = std::path::PathBuf::from("/tmp/current/workspace");
         current.api_key = Some("real-key".to_string());
         current.reliability.api_keys = vec!["r1".to_string(), "r2".to_string()];
+        current.gateway.paired_tokens = vec!["pair-1".to_string(), "pair-2".to_string()];
+        current.tunnel.cloudflare = Some(crate::config::CloudflareTunnelConfig {
+            token: "cf-token-real".to_string(),
+        });
+        current.tunnel.ngrok = Some(crate::config::NgrokTunnelConfig {
+            auth_token: "ngrok-token-real".to_string(),
+            domain: None,
+        });
+        current.channels_config.wati = Some(crate::config::WatiConfig {
+            api_token: "wati-real".to_string(),
+            api_url: "https://live-mt-server.wati.io".to_string(),
+            tenant_id: None,
+            allowed_numbers: vec![],
+        });
 
         let mut incoming = mask_sensitive_fields(&current);
         incoming.default_model = Some("gpt-4.1-mini".to_string());
         // Simulate UI changing only one key and keeping the first masked.
         incoming.reliability.api_keys = vec![MASKED_SECRET.to_string(), "r2-new".to_string()];
+        incoming.gateway.paired_tokens = vec![MASKED_SECRET.to_string(), "pair-2-new".to_string()];
+        if let Some(cloudflare) = incoming.tunnel.cloudflare.as_mut() {
+            cloudflare.token = MASKED_SECRET.to_string();
+        }
+        if let Some(ngrok) = incoming.tunnel.ngrok.as_mut() {
+            ngrok.auth_token = MASKED_SECRET.to_string();
+        }
+        if let Some(wati) = incoming.channels_config.wati.as_mut() {
+            wati.api_token = MASKED_SECRET.to_string();
+        }
 
         let hydrated = hydrate_config_for_save(incoming, &current);
 
@@ -833,6 +915,34 @@ mod tests {
         assert_eq!(
             hydrated.reliability.api_keys,
             vec!["r1".to_string(), "r2-new".to_string()]
+        );
+        assert_eq!(
+            hydrated.gateway.paired_tokens,
+            vec!["pair-1".to_string(), "pair-2-new".to_string()]
+        );
+        assert_eq!(
+            hydrated
+                .tunnel
+                .cloudflare
+                .as_ref()
+                .map(|v| v.token.as_str()),
+            Some("cf-token-real")
+        );
+        assert_eq!(
+            hydrated
+                .tunnel
+                .ngrok
+                .as_ref()
+                .map(|v| v.auth_token.as_str()),
+            Some("ngrok-token-real")
+        );
+        assert_eq!(
+            hydrated
+                .channels_config
+                .wati
+                .as_ref()
+                .map(|v| v.api_token.as_str()),
+            Some("wati-real")
         );
     }
 }
