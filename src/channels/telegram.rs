@@ -1161,7 +1161,22 @@ Allowlist Telegram username (without '@') or numeric user ID.",
     /// Returns `None` if the message is not a voice message, transcription is disabled,
     /// or the message exceeds duration limits.
     async fn try_parse_voice_message(&self, update: &serde_json::Value) -> Option<ChannelMessage> {
-        let config = self.transcription.as_ref()?;
+        // Check if transcription is enabled before doing anything else
+        let config = match self.transcription.as_ref() {
+            Some(c) => c,
+            None => {
+                // Log at debug level when a voice message is received but transcription is disabled
+                if let Some(message) = update.get("message") {
+                    if message.get("voice").is_some() || message.get("audio").is_some() {
+                        tracing::debug!(
+                            "Received voice/audio message but transcription is disabled. \
+                             Set [transcription].enabled = true to enable voice transcription."
+                        );
+                    }
+                }
+                return None;
+            }
+        };
         let message = update.get("message")?;
 
         let metadata = Self::parse_voice_metadata(message)?;
@@ -1183,6 +1198,14 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         }
 
         if !self.is_any_user_allowed(identities.iter().copied()) {
+            tracing::debug!(
+                "Skipping voice message from unauthorized user: {} (allowed_users: {:?})",
+                sender_identity,
+                self.allowed_users
+                    .read()
+                    .map(|u| u.iter().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default()
+            );
             return None;
         }
 
@@ -1249,6 +1272,13 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             }
             cache.insert(format!("{chat_id}:{message_id}"), text.clone());
         }
+
+        tracing::info!(
+            "Voice message transcribed successfully ({} chars) for user {} in chat {}",
+            text.len(),
+            sender_identity,
+            chat_id
+        );
 
         let content = if let Some(quote) = self.extract_reply_context(message) {
             format!("{quote}\n\n[Voice] {text}")
