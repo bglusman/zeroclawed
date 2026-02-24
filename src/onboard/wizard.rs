@@ -4,9 +4,8 @@ use crate::config::schema::{
 };
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    FeishuConfig, HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig,
-    ObservabilityConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
-    WebhookConfig,
+    HeartbeatConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
+    RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -22,7 +21,7 @@ use console::style;
 use dialoguer::{Confirm, Input, Select};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -1173,8 +1172,7 @@ fn models_endpoint_for_provider(provider_name: &str) -> Option<&'static str> {
         "glm-cn" | "bigmodel" => Some("https://open.bigmodel.cn/api/paas/v4/models"),
         "zai-cn" | "z.ai-cn" => Some("https://open.bigmodel.cn/api/coding/paas/v4/models"),
         _ => match canonical_provider_name(provider_name) {
-            "openai-codex" => Some("https://api.openai.com/v1/models"),
-            "openai" => Some("https://api.openai.com/v1/models"),
+            "openai-codex" | "openai" => Some("https://api.openai.com/v1/models"),
             "venice" => Some("https://api.venice.ai/api/v1/models"),
             "groq" => Some("https://api.groq.com/openai/v1/models"),
             "mistral" => Some("https://api.mistral.ai/v1/models"),
@@ -2854,8 +2852,7 @@ fn provider_env_var(name: &str) -> &'static str {
     match canonical_provider_name(name) {
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
-        "openai-codex" => "OPENAI_API_KEY",
-        "openai" => "OPENAI_API_KEY",
+        "openai-codex" | "openai" => "OPENAI_API_KEY",
         "ollama" => "OLLAMA_API_KEY",
         "llamacpp" => "LLAMACPP_API_KEY",
         "sglang" => "SGLANG_API_KEY",
