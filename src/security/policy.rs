@@ -941,24 +941,8 @@ impl SecurityPolicy {
     /// Validate that a resolved path is inside the workspace or an allowed root.
     /// Call this AFTER joining `workspace_dir` + relative path and canonicalizing.
     pub fn is_resolved_path_allowed(&self, resolved: &Path) -> bool {
-        // Always block forbidden paths at the resolved level to prevent
-        // symlink-based bypasses (e.g. workspace/link -> /etc).
-        for forbidden in &self.forbidden_paths {
-            let forbidden_path = expand_user_path(forbidden);
-            if resolved.starts_with(&forbidden_path) {
-                return false;
-            }
-        }
-
-        // When workspace_only is disabled the user explicitly opted out of
-        // workspace confinement.  The first-pass `is_path_allowed` already
-        // handled traversal, null-byte, tilde, and forbidden-path checks on
-        // the raw input path.
-        if !self.workspace_only {
-            return true;
-        }
-
-        // workspace_only=true: must be under workspace_dir or allowed_roots.
+        // Prefer canonical workspace root so `/a/../b` style config paths don't
+        // cause false positives or negatives.
         let workspace_root = self
             .workspace_dir
             .canonicalize()
@@ -967,12 +951,29 @@ impl SecurityPolicy {
             return true;
         }
 
-        // Check extra allowed roots (e.g. shared skills directories).
+        // Check extra allowed roots (e.g. shared skills directories) before
+        // forbidden checks so explicit allowlists can coexist with broad
+        // default forbidden roots such as `/home` and `/tmp`.
         for root in &self.allowed_roots {
             let canonical = root.canonicalize().unwrap_or_else(|_| root.clone());
             if resolved.starts_with(&canonical) {
                 return true;
             }
+        }
+
+        // For paths outside workspace/allowlist, block forbidden roots to
+        // prevent symlink escapes and sensitive directory access.
+        for forbidden in &self.forbidden_paths {
+            let forbidden_path = expand_user_path(forbidden);
+            if resolved.starts_with(&forbidden_path) {
+                return false;
+            }
+        }
+
+        // When workspace_only is disabled the user explicitly opted out of
+        // workspace confinement after forbidden-path checks are applied.
+        if !self.workspace_only {
+            return true;
         }
 
         false
@@ -1957,13 +1958,14 @@ mod tests {
         let p = SecurityPolicy {
             workspace_dir: canonical_workspace.clone(),
             workspace_only: false,
+            forbidden_paths: vec!["/etc".into(), "/var".into()],
             ..SecurityPolicy::default()
         };
 
         // Path outside workspace should be allowed when workspace_only=false
-        let outside = std::env::temp_dir()
-            .canonicalize()
-            .unwrap_or_else(|_| std::env::temp_dir())
+        let outside = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/home"))
             .join("zeroclaw_outside_ws");
         assert!(
             p.is_resolved_path_allowed(&outside),
