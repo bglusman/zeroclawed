@@ -330,6 +330,7 @@ pub fn all_tools_with_runtime(
             http_config.allowed_domains.clone(),
             http_config.max_response_size,
             http_config.timeout_secs,
+            http_config.user_agent.clone(),
         )));
     }
 
@@ -343,6 +344,7 @@ pub fn all_tools_with_runtime(
             web_fetch_config.blocked_domains.clone(),
             web_fetch_config.max_response_size,
             web_fetch_config.timeout_secs,
+            web_fetch_config.user_agent.clone(),
         )));
     }
 
@@ -365,6 +367,7 @@ pub fn all_tools_with_runtime(
             root_config.web_search.api_url.clone(),
             root_config.web_search.max_results,
             root_config.web_search.timeout_secs,
+            root_config.web_search.user_agent.clone(),
         )));
     }
 

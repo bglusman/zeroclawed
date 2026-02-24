@@ -1264,6 +1264,9 @@ pub struct HttpRequestConfig {
     /// Request timeout in seconds (default: 30)
     #[serde(default = "default_http_timeout_secs")]
     pub timeout_secs: u64,
+    /// User-Agent string sent with HTTP requests (env: ZEROCLAW_HTTP_REQUEST_USER_AGENT)
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
 }
 
 impl Default for HttpRequestConfig {
@@ -1273,6 +1276,7 @@ impl Default for HttpRequestConfig {
             allowed_domains: vec![],
             max_response_size: default_http_max_response_size(),
             timeout_secs: default_http_timeout_secs(),
+            user_agent: default_user_agent(),
         }
     }
 }
@@ -1319,6 +1323,9 @@ pub struct WebFetchConfig {
     /// Request timeout in seconds (default: 30)
     #[serde(default = "default_web_fetch_timeout_secs")]
     pub timeout_secs: u64,
+    /// User-Agent string sent with fetch requests (env: ZEROCLAW_WEB_FETCH_USER_AGENT)
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
 }
 
 fn default_web_fetch_max_response_size() -> usize {
@@ -1344,6 +1351,7 @@ impl Default for WebFetchConfig {
             blocked_domains: vec![],
             max_response_size: default_web_fetch_max_response_size(),
             timeout_secs: default_web_fetch_timeout_secs(),
+            user_agent: default_user_agent(),
         }
     }
 }
@@ -1374,6 +1382,9 @@ pub struct WebSearchConfig {
     /// Request timeout in seconds
     #[serde(default = "default_web_search_timeout_secs")]
     pub timeout_secs: u64,
+    /// User-Agent string sent with search requests (env: ZEROCLAW_WEB_SEARCH_USER_AGENT)
+    #[serde(default = "default_user_agent")]
+    pub user_agent: String,
 }
 
 fn default_web_search_provider() -> String {
@@ -1398,8 +1409,13 @@ impl Default for WebSearchConfig {
             brave_api_key: None,
             max_results: default_web_search_max_results(),
             timeout_secs: default_web_search_timeout_secs(),
+            user_agent: default_user_agent(),
         }
     }
+}
+
+fn default_user_agent() -> String {
+    "ZeroClaw/1.0".into()
 }
 
 // ── Proxy ───────────────────────────────────────────────────────
