@@ -567,6 +567,131 @@ fn restore_vec_secrets(values: &mut [String], current: &[String]) {
     }
 }
 
+fn normalize_route_field(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
+fn model_route_identity_matches(
+    incoming: &crate::config::schema::ModelRouteConfig,
+    current: &crate::config::schema::ModelRouteConfig,
+) -> bool {
+    normalize_route_field(&incoming.hint) == normalize_route_field(&current.hint)
+        && normalize_route_field(&incoming.provider) == normalize_route_field(&current.provider)
+        && normalize_route_field(&incoming.model) == normalize_route_field(&current.model)
+}
+
+fn model_route_provider_model_matches(
+    incoming: &crate::config::schema::ModelRouteConfig,
+    current: &crate::config::schema::ModelRouteConfig,
+) -> bool {
+    normalize_route_field(&incoming.provider) == normalize_route_field(&current.provider)
+        && normalize_route_field(&incoming.model) == normalize_route_field(&current.model)
+}
+
+fn embedding_route_identity_matches(
+    incoming: &crate::config::schema::EmbeddingRouteConfig,
+    current: &crate::config::schema::EmbeddingRouteConfig,
+) -> bool {
+    normalize_route_field(&incoming.hint) == normalize_route_field(&current.hint)
+        && normalize_route_field(&incoming.provider) == normalize_route_field(&current.provider)
+        && normalize_route_field(&incoming.model) == normalize_route_field(&current.model)
+}
+
+fn embedding_route_provider_model_matches(
+    incoming: &crate::config::schema::EmbeddingRouteConfig,
+    current: &crate::config::schema::EmbeddingRouteConfig,
+) -> bool {
+    normalize_route_field(&incoming.provider) == normalize_route_field(&current.provider)
+        && normalize_route_field(&incoming.model) == normalize_route_field(&current.model)
+}
+
+fn restore_model_route_api_keys(
+    incoming: &mut [crate::config::schema::ModelRouteConfig],
+    current: &[crate::config::schema::ModelRouteConfig],
+) {
+    let mut used_current = vec![false; current.len()];
+    for incoming_route in incoming {
+        if !incoming_route
+            .api_key
+            .as_deref()
+            .is_some_and(is_masked_secret)
+        {
+            continue;
+        }
+
+        let exact_match_idx = current
+            .iter()
+            .enumerate()
+            .find(|(idx, current_route)| {
+                !used_current[*idx] && model_route_identity_matches(incoming_route, current_route)
+            })
+            .map(|(idx, _)| idx);
+
+        let match_idx = exact_match_idx.or_else(|| {
+            current
+                .iter()
+                .enumerate()
+                .find(|(idx, current_route)| {
+                    !used_current[*idx]
+                        && model_route_provider_model_matches(incoming_route, current_route)
+                })
+                .map(|(idx, _)| idx)
+        });
+
+        if let Some(idx) = match_idx {
+            used_current[idx] = true;
+            incoming_route.api_key = current[idx].api_key.clone();
+        } else {
+            // Never persist UI placeholders to disk when no safe restore target exists.
+            incoming_route.api_key = None;
+        }
+    }
+}
+
+fn restore_embedding_route_api_keys(
+    incoming: &mut [crate::config::schema::EmbeddingRouteConfig],
+    current: &[crate::config::schema::EmbeddingRouteConfig],
+) {
+    let mut used_current = vec![false; current.len()];
+    for incoming_route in incoming {
+        if !incoming_route
+            .api_key
+            .as_deref()
+            .is_some_and(is_masked_secret)
+        {
+            continue;
+        }
+
+        let exact_match_idx = current
+            .iter()
+            .enumerate()
+            .find(|(idx, current_route)| {
+                !used_current[*idx]
+                    && embedding_route_identity_matches(incoming_route, current_route)
+            })
+            .map(|(idx, _)| idx);
+
+        let match_idx = exact_match_idx.or_else(|| {
+            current
+                .iter()
+                .enumerate()
+                .find(|(idx, current_route)| {
+                    !used_current[*idx]
+                        && embedding_route_provider_model_matches(incoming_route, current_route)
+                })
+                .map(|(idx, _)| idx)
+        });
+
+        if let Some(idx) = match_idx {
+            used_current[idx] = true;
+            incoming_route.api_key = current[idx].api_key.clone();
+        } else {
+            // Never persist UI placeholders to disk when no safe restore target exists.
+            incoming_route.api_key = None;
+        }
+    }
+}
+
 fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Config {
     let mut masked = config.clone();
 
@@ -658,6 +783,9 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
         mask_required_secret(&mut clawdtalk.api_key);
         mask_optional_secret(&mut clawdtalk.webhook_secret);
     }
+    if let Some(email) = masked.channels_config.email.as_mut() {
+        mask_required_secret(&mut email.password);
+    }
     masked
 }
 
@@ -709,20 +837,8 @@ fn restore_masked_sensitive_fields(
             restore_optional_secret(&mut agent.api_key, &current_agent.api_key);
         }
     }
-    for (incoming_route, current_route) in incoming
-        .model_routes
-        .iter_mut()
-        .zip(current.model_routes.iter())
-    {
-        restore_optional_secret(&mut incoming_route.api_key, &current_route.api_key);
-    }
-    for (incoming_route, current_route) in incoming
-        .embedding_routes
-        .iter_mut()
-        .zip(current.embedding_routes.iter())
-    {
-        restore_optional_secret(&mut incoming_route.api_key, &current_route.api_key);
-    }
+    restore_model_route_api_keys(&mut incoming.model_routes, &current.model_routes);
+    restore_embedding_route_api_keys(&mut incoming.embedding_routes, &current.embedding_routes);
 
     if let (Some(incoming_ch), Some(current_ch)) = (
         incoming.channels_config.telegram.as_mut(),
@@ -850,6 +966,12 @@ fn restore_masked_sensitive_fields(
         restore_required_secret(&mut incoming_ch.api_key, &current_ch.api_key);
         restore_optional_secret(&mut incoming_ch.webhook_secret, &current_ch.webhook_secret);
     }
+    if let (Some(incoming_ch), Some(current_ch)) = (
+        incoming.channels_config.email.as_mut(),
+        current.channels_config.email.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_ch.password, &current_ch.password);
+    }
 }
 
 fn hydrate_config_for_save(
@@ -891,6 +1013,19 @@ mod tests {
             allowed_users: vec!["*".to_string()],
             receive_mode: crate::config::schema::LarkReceiveMode::Websocket,
             port: None,
+        });
+        cfg.channels_config.email = Some(crate::channels::email_channel::EmailConfig {
+            imap_host: "imap.example.com".to_string(),
+            imap_port: 993,
+            imap_folder: "INBOX".to_string(),
+            smtp_host: "smtp.example.com".to_string(),
+            smtp_port: 465,
+            smtp_tls: true,
+            username: "agent@example.com".to_string(),
+            password: "email-password-secret".to_string(),
+            from_address: "agent@example.com".to_string(),
+            idle_timeout_secs: 1740,
+            allowed_senders: vec!["*".to_string()],
         });
         cfg.model_routes = vec![crate::config::schema::ModelRouteConfig {
             hint: "reasoning".to_string(),
@@ -971,6 +1106,14 @@ mod tests {
                 .and_then(|v| v.api_key.as_deref()),
             Some(MASKED_SECRET)
         );
+        assert_eq!(
+            parsed
+                .channels_config
+                .email
+                .as_ref()
+                .map(|v| v.password.as_str()),
+            Some(MASKED_SECRET)
+        );
     }
 
     #[test]
@@ -1003,6 +1146,19 @@ mod tests {
             allowed_users: vec!["*".to_string()],
             receive_mode: crate::config::schema::LarkReceiveMode::Websocket,
             port: None,
+        });
+        current.channels_config.email = Some(crate::channels::email_channel::EmailConfig {
+            imap_host: "imap.example.com".to_string(),
+            imap_port: 993,
+            imap_folder: "INBOX".to_string(),
+            smtp_host: "smtp.example.com".to_string(),
+            smtp_port: 465,
+            smtp_tls: true,
+            username: "agent@example.com".to_string(),
+            password: "email-password-real".to_string(),
+            from_address: "agent@example.com".to_string(),
+            idle_timeout_secs: 1740,
+            allowed_senders: vec!["*".to_string()],
         });
         current.model_routes = vec![
             crate::config::schema::ModelRouteConfig {
@@ -1054,6 +1210,9 @@ mod tests {
             feishu.app_secret = MASKED_SECRET.to_string();
             feishu.encrypt_key = Some(MASKED_SECRET.to_string());
             feishu.verification_token = Some("feishu-verify-new".to_string());
+        }
+        if let Some(email) = incoming.channels_config.email.as_mut() {
+            email.password = MASKED_SECRET.to_string();
         }
         incoming.model_routes[1].api_key = Some("route-model-key-2-new".to_string());
         incoming.embedding_routes[1].api_key = Some("route-embed-key-2-new".to_string());
@@ -1140,5 +1299,98 @@ mod tests {
             hydrated.embedding_routes[1].api_key.as_deref(),
             Some("route-embed-key-2-new")
         );
+        assert_eq!(
+            hydrated
+                .channels_config
+                .email
+                .as_ref()
+                .map(|v| v.password.as_str()),
+            Some("email-password-real")
+        );
+    }
+
+    #[test]
+    fn hydrate_config_for_save_restores_route_keys_by_identity_and_clears_unmatched_masks() {
+        let mut current = crate::config::Config::default();
+        current.model_routes = vec![
+            crate::config::schema::ModelRouteConfig {
+                hint: "reasoning".to_string(),
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4.6".to_string(),
+                api_key: Some("route-model-key-1".to_string()),
+            },
+            crate::config::schema::ModelRouteConfig {
+                hint: "fast".to_string(),
+                provider: "openrouter".to_string(),
+                model: "openai/gpt-4.1-mini".to_string(),
+                api_key: Some("route-model-key-2".to_string()),
+            },
+        ];
+        current.embedding_routes = vec![
+            crate::config::schema::EmbeddingRouteConfig {
+                hint: "semantic".to_string(),
+                provider: "openai".to_string(),
+                model: "text-embedding-3-small".to_string(),
+                dimensions: Some(1536),
+                api_key: Some("route-embed-key-1".to_string()),
+            },
+            crate::config::schema::EmbeddingRouteConfig {
+                hint: "archive".to_string(),
+                provider: "custom:https://emb.example.com/v1".to_string(),
+                model: "bge-m3".to_string(),
+                dimensions: Some(1024),
+                api_key: Some("route-embed-key-2".to_string()),
+            },
+        ];
+
+        let mut incoming = mask_sensitive_fields(&current);
+        incoming.model_routes.swap(0, 1);
+        incoming.embedding_routes.swap(0, 1);
+        incoming
+            .model_routes
+            .push(crate::config::schema::ModelRouteConfig {
+                hint: "new".to_string(),
+                provider: "openai".to_string(),
+                model: "gpt-4.1".to_string(),
+                api_key: Some(MASKED_SECRET.to_string()),
+            });
+        incoming
+            .embedding_routes
+            .push(crate::config::schema::EmbeddingRouteConfig {
+                hint: "new-embed".to_string(),
+                provider: "custom:https://emb2.example.com/v1".to_string(),
+                model: "bge-small".to_string(),
+                dimensions: Some(768),
+                api_key: Some(MASKED_SECRET.to_string()),
+            });
+
+        let hydrated = hydrate_config_for_save(incoming, &current);
+
+        assert_eq!(
+            hydrated.model_routes[0].api_key.as_deref(),
+            Some("route-model-key-2")
+        );
+        assert_eq!(
+            hydrated.model_routes[1].api_key.as_deref(),
+            Some("route-model-key-1")
+        );
+        assert_eq!(hydrated.model_routes[2].api_key, None);
+        assert_eq!(
+            hydrated.embedding_routes[0].api_key.as_deref(),
+            Some("route-embed-key-2")
+        );
+        assert_eq!(
+            hydrated.embedding_routes[1].api_key.as_deref(),
+            Some("route-embed-key-1")
+        );
+        assert_eq!(hydrated.embedding_routes[2].api_key, None);
+        assert!(hydrated
+            .model_routes
+            .iter()
+            .all(|route| route.api_key.as_deref() != Some(MASKED_SECRET)));
+        assert!(hydrated
+            .embedding_routes
+            .iter()
+            .all(|route| route.api_key.as_deref() != Some(MASKED_SECRET)));
     }
 }
