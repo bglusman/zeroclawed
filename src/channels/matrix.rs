@@ -438,9 +438,7 @@ impl MatrixChannel {
                     if let Some(hinted) = self.session_owner_hint.as_ref() {
                         if hinted != &whoami.user_id {
                             tracing::warn!(
-                                "Matrix configured user_id '{}' does not match whoami '{}'; using whoami.",
-                                crate::security::redact(hinted),
-                                crate::security::redact(&whoami.user_id)
+                                "Matrix configured user_id does not match whoami user_id; using whoami."
                             );
                         }
                     }
@@ -458,9 +456,7 @@ impl MatrixChannel {
                         if let Some(whoami_device_id) = whoami.device_id.as_ref() {
                             if whoami_device_id != hinted {
                                 tracing::warn!(
-                                    "Matrix configured device_id '{}' does not match whoami '{}'; using whoami.",
-                                    crate::security::redact(hinted),
-                                    crate::security::redact(whoami_device_id)
+                                    "Matrix configured device_id does not match whoami device_id; using whoami."
                                 );
                             }
                             whoami_device_id.clone()
@@ -629,14 +625,10 @@ impl MatrixChannel {
         match client.encryption().get_own_device().await {
             Ok(Some(device)) => {
                 if device.is_verified() {
-                    tracing::info!(
-                        "Matrix device '{}' is verified for E2EE.",
-                        device.device_id()
-                    );
+                    tracing::info!("Matrix device is verified for E2EE.");
                 } else {
                     tracing::warn!(
-                        "Matrix device '{}' is not verified. Some clients may label bot messages as unverified until you sign/verify this device from a trusted session.",
-                        device.device_id()
+                        "Matrix device is not verified. Some clients may label bot messages as unverified until you sign/verify this device from a trusted session."
                     );
                 }
             }
