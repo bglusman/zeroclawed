@@ -226,6 +226,8 @@ struct ChannelRuntimeContext {
     multimodal: crate::config::MultimodalConfig,
     hooks: Option<Arc<crate::hooks::HookRunner>>,
     non_cli_excluded_tools: Arc<Vec<String>>,
+    query_classification: crate::config::QueryClassificationConfig,
+    model_routes: Vec<crate::config::ModelRouteConfig>,
 }
 
 #[derive(Clone)]
@@ -734,6 +736,32 @@ fn get_route_selection(ctx: &ChannelRuntimeContext, sender_key: &str) -> Channel
         .get(sender_key)
         .cloned()
         .unwrap_or_else(|| default_route_selection(ctx))
+}
+
+/// Classify a user message and return the appropriate route selection with logging.
+/// Returns None if classification is disabled or no rules match.
+fn classify_message_route(
+    ctx: &ChannelRuntimeContext,
+    message: &str,
+) -> Option<ChannelRouteSelection> {
+    let decision = crate::agent::classifier::classify_with_decision(&ctx.query_classification, message)?;
+
+    // Find the matching model route
+    let route = ctx.model_routes.iter().find(|r| r.hint == decision.hint)?;
+
+    tracing::info!(
+        target: "query_classification",
+        hint = %decision.hint,
+        model = %route.model,
+        rule_priority = decision.priority,
+        message_length = message.len(),
+        "Classified message route"
+    );
+
+    Some(ChannelRouteSelection {
+        provider: route.provider.clone(),
+        model: route.model.clone(),
+    })
 }
 
 fn set_route_selection(ctx: &ChannelRuntimeContext, sender_key: &str, next: ChannelRouteSelection) {
@@ -1567,7 +1595,9 @@ async fn process_channel_message(
     }
 
     let history_key = conversation_history_key(&msg);
-    let route = get_route_selection(ctx.as_ref(), &history_key);
+    // Try classification first, fall back to sender/default route
+    let route = classify_message_route(ctx.as_ref(), &msg.content)
+        .unwrap_or_else(|| get_route_selection(ctx.as_ref(), &history_key));
     let runtime_defaults = runtime_defaults_snapshot(ctx.as_ref());
     let active_provider = match get_or_create_provider(ctx.as_ref(), &route.provider).await {
         Ok(provider) => provider,
@@ -3347,6 +3377,8 @@ pub async fn start_channels(config: Config) -> Result<()> {
             None
         },
         non_cli_excluded_tools: Arc::new(config.autonomy.non_cli_excluded_tools.clone()),
+        query_classification: config.query_classification.clone(),
+        model_routes: config.model_routes.clone(),
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
@@ -3560,6 +3592,8 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+        query_classification: crate::config::QueryClassificationConfig::default(),
+        model_routes: Vec::new(),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -3609,6 +3643,8 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+        query_classification: crate::config::QueryClassificationConfig::default(),
+        model_routes: Vec::new(),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -3661,6 +3697,8 @@ mod tests {
             workspace_dir: Arc::new(std::env::temp_dir()),
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+        query_classification: crate::config::QueryClassificationConfig::default(),
+        model_routes: Vec::new(),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -4136,6 +4174,8 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Vec::new()),
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4195,6 +4235,8 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Vec::new()),
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4268,6 +4310,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4327,6 +4371,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4395,6 +4441,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4484,6 +4532,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4555,6 +4605,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4641,6 +4693,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4712,6 +4766,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4772,6 +4828,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -4943,6 +5001,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -5023,6 +5083,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -5115,6 +5177,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -5189,6 +5253,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -5248,6 +5314,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -5764,6 +5832,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -5849,6 +5919,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -5934,6 +6006,8 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
@@ -6483,6 +6557,8 @@ This is an example JSON object for profile settings."#;
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -6549,6 +6625,8 @@ This is an example JSON object for profile settings."#;
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             non_cli_excluded_tools: Arc::new(Vec::new()),
+            query_classification: crate::config::QueryClassificationConfig::default(),
+            model_routes: Vec::new(),
         });
 
         process_channel_message(
