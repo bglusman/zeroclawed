@@ -76,8 +76,8 @@ Operational notes:
 
 Matrix and Lark support are controlled at compile time.
 
-- Default builds include Matrix and Lark/Feishu (`default = ["channel-matrix", "channel-lark"]`).
-- For a lean local build without these channels:
+- Default builds include Lark/Feishu (`default = ["channel-lark"]`), while Matrix remains opt-in.
+- For a lean local build without Matrix/Lark:
 
 ```bash
 cargo check --no-default-features --features hardware

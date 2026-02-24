@@ -73,8 +73,8 @@ Lưu ý vận hành:
 
 Hỗ trợ Matrix và Lark/Feishu được kiểm soát tại thời điểm biên dịch bằng Cargo features.
 
-- Các bản build mặc định đã bao gồm Matrix và Lark/Feishu (`default = ["channel-matrix", "channel-lark"]`).
-- Để lặp lại nhanh hơn khi không cần Matrix:
+- Bản build mặc định bao gồm Lark/Feishu (`default = ["channel-lark"]`), còn Matrix là opt-in.
+- Để lặp lại nhanh hơn khi không cần Matrix/Lark:
 
 ```bash
 cargo check --no-default-features --features hardware
