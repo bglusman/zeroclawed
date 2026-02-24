@@ -309,8 +309,8 @@ verify_tls = true
 
 ```toml
 [channels_config.lark]
-app_id = "cli_xxx"
-app_secret = "xxx"
+app_id = "your_lark_app_id"
+app_secret = "your_lark_app_secret"
 encrypt_key = ""                    # optional
 verification_token = ""             # optional
 allowed_users = ["*"]
@@ -324,8 +324,8 @@ port = 8081                          # required for webhook mode
 
 ```toml
 [channels_config.feishu]
-app_id = "cli_xxx"
-app_secret = "xxx"
+app_id = "your_lark_app_id"
+app_secret = "your_lark_app_secret"
 encrypt_key = ""                    # optional
 verification_token = ""             # optional
 allowed_users = ["*"]
