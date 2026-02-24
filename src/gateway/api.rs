@@ -831,10 +831,10 @@ mod tests {
         cfg.api_key = Some("sk-live-123".to_string());
         cfg.reliability.api_keys = vec!["rk-1".to_string(), "rk-2".to_string()];
         cfg.gateway.paired_tokens = vec!["pair-token-1".to_string()];
-        cfg.tunnel.cloudflare = Some(crate::config::CloudflareTunnelConfig {
+        cfg.tunnel.cloudflare = Some(crate::config::schema::CloudflareTunnelConfig {
             token: "cf-token".to_string(),
         });
-        cfg.channels_config.wati = Some(crate::config::WatiConfig {
+        cfg.channels_config.wati = Some(crate::config::schema::WatiConfig {
             api_token: "wati-token".to_string(),
             api_url: "https://live-mt-server.wati.io".to_string(),
             tenant_id: None,
@@ -877,14 +877,14 @@ mod tests {
         current.api_key = Some("real-key".to_string());
         current.reliability.api_keys = vec!["r1".to_string(), "r2".to_string()];
         current.gateway.paired_tokens = vec!["pair-1".to_string(), "pair-2".to_string()];
-        current.tunnel.cloudflare = Some(crate::config::CloudflareTunnelConfig {
+        current.tunnel.cloudflare = Some(crate::config::schema::CloudflareTunnelConfig {
             token: "cf-token-real".to_string(),
         });
-        current.tunnel.ngrok = Some(crate::config::NgrokTunnelConfig {
+        current.tunnel.ngrok = Some(crate::config::schema::NgrokTunnelConfig {
             auth_token: "ngrok-token-real".to_string(),
             domain: None,
         });
-        current.channels_config.wati = Some(crate::config::WatiConfig {
+        current.channels_config.wati = Some(crate::config::schema::WatiConfig {
             api_token: "wati-real".to_string(),
             api_url: "https://live-mt-server.wati.io".to_string(),
             tenant_id: None,
