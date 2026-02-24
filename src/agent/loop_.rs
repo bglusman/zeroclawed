@@ -325,6 +325,118 @@ fn parse_arguments_value(raw: Option<&serde_json::Value>) -> serde_json::Value {
     }
 }
 
+fn raw_string_argument_hint(raw: Option<&serde_json::Value>) -> Option<&str> {
+    raw.and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn normalize_shell_command_from_raw(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let unwrapped = trimmed
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .unwrap_or(trimmed)
+        .trim();
+
+    if unwrapped.is_empty() {
+        return None;
+    }
+
+    if (unwrapped.starts_with('{') && unwrapped.ends_with('}'))
+        || (unwrapped.starts_with('[') && unwrapped.ends_with(']'))
+    {
+        return None;
+    }
+
+    if unwrapped.starts_with("http://") || unwrapped.starts_with("https://") {
+        return build_curl_command(unwrapped).or_else(|| Some(unwrapped.to_string()));
+    }
+
+    Some(unwrapped.to_string())
+}
+
+fn normalize_shell_arguments(
+    arguments: serde_json::Value,
+    raw_string_hint: Option<&str>,
+) -> serde_json::Value {
+    match arguments {
+        serde_json::Value::Object(mut map) => {
+            if map
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .is_some_and(|cmd| !cmd.is_empty())
+            {
+                return serde_json::Value::Object(map);
+            }
+
+            for alias in [
+                "cmd",
+                "script",
+                "shell_command",
+                "command_line",
+                "bash",
+                "sh",
+                "input",
+            ] {
+                if let Some(value) = map.get(alias).and_then(|v| v.as_str()) {
+                    if let Some(command) = normalize_shell_command_from_raw(value) {
+                        map.insert("command".to_string(), serde_json::Value::String(command));
+                        return serde_json::Value::Object(map);
+                    }
+                }
+            }
+
+            if let Some(url) = map
+                .get("url")
+                .or_else(|| map.get("http_url"))
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+            {
+                if let Some(command) = normalize_shell_command_from_raw(url) {
+                    map.insert("command".to_string(), serde_json::Value::String(command));
+                    return serde_json::Value::Object(map);
+                }
+            }
+
+            if let Some(raw) = raw_string_hint.and_then(normalize_shell_command_from_raw) {
+                map.insert("command".to_string(), serde_json::Value::String(raw));
+            }
+
+            serde_json::Value::Object(map)
+        }
+        serde_json::Value::String(raw) => normalize_shell_command_from_raw(&raw)
+            .map(|command| serde_json::json!({ "command": command }))
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+        _ => raw_string_hint
+            .and_then(normalize_shell_command_from_raw)
+            .map(|command| serde_json::json!({ "command": command }))
+            .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new())),
+    }
+}
+
+fn normalize_tool_arguments(
+    tool_name: &str,
+    arguments: serde_json::Value,
+    raw_string_hint: Option<&str>,
+) -> serde_json::Value {
+    match map_tool_name_alias(tool_name) {
+        "shell" => normalize_shell_arguments(arguments, raw_string_hint),
+        _ => arguments,
+    }
+}
+
 fn parse_tool_call_id(
     root: &serde_json::Value,
     function: Option<&serde_json::Value>,
@@ -379,10 +491,13 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
             .trim()
             .to_string();
         if !name.is_empty() {
-            let arguments = parse_arguments_value(
-                function
-                    .get("arguments")
-                    .or_else(|| function.get("parameters")),
+            let raw_arguments = function
+                .get("arguments")
+                .or_else(|| function.get("parameters"));
+            let arguments = normalize_tool_arguments(
+                &name,
+                parse_arguments_value(raw_arguments),
+                raw_string_argument_hint(raw_arguments),
             );
             return Some(ParsedToolCall {
                 name,
@@ -404,8 +519,12 @@ fn parse_tool_call_value(value: &serde_json::Value) -> Option<ParsedToolCall> {
         return None;
     }
 
-    let arguments =
-        parse_arguments_value(value.get("arguments").or_else(|| value.get("parameters")));
+    let raw_arguments = value.get("arguments").or_else(|| value.get("parameters"));
+    let arguments = normalize_tool_arguments(
+        &name,
+        parse_arguments_value(raw_arguments),
+        raw_string_argument_hint(raw_arguments),
+    );
     Some(ParsedToolCall {
         name,
         arguments,
@@ -1729,11 +1848,15 @@ fn detect_tool_call_parse_issue(response: &str, parsed_calls: &[ParsedToolCall])
 fn parse_structured_tool_calls(tool_calls: &[ToolCall]) -> Vec<ParsedToolCall> {
     tool_calls
         .iter()
-        .map(|call| ParsedToolCall {
-            name: call.name.clone(),
-            arguments: serde_json::from_str::<serde_json::Value>(&call.arguments)
-                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new())),
-            tool_call_id: Some(call.id.clone()),
+        .map(|call| {
+            let name = call.name.clone();
+            let parsed = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+            ParsedToolCall {
+                name: name.clone(),
+                arguments: normalize_tool_arguments(&name, parsed, Some(call.arguments.as_str())),
+                tool_call_id: Some(call.id.clone()),
+            }
         })
         .collect()
 }
@@ -5102,6 +5225,36 @@ Done."#;
     }
 
     #[test]
+    fn parse_tool_call_value_recovers_shell_command_from_raw_string_arguments() {
+        let value = serde_json::json!({
+            "name": "shell",
+            "arguments": "uname -a"
+        });
+        let result = parse_tool_call_value(&value).expect("tool call should parse");
+        assert_eq!(result.name, "shell");
+        assert_eq!(
+            result.arguments.get("command").and_then(|v| v.as_str()),
+            Some("uname -a")
+        );
+    }
+
+    #[test]
+    fn parse_tool_call_value_recovers_shell_command_from_cmd_alias() {
+        let value = serde_json::json!({
+            "function": {
+                "name": "shell",
+                "arguments": {"cmd": "pwd"}
+            }
+        });
+        let result = parse_tool_call_value(&value).expect("tool call should parse");
+        assert_eq!(result.name, "shell");
+        assert_eq!(
+            result.arguments.get("command").and_then(|v| v.as_str()),
+            Some("pwd")
+        );
+    }
+
+    #[test]
     fn parse_tool_call_value_preserves_tool_call_id_aliases() {
         let value = serde_json::json!({
             "call_id": "legacy_1",
@@ -5139,6 +5292,22 @@ Done."#;
         ]);
         let result = parse_tool_calls_from_json_value(&value);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn parse_structured_tool_calls_recovers_shell_command_from_string_payload() {
+        let calls = vec![ToolCall {
+            id: "call_1".to_string(),
+            name: "shell".to_string(),
+            arguments: "ls -la".to_string(),
+        }];
+        let parsed = parse_structured_tool_calls(&calls);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "shell");
+        assert_eq!(
+            parsed[0].arguments.get("command").and_then(|v| v.as_str()),
+            Some("ls -la")
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
