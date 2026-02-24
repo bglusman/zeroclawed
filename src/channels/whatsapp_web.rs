@@ -385,18 +385,16 @@ impl WhatsAppWebChannel {
 
         let outgoing = match attachment.kind {
             WaAttachmentKind::Image => wa_rs_proto::whatsapp::Message {
-                image_message: Some(Box::new(
-                    wa_rs_proto::whatsapp::message::ImageMessage {
-                        url: Some(upload.url),
-                        direct_path: Some(upload.direct_path),
-                        media_key: Some(upload.media_key),
-                        file_enc_sha256: Some(upload.file_enc_sha256),
-                        file_sha256: Some(upload.file_sha256),
-                        file_length: Some(upload.file_length),
-                        mimetype: Some(mimetype),
-                        ..Default::default()
-                    },
-                )),
+                image_message: Some(Box::new(wa_rs_proto::whatsapp::message::ImageMessage {
+                    url: Some(upload.url),
+                    direct_path: Some(upload.direct_path),
+                    media_key: Some(upload.media_key),
+                    file_enc_sha256: Some(upload.file_enc_sha256),
+                    file_sha256: Some(upload.file_sha256),
+                    file_length: Some(upload.file_length),
+                    mimetype: Some(mimetype),
+                    ..Default::default()
+                })),
                 ..Default::default()
             },
             WaAttachmentKind::Document => {
@@ -423,33 +421,29 @@ impl WhatsAppWebChannel {
                 }
             }
             WaAttachmentKind::Video => wa_rs_proto::whatsapp::Message {
-                video_message: Some(Box::new(
-                    wa_rs_proto::whatsapp::message::VideoMessage {
-                        url: Some(upload.url),
-                        direct_path: Some(upload.direct_path),
-                        media_key: Some(upload.media_key),
-                        file_enc_sha256: Some(upload.file_enc_sha256),
-                        file_sha256: Some(upload.file_sha256),
-                        file_length: Some(upload.file_length),
-                        mimetype: Some(mimetype),
-                        ..Default::default()
-                    },
-                )),
+                video_message: Some(Box::new(wa_rs_proto::whatsapp::message::VideoMessage {
+                    url: Some(upload.url),
+                    direct_path: Some(upload.direct_path),
+                    media_key: Some(upload.media_key),
+                    file_enc_sha256: Some(upload.file_enc_sha256),
+                    file_sha256: Some(upload.file_sha256),
+                    file_length: Some(upload.file_length),
+                    mimetype: Some(mimetype),
+                    ..Default::default()
+                })),
                 ..Default::default()
             },
             WaAttachmentKind::Audio => wa_rs_proto::whatsapp::Message {
-                audio_message: Some(Box::new(
-                    wa_rs_proto::whatsapp::message::AudioMessage {
-                        url: Some(upload.url),
-                        direct_path: Some(upload.direct_path),
-                        media_key: Some(upload.media_key),
-                        file_enc_sha256: Some(upload.file_enc_sha256),
-                        file_sha256: Some(upload.file_sha256),
-                        file_length: Some(upload.file_length),
-                        mimetype: Some(mimetype),
-                        ..Default::default()
-                    },
-                )),
+                audio_message: Some(Box::new(wa_rs_proto::whatsapp::message::AudioMessage {
+                    url: Some(upload.url),
+                    direct_path: Some(upload.direct_path),
+                    media_key: Some(upload.media_key),
+                    file_enc_sha256: Some(upload.file_enc_sha256),
+                    file_sha256: Some(upload.file_sha256),
+                    file_length: Some(upload.file_length),
+                    mimetype: Some(mimetype),
+                    ..Default::default()
+                })),
                 ..Default::default()
             },
         };
@@ -510,10 +504,7 @@ impl Channel for WhatsAppWebChannel {
 
         // Send each media attachment.
         for attachment in &attachments {
-            if let Err(e) = self
-                .send_media_attachment(&client, &to, attachment)
-                .await
-            {
+            if let Err(e) = self.send_media_attachment(&client, &to, attachment).await {
                 tracing::error!(
                     "WhatsApp Web: failed to send {:?} attachment {}: {}",
                     attachment.kind,
@@ -522,10 +513,7 @@ impl Channel for WhatsAppWebChannel {
                 );
                 // Fall back to sending the path as text so the user knows something went wrong.
                 let fallback = wa_rs_proto::whatsapp::Message {
-                    conversation: Some(format!(
-                        "[Failed to send media: {}]",
-                        attachment.target
-                    )),
+                    conversation: Some(format!("[Failed to send media: {}]", attachment.target)),
                     ..Default::default()
                 };
                 let _ = client.send_message(to.clone(), fallback).await;
@@ -533,7 +521,10 @@ impl Channel for WhatsAppWebChannel {
         }
 
         // If there were no markers and no text (shouldn't happen), send original content.
-        if attachments.is_empty() && text_without_markers.is_empty() && !message.content.trim().is_empty() {
+        if attachments.is_empty()
+            && text_without_markers.is_empty()
+            && !message.content.trim().is_empty()
+        {
             let outgoing = wa_rs_proto::whatsapp::Message {
                 conversation: Some(message.content.clone()),
                 ..Default::default()
