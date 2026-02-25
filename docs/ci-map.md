@@ -70,6 +70,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: evaluate canary metrics against policy thresholds (`promote` / `hold` / `abort`) with auditable artifacts, guarded execute mode, and optional auto-dispatch to `CI Rollback Guard` on `abort`
 - `.github/workflows/docs-deploy.yml` (`Docs Deploy`)
     - Purpose: docs quality checks + preview artifacts + GitHub Pages production deployment lane
+    - Additional behavior: `docs_deploy_guard.py` enforces `.github/release/docs-deploy-policy.json` for preview/production promotion and manual rollback ref validation, with audit-event artifacts
 - `.github/workflows/pub-homebrew-core.yml` (`Pub Homebrew Core`)
     - Purpose: manual, bot-owned Homebrew core formula bump PR flow for tagged releases
     - Guardrail: release tag must match `Cargo.toml` version
@@ -160,7 +161,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 19. Nightly integration drift: inspect `.github/workflows/nightly-all-features.yml` summary and lane owner mapping.
 20. Pre-release stage gate failures: inspect `.github/workflows/pub-prerelease.yml` guard artifact (`prerelease-guard.json`), starting from `transition` and `stage_history` fields.
 21. Canary gate hold/abort decisions: inspect `.github/workflows/ci-canary-gate.yml` guard artifact (`canary-guard.json`); on `abort`, verify rollback dispatch summary and follow-up `ci-rollback` run.
-22. Docs deploy failures: inspect `.github/workflows/docs-deploy.yml` quality lane + preview/deploy artifacts.
+22. Docs deploy failures: inspect `.github/workflows/docs-deploy.yml` quality lane + preview/deploy artifacts and `docs-deploy-guard.json` / `audit-event-docs-deploy-guard.json`.
 
 ## Maintenance Rules
 
@@ -183,6 +184,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Run full strict lint audits regularly via `./scripts/ci/rust_quality_gate.sh --strict` (for example through `./dev/ci.sh lint-strict`) and track cleanup in focused PRs.
 - Keep docs markdown gating incremental via `./scripts/ci/docs_quality_gate.sh` (block changed-line issues, report baseline issues separately).
 - Keep docs link gating incremental via `./scripts/ci/collect_changed_links.py` + lychee (check only links added on changed lines).
+- Keep docs deploy policy current in `.github/release/docs-deploy-policy.json`, `docs/operations/docs-deploy-policy.md`, and `docs/operations/docs-deploy-runbook.md`.
 - Prefer explicit workflow permissions (least privilege).
 - Keep Actions source policy restricted to approved allowlist patterns (see `docs/actions-source-policy.md`).
 - Use path filters for expensive workflows when practical.

@@ -58,10 +58,10 @@ Notes:
    - `feature-matrix.yml` (Rust/workflow path scope)
    - `sec-audit.yml`
    - `sec-codeql.yml` (if Rust/codeql paths changed)
-   - path-scoped workflows if matching files changed:
-     - `pub-docker-img.yml` (Docker build-input paths only)
-     - `docs-deploy.yml` (docs + README markdown paths)
-     - `workflow-sanity.yml` (workflow files only)
+     - path-scoped workflows if matching files changed:
+       - `pub-docker-img.yml` (Docker build-input paths only)
+       - `docs-deploy.yml` (docs + README markdown paths; deploy contract guard enforces promotion + rollback ref policy)
+       - `workflow-sanity.yml` (workflow files only)
      - `pr-label-policy-check.yml` (label-policy files only)
      - `ci-change-audit.yml` (CI/security path changes)
      - `ci-provider-connectivity.yml` (probe config/script/workflow changes)
