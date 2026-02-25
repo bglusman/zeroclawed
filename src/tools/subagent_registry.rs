@@ -183,9 +183,9 @@ impl SubAgentRegistry {
                 _ => true,
             })
             .map(|s| {
-                let duration_ms = s
-                    .completed_at
-                    .map(|end| (end - s.started_at).num_milliseconds().max(0) as u64);
+                let duration_ms = s.completed_at.map(|end| {
+                    u64::try_from((end - s.started_at).num_milliseconds()).unwrap_or_default()
+                });
                 SubAgentSessionInfo {
                     session_id: s.id.clone(),
                     agent: s.agent_name.clone(),

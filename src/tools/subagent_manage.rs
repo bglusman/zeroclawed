@@ -104,9 +104,9 @@ impl SubAgentManageTool {
         // Status is a read operation — no security enforcement needed
         match self.registry.get_status(session_id) {
             Some(snap) => {
-                let duration_ms = snap
-                    .completed_at
-                    .map(|end| (end - snap.started_at).num_milliseconds().max(0) as u64);
+                let duration_ms = snap.completed_at.map(|end| {
+                    u64::try_from((end - snap.started_at).num_milliseconds()).unwrap_or_default()
+                });
 
                 let mut output = json!({
                     "session_id": session_id,
