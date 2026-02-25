@@ -228,6 +228,9 @@ impl FeishuDocTool {
         let content = required_string(args, "content")?;
         let root_block_id = self.get_root_block_id(&doc_token).await?;
 
+        // Convert first, then delete — prevents data loss if conversion fails
+        let converted = self.convert_markdown_blocks(&content).await?;
+
         let root_block = self.get_block(&doc_token, &root_block_id).await?;
         let root_children = extract_child_ids(&root_block);
         if !root_children.is_empty() {
@@ -235,7 +238,6 @@ impl FeishuDocTool {
                 .await?;
         }
 
-        let converted = self.convert_markdown_blocks(&content).await?;
         self.insert_children_blocks(&doc_token, &root_block_id, None, converted.clone())
             .await?;
 
@@ -271,43 +273,29 @@ impl FeishuDocTool {
 
         let create_url = format!("{}/docx/v1/documents", self.api_base());
 
-        // Retry loop: create + verify, up to 3 attempts
-        let max_attempts = 3usize;
+        // Create the document — single POST, no retry (avoids duplicates)
+        let payload = self
+            .authed_request(Method::POST, &create_url, Some(create_body.clone()))
+            .await?;
+        let data = payload.get("data").cloned().unwrap_or_else(|| json!({}));
+
+        let doc_id = first_non_empty_string(&[
+            data.get("document").and_then(|v| v.get("document_id")),
+            data.get("document").and_then(|v| v.get("document_token")),
+            data.get("document_id"),
+            data.get("document_token"),
+        ])
+        .ok_or_else(|| anyhow::anyhow!("create response missing document id"))?;
+
+        // Verify the document exists — retry only the GET, never re-POST
+        let verify_url = format!(
+            "{}/docx/v1/documents/{}/raw_content",
+            self.api_base(),
+            doc_id
+        );
+        let max_verify_attempts = 3usize;
         let mut last_err = String::new();
-
-        for attempt in 1..=max_attempts {
-            let payload = self
-                .authed_request(Method::POST, &create_url, Some(create_body.clone()))
-                .await?;
-            let data = payload.get("data").cloned().unwrap_or_else(|| json!({}));
-
-            let doc_id = match first_non_empty_string(&[
-                data.get("document").and_then(|v| v.get("document_id")),
-                data.get("document").and_then(|v| v.get("document_token")),
-                data.get("document_id"),
-                data.get("document_token"),
-            ]) {
-                Some(id) => id,
-                None => {
-                    last_err = "create response missing document id".to_string();
-                    if attempt < max_attempts {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        continue;
-                    }
-                    anyhow::bail!(
-                        "document creation failed after {} attempts: {}",
-                        max_attempts,
-                        last_err
-                    );
-                }
-            };
-
-            // Verify the document actually exists by reading it
-            let verify_url = format!(
-                "{}/docx/v1/documents/{}/raw_content",
-                self.api_base(),
-                doc_id
-            );
+        for attempt in 1..=max_verify_attempts {
             match self.authed_request(Method::GET, &verify_url, None).await {
                 Ok(_) => {
                     // Document verified — proceed with permissions and return
@@ -347,16 +335,17 @@ impl FeishuDocTool {
                         doc_id,
                         e
                     );
-                    if attempt < max_attempts {
-                        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                    if attempt < max_verify_attempts {
+                        tokio::time::sleep(std::time::Duration::from_millis(800 * attempt as u64)).await;
                     }
                 }
             }
         }
 
         anyhow::bail!(
-            "document creation failed after {} attempts: {}",
-            max_attempts,
+            "document created (id={}) but verification failed after {} attempts: {}",
+            doc_id,
+            max_verify_attempts,
             last_err
         )
     }
@@ -379,6 +368,9 @@ impl FeishuDocTool {
         let block_id = required_string(args, "block_id")?;
         let content = required_string(args, "content")?;
 
+        // Convert first, then delete — prevents data loss if conversion fails
+        let converted = self.convert_markdown_blocks(&content).await?;
+
         let block = self.get_block(&doc_token, &block_id).await?;
         let children = extract_child_ids(&block);
         if !children.is_empty() {
@@ -386,7 +378,6 @@ impl FeishuDocTool {
                 .await?;
         }
 
-        let converted = self.convert_markdown_blocks(&content).await?;
         self.insert_children_blocks(&doc_token, &block_id, None, converted)
             .await?;
 
@@ -511,7 +502,7 @@ impl FeishuDocTool {
     }
 
     async fn action_upload_image(&self, args: &Value) -> anyhow::Result<Value> {
-        let doc_token = required_string(args, "doc_token")?;
+        let doc_token = self.resolve_doc_token(args).await?;
         let parent = self
             .resolve_parent_block(&doc_token, optional_string(args, "parent_block_id"))
             .await?;
@@ -554,7 +545,7 @@ impl FeishuDocTool {
     }
 
     async fn action_upload_file(&self, args: &Value) -> anyhow::Result<Value> {
-        let doc_token = required_string(args, "doc_token")?;
+        let doc_token = self.resolve_doc_token(args).await?;
         let filename_override = optional_string(args, "filename");
 
         let media = self
@@ -868,6 +859,9 @@ impl FeishuDocTool {
         cell_block_id: &str,
         value: &str,
     ) -> anyhow::Result<()> {
+        // Convert first, then delete — prevents data loss if conversion fails
+        let converted = self.convert_markdown_blocks(value).await?;
+
         let cell_block = self.get_block(doc_token, cell_block_id).await?;
         let children = extract_child_ids(&cell_block);
         if !children.is_empty() {
@@ -875,7 +869,6 @@ impl FeishuDocTool {
                 .await?;
         }
 
-        let converted = self.convert_markdown_blocks(value).await?;
         if !converted.is_empty() {
             let _ = self
                 .insert_children_blocks(doc_token, cell_block_id, None, converted)
@@ -903,6 +896,19 @@ impl FeishuDocTool {
         url: &str,
         filename_override: Option<String>,
     ) -> anyhow::Result<LoadedMedia> {
+        // SSRF protection: validate URL scheme and block local/private hosts
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|e| anyhow::anyhow!("invalid media URL '{}': {}", url, e))?;
+        match parsed.scheme() {
+            "http" | "https" => {}
+            other => anyhow::bail!("unsupported URL scheme '{}': only http/https allowed", other),
+        }
+        let host = parsed.host_str()
+            .ok_or_else(|| anyhow::anyhow!("media URL has no host: {}", url))?;
+        if crate::tools::url_validation::is_private_or_local_host(host) {
+            anyhow::bail!("Blocked local/private host in media URL: {}", host);
+        }
+
         let resp = self.http_client().get(url).send().await?;
         let status = resp.status();
         if !status.is_success() {
