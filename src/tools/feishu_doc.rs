@@ -44,6 +44,7 @@ pub struct FeishuDocTool {
     use_feishu: bool,
     security: Arc<SecurityPolicy>,
     tenant_token: Arc<RwLock<Option<CachedTenantToken>>>,
+    client: reqwest::Client,
 }
 
 impl FeishuDocTool {
@@ -59,6 +60,7 @@ impl FeishuDocTool {
             use_feishu,
             security,
             tenant_token: Arc::new(RwLock::new(None)),
+            client: crate::config::build_runtime_proxy_client("tool.feishu_doc"),
         }
     }
 
@@ -70,8 +72,8 @@ impl FeishuDocTool {
         }
     }
 
-    fn http_client(&self) -> reqwest::Client {
-        crate::config::build_runtime_proxy_client("tool.feishu_doc")
+    fn http_client(&self) -> &reqwest::Client {
+        &self.client
     }
 
     async fn get_tenant_access_token(&self) -> anyhow::Result<String> {
@@ -568,6 +570,11 @@ impl FeishuDocTool {
 
         let placeholder = format!("![{}](about:blank)", media.filename);
         let converted = self.convert_markdown_blocks(&placeholder).await?;
+        if converted.is_empty() {
+            anyhow::bail!(
+                "image placeholder markdown produced no blocks; cannot insert image block"
+            );
+        }
         let inserted = self
             .insert_children_blocks(&doc_token, &parent, index, converted)
             .await?;
@@ -966,8 +973,20 @@ impl FeishuDocTool {
             anyhow::bail!("Blocked local/private host in media URL: {}", host);
         }
 
-        let mut resp = self.http_client().get(url).send().await?;
+        // Use a no-redirect client to prevent SSRF bypass via HTTP redirects
+        // (an attacker could redirect to internal/private IPs after initial URL validation)
+        let no_redirect_client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| anyhow::anyhow!("failed to build no-redirect HTTP client: {}", e))?;
+        let mut resp = no_redirect_client.get(url).send().await?;
         let status = resp.status();
+        if status.is_redirection() {
+            anyhow::bail!(
+                "media URL returned a redirect ({}); redirects are not allowed for security",
+                status
+            );
+        }
         if let Some(len) = resp.content_length() {
             if len > MAX_MEDIA_BYTES as u64 {
                 anyhow::bail!(
@@ -1175,7 +1194,7 @@ impl Tool for FeishuDocTool {
                 },
                 "link_share": {
                     "type": "boolean",
-                    "description": "Enable link sharing after create (default: true). Set false to keep document private"
+                    "description": "Enable link sharing after create (default: false). Set true to make the document link-readable."
                 },
                 "block_id": {
                     "type": "string",
