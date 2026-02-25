@@ -2,7 +2,9 @@
 
 This runbook describes the nightly integration matrix execution and reporting flow.
 
-Workflow: `.github/workflows/nightly-all-features.yml`
+Primary workflow path: `.github/workflows/feature-matrix.yml` with `profile=nightly`
+
+Legacy/dev-only workflow template: `.github/workflows/nightly-all-features.yml`
 
 ## Objective
 
@@ -22,13 +24,14 @@ Lane owners are configured in `.github/release/nightly-owner-routing.json`.
 
 - Per-lane: `nightly-lane-<lane>` with `nightly-result-<lane>.json`
 - Aggregate: `nightly-all-features-summary` with `nightly-summary.json` and `nightly-summary.md`
+- Trend snapshot: `nightly-history.json` (latest 3 completed nightly-profile runs)
 - Retention: 30 days for lane + summary artifacts
 
 ## Scheduler and Activation Notes
 
 - Schedule contract: daily at `03:15 UTC` (`cron: 15 3 * * *`).
 - Determinism contract: pinned Rust toolchain (`1.92.0`), locked Cargo commands, explicit apt package install for all-features lane.
-- GitHub schedule/discovery caveat: scheduled and `workflow_dispatch` discovery is driven by the repository default branch workflow catalog. If this workflow is only on `dev`, promote `dev -> main` before expecting native schedule/dispatch visibility.
+- Nightly profile runs are emitted by `feature-matrix.yml`; this keeps manual dispatch and schedule discoverable from the active workflow catalog.
 
 ## Ownership Routing and Escalation
 
@@ -56,8 +59,13 @@ SLA targets:
 
 Use:
 
-- `gh run list --repo zeroclaw-labs/zeroclaw --workflow nightly-all-features.yml --limit 3`
+- `gh run list --repo zeroclaw-labs/zeroclaw --workflow feature-matrix.yml --limit 10`
 - `gh run view <run_id> --repo zeroclaw-labs/zeroclaw --json jobs,headSha,event,createdAt,url`
+- inspect `nightly-history.json` in `nightly-all-features-summary` artifact
+
+Manual trigger (nightly profile):
+
+- `gh workflow run feature-matrix.yml --repo zeroclaw-labs/zeroclaw --ref dev -f profile=nightly -f fail_on_failure=true`
 
 Project update expectation:
 

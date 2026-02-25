@@ -4,6 +4,11 @@ This runbook defines the feature matrix CI lanes used to validate key compile co
 
 Workflow: `.github/workflows/feature-matrix.yml`
 
+Profiles:
+
+- `compile` (default): merge-gate compile combinations
+- `nightly`: integration-oriented nightly lane commands + trend snapshot
+
 ## Lanes
 
 - `default`: `cargo check --locked`
@@ -15,14 +20,23 @@ Workflow: `.github/workflows/feature-matrix.yml`
 
 - PRs and pushes to `dev` / `main` on Rust + workflow paths
 - merge queue (`merge_group`)
-- weekly schedule
-- manual dispatch
+- weekly schedule (`compile`)
+- daily schedule (`nightly`)
+- manual dispatch (`profile=compile|nightly`)
 
 ## Artifacts
 
-- Per-lane report: `feature-matrix-<lane>`
+- Per-lane report (`compile`): `feature-matrix-<lane>`
+- Per-lane report (`nightly`): `nightly-lane-<lane>`
 - Aggregated report: `feature-matrix-summary` (`feature-matrix-summary.json`, `feature-matrix-summary.md`)
 - Retention: 21 days for lane + summary artifacts
+- Nightly profile summary artifact: `nightly-all-features-summary` (`nightly-summary.json`, `nightly-summary.md`, `nightly-history.json`) with 30-day retention
+
+## Retry Policy
+
+- `compile` profile: max attempts = 1
+- `nightly` profile: max attempts = 2 (bounded single retry)
+- Lane artifacts record `attempts_used` and `max_attempts` for auditability
 
 ## Required Check Contract
 

@@ -32,7 +32,7 @@ Feature matrix lane check names (informational, non-required):
 | --- | --- | --- |
 | `Verify Artifact Set` | `.github/workflows/pub-release.yml` | release completeness |
 | `Pre-release Guard` | `.github/workflows/pub-prerelease.yml` | stage progression + tag integrity |
-| `Nightly Summary & Routing` | `.github/workflows/nightly-all-features.yml` | overnight integration signal |
+| `Nightly Summary & Routing` | `.github/workflows/feature-matrix.yml` (`profile=nightly`) | overnight integration signal |
 
 ## Verification Procedure
 
