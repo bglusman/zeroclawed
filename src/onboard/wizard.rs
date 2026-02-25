@@ -3835,6 +3835,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     draft_update_interval_ms: 1000,
                     interrupt_on_new_message: false,
                     mention_only: false,
+                    group_reply: None,
                 });
             }
             ChannelMenuChoice::Discord => {
@@ -3934,6 +3935,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     allowed_users,
                     listen_to_bots: false,
                     mention_only: false,
+                    group_reply: None,
                 });
             }
             ChannelMenuChoice::Slack => {
@@ -4061,6 +4063,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                         Some(channel)
                     },
                     allowed_users,
+                    group_reply: None,
                 });
             }
             ChannelMenuChoice::IMessage => {
@@ -5167,6 +5170,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     encrypt_key: None,
                     allowed_users,
                     mention_only: false,
+                    group_reply: None,
                     use_feishu,
                     receive_mode,
                     port,
@@ -7407,6 +7411,7 @@ mod tests {
             allowed_users: vec!["*".into()],
             thread_replies: Some(true),
             mention_only: Some(false),
+            group_reply: None,
         });
         assert!(has_launchable_channels(&channels));
 

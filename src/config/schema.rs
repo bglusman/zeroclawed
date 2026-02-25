@@ -3312,6 +3312,63 @@ fn default_draft_update_interval_ms() -> u64 {
     1000
 }
 
+/// Group-chat reply trigger mode for channels that support mention gating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GroupReplyMode {
+    /// Reply only when the bot is explicitly @-mentioned in group chats.
+    MentionOnly,
+    /// Reply to every message in group chats.
+    AllMessages,
+}
+
+impl GroupReplyMode {
+    #[must_use]
+    pub fn requires_mention(self) -> bool {
+        matches!(self, Self::MentionOnly)
+    }
+}
+
+/// Advanced group-chat trigger controls.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct GroupReplyConfig {
+    /// Optional explicit trigger mode.
+    ///
+    /// If omitted, channel-specific legacy behavior is used for compatibility.
+    #[serde(default)]
+    pub mode: Option<GroupReplyMode>,
+    /// Sender IDs that always trigger group replies.
+    ///
+    /// These IDs bypass mention gating in group chats, but do not bypass the
+    /// channel-level inbound allowlist (`allowed_users` / equivalents).
+    #[serde(default)]
+    pub allowed_sender_ids: Vec<String>,
+}
+
+fn resolve_group_reply_mode(
+    group_reply: Option<&GroupReplyConfig>,
+    legacy_mention_only: Option<bool>,
+    default_mode: GroupReplyMode,
+) -> GroupReplyMode {
+    if let Some(mode) = group_reply.and_then(|cfg| cfg.mode) {
+        return mode;
+    }
+    if let Some(mention_only) = legacy_mention_only {
+        return if mention_only {
+            GroupReplyMode::MentionOnly
+        } else {
+            GroupReplyMode::AllMessages
+        };
+    }
+    default_mode
+}
+
+fn clone_group_reply_allowed_sender_ids(group_reply: Option<&GroupReplyConfig>) -> Vec<String> {
+    group_reply
+        .map(|cfg| cfg.allowed_sender_ids.clone())
+        .unwrap_or_default()
+}
+
 /// Telegram bot channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TelegramConfig {
@@ -3333,6 +3390,9 @@ pub struct TelegramConfig {
     /// Direct messages are always processed.
     #[serde(default)]
     pub mention_only: bool,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
 }
 
 impl ChannelConfig for TelegramConfig {
@@ -3341,6 +3401,22 @@ impl ChannelConfig for TelegramConfig {
     }
     fn desc() -> &'static str {
         "connect your bot"
+    }
+}
+
+impl TelegramConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(
+            self.group_reply.as_ref(),
+            Some(self.mention_only),
+            GroupReplyMode::AllMessages,
+        )
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
 
@@ -3362,6 +3438,9 @@ pub struct DiscordConfig {
     /// Other messages in the guild are silently ignored.
     #[serde(default)]
     pub mention_only: bool,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
 }
 
 impl ChannelConfig for DiscordConfig {
@@ -3370,6 +3449,22 @@ impl ChannelConfig for DiscordConfig {
     }
     fn desc() -> &'static str {
         "connect your bot"
+    }
+}
+
+impl DiscordConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(
+            self.group_reply.as_ref(),
+            Some(self.mention_only),
+            GroupReplyMode::AllMessages,
+        )
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
 
@@ -3386,6 +3481,9 @@ pub struct SlackConfig {
     /// Allowed Slack user IDs. Empty = deny all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
 }
 
 impl ChannelConfig for SlackConfig {
@@ -3394,6 +3492,18 @@ impl ChannelConfig for SlackConfig {
     }
     fn desc() -> &'static str {
         "connect your bot"
+    }
+}
+
+impl SlackConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(self.group_reply.as_ref(), None, GroupReplyMode::AllMessages)
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
 
@@ -3417,6 +3527,9 @@ pub struct MattermostConfig {
     /// Other messages in the channel are silently ignored.
     #[serde(default)]
     pub mention_only: Option<bool>,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
 }
 
 impl ChannelConfig for MattermostConfig {
@@ -3425,6 +3538,22 @@ impl ChannelConfig for MattermostConfig {
     }
     fn desc() -> &'static str {
         "connect to your bot"
+    }
+}
+
+impl MattermostConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(
+            self.group_reply.as_ref(),
+            Some(self.mention_only.unwrap_or(false)),
+            GroupReplyMode::AllMessages,
+        )
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
 
@@ -3756,6 +3885,9 @@ pub struct LarkConfig {
     /// Direct messages are always processed.
     #[serde(default)]
     pub mention_only: bool,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
     /// Whether to use the Feishu (Chinese) endpoint instead of Lark (International)
     #[serde(default)]
     pub use_feishu: bool,
@@ -3777,6 +3909,22 @@ impl ChannelConfig for LarkConfig {
     }
 }
 
+impl LarkConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(
+            self.group_reply.as_ref(),
+            Some(self.mention_only),
+            GroupReplyMode::AllMessages,
+        )
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
+    }
+}
+
 /// Feishu configuration for messaging integration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FeishuConfig {
@@ -3793,6 +3941,9 @@ pub struct FeishuConfig {
     /// Allowed user IDs or union IDs (empty = deny all, "*" = allow all)
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    /// Group-chat trigger controls.
+    #[serde(default)]
+    pub group_reply: Option<GroupReplyConfig>,
     /// Event receive mode: "websocket" (default) or "webhook"
     #[serde(default)]
     pub receive_mode: LarkReceiveMode,
@@ -3808,6 +3959,18 @@ impl ChannelConfig for FeishuConfig {
     }
     fn desc() -> &'static str {
         "Feishu Bot"
+    }
+}
+
+impl FeishuConfig {
+    #[must_use]
+    pub fn effective_group_reply_mode(&self) -> GroupReplyMode {
+        resolve_group_reply_mode(self.group_reply.as_ref(), None, GroupReplyMode::AllMessages)
+    }
+
+    #[must_use]
+    pub fn group_reply_allowed_sender_ids(&self) -> Vec<String> {
+        clone_group_reply_allowed_sender_ids(self.group_reply.as_ref())
     }
 }
 
@@ -6189,6 +6352,7 @@ mod tests {
             draft_update_interval_ms: 1000,
             interrupt_on_new_message: false,
             mention_only: false,
+            group_reply: None,
         });
         config.agents.insert(
             "worker".into(),
@@ -6536,6 +6700,7 @@ default_temperature = 0.7
                     draft_update_interval_ms: default_draft_update_interval_ms(),
                     interrupt_on_new_message: false,
                     mention_only: false,
+                    group_reply: None,
                 }),
                 discord: None,
                 slack: None,
@@ -6992,6 +7157,7 @@ tool_dispatcher = "xml"
             draft_update_interval_ms: 1000,
             interrupt_on_new_message: false,
             mention_only: false,
+            group_reply: None,
         });
 
         config.agents.insert(
@@ -7125,6 +7291,7 @@ tool_dispatcher = "xml"
             draft_update_interval_ms: 500,
             interrupt_on_new_message: true,
             mention_only: false,
+            group_reply: None,
         };
         let json = serde_json::to_string(&tc).unwrap();
         let parsed: TelegramConfig = serde_json::from_str(&json).unwrap();
@@ -7142,6 +7309,34 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.stream_mode, StreamMode::Off);
         assert_eq!(parsed.draft_update_interval_ms, 1000);
         assert!(!parsed.interrupt_on_new_message);
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+        assert!(parsed.group_reply_allowed_sender_ids().is_empty());
+    }
+
+    #[test]
+    async fn telegram_group_reply_config_overrides_legacy_mention_only() {
+        let json = r#"{
+            "bot_token":"tok",
+            "allowed_users":["*"],
+            "mention_only":false,
+            "group_reply":{
+                "mode":"mention_only",
+                "allowed_sender_ids":["1001","1002"]
+            }
+        }"#;
+
+        let parsed: TelegramConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::MentionOnly
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["1001".to_string(), "1002".to_string()]
+        );
     }
 
     #[test]
@@ -7152,6 +7347,7 @@ tool_dispatcher = "xml"
             allowed_users: vec![],
             listen_to_bots: false,
             mention_only: false,
+            group_reply: None,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -7167,10 +7363,46 @@ tool_dispatcher = "xml"
             allowed_users: vec![],
             listen_to_bots: false,
             mention_only: false,
+            group_reply: None,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
         assert!(parsed.guild_id.is_none());
+    }
+
+    #[test]
+    async fn discord_group_reply_mode_falls_back_to_legacy_mention_only() {
+        let json = r#"{
+            "bot_token":"tok",
+            "mention_only":true
+        }"#;
+        let parsed: DiscordConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::MentionOnly
+        );
+        assert!(parsed.group_reply_allowed_sender_ids().is_empty());
+    }
+
+    #[test]
+    async fn discord_group_reply_mode_overrides_legacy_mention_only() {
+        let json = r#"{
+            "bot_token":"tok",
+            "mention_only":true,
+            "group_reply":{
+                "mode":"all_messages",
+                "allowed_sender_ids":["111"]
+            }
+        }"#;
+        let parsed: DiscordConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["111".to_string()]
+        );
     }
 
     // ── iMessage / Matrix config ────────────────────────────
@@ -7381,6 +7613,10 @@ allowed_users = ["@ops:matrix.org"]
         let json = r#"{"bot_token":"xoxb-tok"}"#;
         let parsed: SlackConfig = serde_json::from_str(json).unwrap();
         assert!(parsed.allowed_users.is_empty());
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
     }
 
     #[test]
@@ -7410,6 +7646,66 @@ channel_id = "C123"
         let parsed: SlackConfig = toml::from_str(toml_str).unwrap();
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(parsed.channel_id.as_deref(), Some("C123"));
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+    }
+
+    #[test]
+    async fn slack_group_reply_config_supports_sender_overrides() {
+        let json = r#"{
+            "bot_token":"xoxb-tok",
+            "group_reply":{
+                "mode":"mention_only",
+                "allowed_sender_ids":["U111"]
+            }
+        }"#;
+        let parsed: SlackConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::MentionOnly
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["U111".to_string()]
+        );
+    }
+
+    #[test]
+    async fn mattermost_group_reply_mode_falls_back_to_legacy_mention_only() {
+        let json = r#"{
+            "url":"https://mm.example.com",
+            "bot_token":"token",
+            "mention_only":true
+        }"#;
+        let parsed: MattermostConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::MentionOnly
+        );
+    }
+
+    #[test]
+    async fn mattermost_group_reply_mode_overrides_legacy_mention_only() {
+        let json = r#"{
+            "url":"https://mm.example.com",
+            "bot_token":"token",
+            "mention_only":true,
+            "group_reply":{
+                "mode":"all_messages",
+                "allowed_sender_ids":["u1","u2"]
+            }
+        }"#;
+        let parsed: MattermostConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["u1".to_string(), "u2".to_string()]
+        );
     }
 
     #[test]
@@ -9074,6 +9370,7 @@ default_model = "legacy-model"
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["user_123".into(), "user_456".into()],
             mention_only: false,
+            group_reply: None,
             use_feishu: true,
             receive_mode: LarkReceiveMode::Websocket,
             port: None,
@@ -9097,6 +9394,7 @@ default_model = "legacy-model"
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["*".into()],
             mention_only: false,
+            group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
@@ -9117,6 +9415,10 @@ default_model = "legacy-model"
         assert!(parsed.allowed_users.is_empty());
         assert!(!parsed.mention_only);
         assert!(!parsed.use_feishu);
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
     }
 
     #[test]
@@ -9137,6 +9439,28 @@ default_model = "legacy-model"
     }
 
     #[test]
+    async fn lark_group_reply_mode_overrides_legacy_mention_only() {
+        let json = r#"{
+            "app_id":"cli_123",
+            "app_secret":"secret",
+            "mention_only":true,
+            "group_reply":{
+                "mode":"all_messages",
+                "allowed_sender_ids":["ou_1"]
+            }
+        }"#;
+        let parsed: LarkConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["ou_1".to_string()]
+        );
+    }
+
+    #[test]
     async fn feishu_config_serde() {
         let fc = FeishuConfig {
             app_id: "cli_feishu_123".into(),
@@ -9144,6 +9468,7 @@ default_model = "legacy-model"
             encrypt_key: Some("encrypt_key".into()),
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["user_123".into(), "user_456".into()],
+            group_reply: None,
             receive_mode: LarkReceiveMode::Websocket,
             port: None,
         };
@@ -9164,6 +9489,7 @@ default_model = "legacy-model"
             encrypt_key: Some("encrypt_key".into()),
             verification_token: Some("verify_token".into()),
             allowed_users: vec!["*".into()],
+            group_reply: None,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
         };
@@ -9184,6 +9510,31 @@ default_model = "legacy-model"
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(parsed.receive_mode, LarkReceiveMode::Websocket);
         assert!(parsed.port.is_none());
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::AllMessages
+        );
+    }
+
+    #[test]
+    async fn feishu_group_reply_mode_supports_mention_only() {
+        let json = r#"{
+            "app_id":"cli_123",
+            "app_secret":"secret",
+            "group_reply":{
+                "mode":"mention_only",
+                "allowed_sender_ids":["ou_9"]
+            }
+        }"#;
+        let parsed: FeishuConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.effective_group_reply_mode(),
+            GroupReplyMode::MentionOnly
+        );
+        assert_eq!(
+            parsed.group_reply_allowed_sender_ids(),
+            vec!["ou_9".to_string()]
+        );
     }
 
     #[test]
