@@ -31,6 +31,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - `.github/workflows/pub-docker-img.yml` (`Docker`)
     - Purpose: PR Docker smoke check on `dev`/`main` PRs and publish images on tag pushes (`v*`) only
+    - Additional behavior: `ghcr_publish_contract_guard.py` enforces GHCR publish contract from `.github/release/ghcr-tag-policy.json` (`vX.Y.Z`, `sha-<12>`, `latest` digest parity + rollback mapping evidence)
 - `.github/workflows/feature-matrix.yml` (`Feature Matrix`)
     - Purpose: compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
     - Additional behavior: each lane emits machine-readable result artifacts; summary lane aggregates owner routing from `.github/release/nightly-owner-routing.json`
@@ -136,6 +137,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 1. `CI Required Gate` failing: start with `.github/workflows/ci-run.yml`.
 2. Docker failures on PRs: inspect `.github/workflows/pub-docker-img.yml` `pr-smoke` job.
+   - For tag-publish failures, inspect `ghcr-publish-contract.json` / `audit-event-ghcr-publish-contract.json` and Trivy artifacts from `pub-docker-img.yml`.
 3. Release failures (tag/manual/scheduled): inspect `.github/workflows/pub-release.yml` and the `prepare` job outputs.
    - Start with `release-trigger-guard.json` / `audit-event-release-trigger-guard.json` artifacts for authorization and provenance failures.
    - Then inspect `release-artifact-guard.verify.json` / `release-artifact-guard.publish.json` and corresponding audit-event envelopes for contract completeness failures.
@@ -170,6 +172,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - Keep audit event schema + retention metadata aligned with `docs/audit-event-schema.md` (`emit_audit_event.py` envelope + workflow artifact policy).
 - Keep rollback operations guarded and reversible (`ci-rollback.yml` defaults to `dry-run`; `execute` is manual and policy-gated).
 - Keep canary policy thresholds and sample-size rules current in `.github/release/canary-policy.json`.
+- Keep GHCR tag taxonomy and immutability policy current in `.github/release/ghcr-tag-policy.json` and `docs/operations/ghcr-tag-policy.md`.
 - Keep pre-release stage transition policy + matrix coverage + transition audit semantics current in `.github/release/prerelease-stage-gates.json`.
 - Keep required check naming stable and documented in `docs/operations/required-check-mapping.md` before changing branch protection settings.
 - Follow `docs/release-process.md` for verify-before-publish release cadence and tag discipline.

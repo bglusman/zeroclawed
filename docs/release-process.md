@@ -104,12 +104,16 @@ Expected publish outputs:
 - `audit-event-release-artifact-guard-publish.json` proving publish-stage artifact contract completeness
 - `zeroclaw.sha256sums.intoto.json` + `audit-event-release-sha256sums-provenance.json` for checksum provenance linkage
 - `release-notes-supply-chain.md` / `release-notes-supply-chain.json` with release-asset references (manifest, SBOM, provenance, guard audit artifacts)
+- Docker publish evidence from `Pub Docker Img`: `ghcr-publish-contract.json` + `audit-event-ghcr-publish-contract.json` + Trivy reports
 
 ### 5) Post-release validation
 
 1. Verify GitHub Release assets are downloadable.
-2. Verify GHCR tags for the released version (`vX.Y.Z`) and release commit SHA tag (`sha-<12>`).
-3. Verify install paths that rely on release assets (for example bootstrap binary download).
+2. Verify GHCR tags for the released version (`vX.Y.Z`), release commit SHA tag (`sha-<12>`), and `latest`.
+3. Verify GHCR digest parity evidence confirms:
+   - `digest(vX.Y.Z) == digest(sha-<12>)`
+   - `digest(latest) == digest(vX.Y.Z)`
+4. Verify install paths that rely on release assets (for example bootstrap binary download).
 
 ### 5.1) Canary gate before broad rollout
 

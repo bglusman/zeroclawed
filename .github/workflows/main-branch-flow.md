@@ -163,10 +163,12 @@ Workflow: `.github/workflows/pub-docker-img.yml`
 1. `publish` job runs on tag pushes `v*` only.
 2. Workflow trigger includes semantic version tag pushes (`v*`) only.
 3. Login to `ghcr.io` uses `${{ github.actor }}` and `${{ secrets.GITHUB_TOKEN }}`.
-4. Tag computation includes semantic tag from pushed git tag (`vX.Y.Z`) + SHA tag.
+4. Tag computation includes semantic tag from pushed git tag (`vX.Y.Z`) + SHA tag (`sha-<12>`) + `latest`.
 5. Multi-platform publish is used for tag pushes (`linux/amd64,linux/arm64`).
-6. Typical runtime in recent sample: ~139.9s.
-7. Result: pushed image tags under `ghcr.io/<owner>/<repo>`.
+6. `scripts/ci/ghcr_publish_contract_guard.py` validates anonymous pullability and digest parity across `vX.Y.Z`, `sha-<12>`, and `latest`, then emits rollback candidate mapping evidence.
+7. Trivy scans are emitted for version, SHA, and latest references.
+8. Typical runtime in recent sample: ~139.9s.
+9. Result: pushed image tags under `ghcr.io/<owner>/<repo>` with publish-contract + scan artifacts.
 
 Important: Docker publish now requires a `v*` tag push; regular `dev`/`main` branch pushes do not publish images.
 
@@ -262,7 +264,7 @@ flowchart TD
   T --> P["pub-docker-img.yml publish job"]
   R --> R1["Artifacts + SBOM + checksums + signatures + GitHub Release"]
   W --> R2["Verification build only (no GitHub Release publish)"]
-  P --> P1["Push ghcr image tags (version + sha)"]
+  P --> P1["Push ghcr image tags (version + sha + latest)"]
 ```
 
 ## Quick Troubleshooting
