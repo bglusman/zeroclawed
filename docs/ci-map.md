@@ -60,6 +60,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `.github/workflows/pub-release.yml` (`Release`)
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
     - Additional behavior: `release_trigger_guard.py` enforces stable-tag contract, annotated-tag requirement, actor authorization allowlist, and emits trigger-provenance audit artifacts
+    - Additional behavior: `release_artifact_guard.py` enforces `.github/release/release-artifact-contract.json` in verify/publish stages and emits auditable guard reports (`release-artifact-guard-verify`, `release-artifact-guard.publish.json`)
 - `.github/workflows/pub-prerelease.yml` (`Pub Pre-release`)
     - Purpose: validate alpha/beta/rc/stable policy matrix integrity, enforce stage progression + monotonic stage numbering + tag/version integrity, publish transition audit trail and release-stage history, and optionally publish GitHub prerelease assets
 - `.github/workflows/ci-canary-gate.yml` (`CI Canary Gate`)
@@ -136,6 +137,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 2. Docker failures on PRs: inspect `.github/workflows/pub-docker-img.yml` `pr-smoke` job.
 3. Release failures (tag/manual/scheduled): inspect `.github/workflows/pub-release.yml` and the `prepare` job outputs.
    - Start with `release-trigger-guard.json` / `audit-event-release-trigger-guard.json` artifacts for authorization and provenance failures.
+   - Then inspect `release-artifact-guard.verify.json` / `release-artifact-guard.publish.json` and corresponding audit-event envelopes for contract completeness failures.
 4. Homebrew formula publish failures: inspect `.github/workflows/pub-homebrew-core.yml` summary output and bot token/fork variables.
 5. Security failures: inspect `.github/workflows/sec-audit.yml` and `deny.toml`.
 6. Connectivity probe failures: inspect `connectivity-summary.md` and `connectivity-report.json` artifacts from `.github/workflows/ci-connectivity-probes.yml`; apply runbook in `docs/operations/connectivity-probes-runbook.md`.

@@ -45,6 +45,7 @@ Publish-mode guardrails:
 - Matching GHCR image tag (`ghcr.io/<owner>/<repo>:<tag>`) must be available before GitHub Release publish completes.
 - Artifacts are verified before publish.
 - Trigger provenance is recorded in `release-trigger-guard.json` and `audit-event-release-trigger-guard.json`.
+- Multi-arch artifact contract is enforced by `.github/release/release-artifact-contract.json` through `release_artifact_guard.py`.
 
 ## Maintainer Procedure
 
@@ -64,9 +65,10 @@ Run `Pub Release` manually:
 Expected outcome:
 
 - Full target matrix builds successfully.
-- `verify-artifacts` confirms all expected archives exist.
+- `verify-artifacts` enforces archive completeness against `.github/release/release-artifact-contract.json`.
 - No GitHub Release is published.
 - `release-trigger-guard` artifact is emitted with authorization/provenance evidence.
+- `release-artifact-guard-verify` artifact is emitted with `release-artifact-guard.verify.json`, `release-artifact-guard.verify.md`, and `audit-event-release-artifact-guard-verify.json`.
 
 ### 3) Cut release tag
 
@@ -97,6 +99,8 @@ Expected publish outputs:
 - `CycloneDX` and `SPDX` SBOMs
 - cosign signatures/certificates
 - GitHub Release notes + assets
+- `release-artifact-guard.publish.json` + `release-artifact-guard.publish.md`
+- `audit-event-release-artifact-guard-publish.json` proving publish-stage artifact contract completeness
 
 ### 5) Post-release validation
 

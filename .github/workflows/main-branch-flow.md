@@ -182,9 +182,10 @@ Workflow: `.github/workflows/pub-release.yml`
    - publish mode enforces actor authorization, stable annotated tag policy, `origin/main` ancestry, and `release_tag` == `Cargo.toml` version at the tag commit.
    - trigger provenance is emitted as `release-trigger-guard` artifacts.
 3. `build-release` builds matrix artifacts across Linux/macOS/Windows targets.
-4. `verify-artifacts` enforces presence of all expected archives before any publish attempt.
-5. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, keyless cosign signatures, and verifies GHCR release-tag availability.
-6. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish.
+4. `verify-artifacts` runs `scripts/ci/release_artifact_guard.py` against `.github/release/release-artifact-contract.json` in verify-stage mode (archive contract required; manifest/SBOM/notice checks intentionally skipped) and uploads `release-artifact-guard-verify` evidence.
+5. In publish mode, after manifest generation, workflow reruns `release_artifact_guard.py` in full-contract mode and emits `release-artifact-guard.publish.json` plus `audit-event-release-artifact-guard-publish.json`.
+6. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, keyless cosign signatures, and verifies GHCR release-tag availability.
+7. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish.
 
 Pre-release path:
 
