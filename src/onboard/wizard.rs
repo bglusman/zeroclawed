@@ -109,8 +109,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     let tunnel_config = setup_tunnel()?;
 
     print_step(5, 10, "Tool Mode & Security");
-    // http_request and web_search are configured in the dedicated step 6; discard from here.
-    let (composio_config, secrets_config, browser_config, _, _) = setup_tool_mode()?;
+    let (composio_config, secrets_config) = setup_tool_mode()?;
 
     print_step(6, 10, "Web & Internet Tools");
     let (web_search_config, web_fetch_config, http_request_config) = setup_web_tools()?;
@@ -2927,6 +2926,38 @@ fn provider_supports_keyless_local_usage(provider_name: &str) -> bool {
         canonical_provider_name(provider_name),
         "ollama" | "llamacpp" | "sglang" | "vllm" | "osaurus"
     )
+}
+
+fn provider_supports_device_flow(provider_name: &str) -> bool {
+    matches!(
+        canonical_provider_name(provider_name),
+        "copilot" | "gemini" | "openai-codex"
+    )
+}
+
+fn prompt_allowed_domains_for_tool(tool_name: &str) -> Result<Vec<String>> {
+    let prompt = format!(
+        "  {}.allowed_domains (comma-separated, '*' allows all)",
+        tool_name
+    );
+    let raw: String = Input::new()
+        .with_prompt(prompt)
+        .allow_empty(true)
+        .default("*".to_string())
+        .interact_text()?;
+
+    let domains: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect();
+
+    if domains.is_empty() {
+        Ok(vec!["*".to_string()])
+    } else {
+        Ok(domains)
+    }
 }
 
 // ── Step 6: Web & Internet Tools ────────────────────────────────
