@@ -2434,6 +2434,7 @@ pub enum WasmModuleHashPolicy {
 }
 
 /// Security policy controls for WASM runtime hardening.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WasmSecurityConfig {
     /// Require `runtime.wasm.tools_dir` to stay workspace-relative and traversal-free.
