@@ -14,6 +14,7 @@ const LARK_BASE_URL: &str = "https://open.larksuite.com/open-apis";
 const TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(120);
 const DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(7200);
 const INVALID_ACCESS_TOKEN_CODE: i64 = 99_991_663;
+const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024; // 25 MiB
 
 const ACTIONS: &[&str] = &[
     "read",
@@ -91,7 +92,7 @@ impl FeishuDocTool {
 
         let resp = self.http_client().post(&url).json(&body).send().await?;
         let status = resp.status();
-        let payload = parse_json_or_empty(resp).await;
+        let payload = parse_json_or_empty(resp).await?;
 
         if !status.is_success() {
             anyhow::bail!(
@@ -160,7 +161,7 @@ impl FeishuDocTool {
 
             let resp = req.send().await?;
             let status = resp.status();
-            let payload = parse_json_or_empty(resp).await;
+            let payload = parse_json_or_empty(resp).await?;
 
             if should_refresh_token(status, &payload) && !retried {
                 retried = true;
@@ -255,6 +256,9 @@ impl FeishuDocTool {
         let content = required_string(args, "content")?;
         let root_block_id = self.get_root_block_id(&doc_token).await?;
         let converted = self.convert_markdown_blocks(&content).await?;
+        if converted.is_empty() {
+            anyhow::bail!("markdown conversion produced no blocks — refusing to append empty content");
+        }
         self.insert_children_blocks(&doc_token, &root_block_id, None, converted.clone())
             .await?;
 
@@ -331,7 +335,7 @@ impl FeishuDocTool {
                     let link_share = args
                         .get("link_share")
                         .and_then(Value::as_bool)
-                        .unwrap_or(true);
+                        .unwrap_or(false);
                     if link_share {
                         let _ = self.enable_link_share(&doc_id).await;
                     }
@@ -526,7 +530,7 @@ impl FeishuDocTool {
         let parent = self
             .resolve_parent_block(&doc_token, optional_string(args, "parent_block_id"))
             .await?;
-        let index = optional_usize(args, "index");
+        let index = optional_usize(args, "index")?;
         let filename_override = optional_string(args, "filename");
 
         let media = self
@@ -942,6 +946,15 @@ impl FeishuDocTool {
 
         let resp = self.http_client().get(url).send().await?;
         let status = resp.status();
+        if let Some(len) = resp.content_length() {
+            if len > MAX_MEDIA_BYTES as u64 {
+                anyhow::bail!(
+                    "remote media too large: {} bytes (max {} bytes)",
+                    len,
+                    MAX_MEDIA_BYTES
+                );
+            }
+        }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             anyhow::bail!(
@@ -951,6 +964,13 @@ impl FeishuDocTool {
             );
         }
         let bytes = resp.bytes().await?.to_vec();
+        if bytes.len() > MAX_MEDIA_BYTES {
+            anyhow::bail!(
+                "remote media too large after download: {} bytes (max {} bytes)",
+                bytes.len(),
+                MAX_MEDIA_BYTES
+            );
+        }
 
         let guessed = filename_from_url(url).unwrap_or_else(|| "upload.bin".to_string());
         let filename = filename_override.unwrap_or(guessed);
@@ -971,6 +991,14 @@ impl FeishuDocTool {
             anyhow::bail!(self.security.resolved_path_violation_message(&resolved));
         }
 
+        let meta = tokio::fs::metadata(&resolved).await?;
+        if meta.len() > MAX_MEDIA_BYTES as u64 {
+            anyhow::bail!(
+                "local media too large: {} bytes (max {} bytes)",
+                meta.len(),
+                MAX_MEDIA_BYTES
+            );
+        }
         let bytes = tokio::fs::read(&resolved).await?;
         let fallback = resolved
             .file_name()
@@ -1011,7 +1039,7 @@ impl FeishuDocTool {
                 .await?;
 
             let status = resp.status();
-            let payload = parse_json_or_empty(resp).await;
+            let payload = parse_json_or_empty(resp).await?;
 
             if should_refresh_token(status, &payload) && !retried {
                 retried = true;
@@ -1373,14 +1401,24 @@ fn required_usize(args: &Value, key: &str) -> anyhow::Result<usize> {
     usize::try_from(raw).map_err(|_| anyhow::anyhow!("'{}' value is too large", key))
 }
 
-fn optional_usize(args: &Value, key: &str) -> Option<usize> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .and_then(|v| usize::try_from(v).ok())
+fn optional_usize(args: &Value, key: &str) -> anyhow::Result<Option<usize>> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let raw = v
+                .as_u64()
+                .ok_or_else(|| anyhow::anyhow!("'{}' must be a non-negative integer", key))?;
+            let parsed = usize::try_from(raw)
+                .map_err(|_| anyhow::anyhow!("'{}' value {} is too large", key, raw))?;
+            Ok(Some(parsed))
+        }
+    }
 }
 
-async fn parse_json_or_empty(resp: reqwest::Response) -> Value {
-    resp.json::<Value>().await.unwrap_or_else(|_| json!({}))
+async fn parse_json_or_empty(resp: reqwest::Response) -> anyhow::Result<Value> {
+    resp.json::<Value>()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to parse API response as JSON: {}", e))
 }
 
 fn sanitize_api_json(body: &Value) -> String {
@@ -1388,7 +1426,16 @@ fn sanitize_api_json(body: &Value) -> String {
 }
 
 fn ensure_api_success(body: &Value, context: &str) -> anyhow::Result<()> {
-    let code = body.get("code").and_then(Value::as_i64).unwrap_or(0);
+    let code = body
+        .get("code")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} failed: response missing 'code' field, body={}",
+                context,
+                sanitize_api_json(body)
+            )
+        })?;
     if code == 0 {
         return Ok(());
     }
