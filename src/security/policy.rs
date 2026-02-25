@@ -404,16 +404,33 @@ fn contains_unquoted_char(command: &str, target: char) -> bool {
     false
 }
 
-/// Detect unquoted shell variable expansions like `$HOME`, `$1`, `$?`.
+fn is_valid_shell_env_var_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+/// Detect unquoted shell variable expansions that are not explicitly allowlisted.
 ///
-/// Escaped dollars (`\$`) are ignored. Variables inside single quotes are
-/// treated as literals and therefore ignored.
-fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
+/// Allowed forms:
+/// - `$NAME`
+/// - `${NAME}`
+///
+/// where `NAME` is present in `allowed_vars`. Escaped dollars (`\$`) are
+/// ignored. Variables inside single quotes are treated as literals.
+fn contains_disallowed_unquoted_shell_variable_expansion(
+    command: &str,
+    allowed_vars: &[String],
+) -> bool {
     let mut quote = QuoteState::None;
     let mut escaped = false;
     let chars: Vec<char> = command.chars().collect();
+    let mut i = 0usize;
 
-    for i in 0..chars.len() {
+    while i < chars.len() {
         let ch = chars[i];
 
         match quote {
@@ -421,57 +438,102 @@ fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
                 if ch == '\'' {
                     quote = QuoteState::None;
                 }
+                i += 1;
                 continue;
             }
             QuoteState::Double => {
                 if escaped {
                     escaped = false;
+                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
+                    i += 1;
                     continue;
                 }
                 if ch == '"' {
                     quote = QuoteState::None;
+                    i += 1;
                     continue;
                 }
             }
             QuoteState::None => {
                 if escaped {
                     escaped = false;
+                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
+                    i += 1;
                     continue;
                 }
                 if ch == '\'' {
                     quote = QuoteState::Single;
+                    i += 1;
                     continue;
                 }
                 if ch == '"' {
                     quote = QuoteState::Double;
+                    i += 1;
                     continue;
                 }
             }
         }
 
         if ch != '$' {
+            i += 1;
             continue;
         }
 
         let Some(next) = chars.get(i + 1).copied() else {
+            i += 1;
             continue;
         };
-        if next.is_ascii_alphanumeric()
-            || matches!(
-                next,
-                '_' | '{' | '(' | '#' | '?' | '!' | '$' | '*' | '@' | '-'
-            )
-        {
-            return true;
+
+        match next {
+            '(' => return true,
+            '{' => {
+                let mut j = i + 2;
+                while j < chars.len() && chars[j] != '}' {
+                    j += 1;
+                }
+                if j >= chars.len() {
+                    return true;
+                }
+
+                let inner: String = chars[i + 2..j].iter().collect();
+                if !is_valid_shell_env_var_name(&inner)
+                    || !allowed_vars.iter().any(|allowed| allowed == &inner)
+                {
+                    return true;
+                }
+
+                i = j + 1;
+                continue;
+            }
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let mut j = i + 2;
+                while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
+                    j += 1;
+                }
+
+                let name: String = chars[i + 1..j].iter().collect();
+                if !allowed_vars.iter().any(|allowed| allowed == &name) {
+                    return true;
+                }
+
+                i = j;
+                continue;
+            }
+            c if c.is_ascii_digit() || matches!(c, '#' | '?' | '!' | '$' | '*' | '@' | '-') => {
+                return true;
+            }
+            _ => {}
         }
+
+        i += 1;
     }
 
     false
@@ -726,10 +788,12 @@ impl SecurityPolicy {
         // Block subshell/expansion operators — these allow hiding arbitrary
         // commands inside an allowed command (e.g. `echo $(rm -rf /)`) and
         // bypassing path checks through variable indirection. The helper below
-        // ignores escapes and literals inside single quotes, so `$(` or `${`
-        // literals are permitted there.
+        // permits only explicit passthrough variables (`$NAME` / `${NAME}`).
         if command.contains('`')
-            || contains_unquoted_shell_variable_expansion(command)
+            || contains_disallowed_unquoted_shell_variable_expansion(
+                command,
+                &self.shell_env_passthrough,
+            )
             || command.contains("<(")
             || command.contains(">(")
         {
@@ -1717,6 +1781,28 @@ mod tests {
         let p = default_policy();
         assert!(!p.is_command_allowed("cat $HOME/.ssh/id_rsa"));
         assert!(!p.is_command_allowed("cat $SECRET_FILE"));
+    }
+
+    #[test]
+    fn command_allows_explicit_shell_env_passthrough_variables() {
+        let p = SecurityPolicy {
+            shell_env_passthrough: vec!["TOKEN_VAR".into()],
+            ..SecurityPolicy::default()
+        };
+        assert!(p.is_command_allowed("echo $TOKEN_VAR"));
+        assert!(p.is_command_allowed("echo ${TOKEN_VAR}"));
+        assert!(p.is_command_allowed("echo \"Authorization: Bearer $TOKEN_VAR\""));
+    }
+
+    #[test]
+    fn command_rejects_non_passthrough_or_complex_variable_expansions() {
+        let p = SecurityPolicy {
+            shell_env_passthrough: vec!["TOKEN_VAR".into()],
+            ..SecurityPolicy::default()
+        };
+        assert!(!p.is_command_allowed("echo $HOME"));
+        assert!(!p.is_command_allowed("echo ${TOKEN_VAR:-fallback}"));
+        assert!(!p.is_command_allowed("echo $1"));
     }
 
     #[test]

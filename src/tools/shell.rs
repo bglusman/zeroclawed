@@ -500,7 +500,7 @@ mod tests {
         Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::Supervised,
             workspace_dir: std::env::temp_dir(),
-            allowed_commands: vec!["env".into()],
+            allowed_commands: vec!["env".into(), "echo".into()],
             shell_env_passthrough: vars.iter().map(|v| (*v).to_string()).collect(),
             ..SecurityPolicy::default()
         })
@@ -601,6 +601,22 @@ mod tests {
         assert!(result
             .output
             .contains("ZEROCLAW_TEST_PASSTHROUGH=db://unit-test"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shell_allows_passthrough_variable_expansion() {
+        let _guard = EnvGuard::set("ZEROCLAW_TEST_TOKEN", "token-from-env");
+        let tool = ShellTool::new(
+            test_security_with_env_passthrough(&["ZEROCLAW_TEST_TOKEN"]),
+            test_runtime(),
+        );
+
+        let result = tool
+            .execute(json!({"command": "echo \"Bearer $ZEROCLAW_TEST_TOKEN\""}))
+            .await
+            .expect("passthrough variable expansion should be allowed");
+        assert!(result.success);
+        assert!(result.output.contains("Bearer token-from-env"));
     }
 
     #[test]
