@@ -400,7 +400,7 @@ max_steps_per_cycle = 5
 channel = "lark"
 target = "oc_test"
 "#;
-        let config: crate::config::GoalLoopConfig = toml::from_str(toml_str).unwrap();
+        let config: crate::config::schema::GoalLoopConfig = toml::from_str(toml_str).unwrap();
         assert!(config.enabled);
         assert_eq!(config.interval_minutes, 15);
         assert_eq!(config.step_timeout_secs, 180);
@@ -411,7 +411,7 @@ target = "oc_test"
 
     #[test]
     fn goal_loop_config_defaults() {
-        let config = crate::config::GoalLoopConfig::default();
+        let config = crate::config::schema::GoalLoopConfig::default();
         assert!(!config.enabled);
         assert_eq!(config.interval_minutes, 10);
         assert_eq!(config.step_timeout_secs, 120);
