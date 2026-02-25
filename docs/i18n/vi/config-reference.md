@@ -74,14 +74,14 @@ Lưu ý cho người dùng container:
 | Khóa | Mặc định | Mục đích |
 |---|---|---|
 | `compact_context` | `false` | Khi bật: bootstrap_max_chars=6000, rag_chunk_limit=2. Dùng cho model 13B trở xuống |
-| `max_tool_iterations` | `10` | Số vòng lặp tool-call tối đa mỗi tin nhắn trên CLI, gateway và channels |
+| `max_tool_iterations` | `20` | Số vòng lặp tool-call tối đa mỗi tin nhắn trên CLI, gateway và channels |
 | `max_history_messages` | `50` | Số tin nhắn lịch sử tối đa giữ lại mỗi phiên |
 | `parallel_tools` | `false` | Bật thực thi tool song song trong một lượt |
 | `tool_dispatcher` | `auto` | Chiến lược dispatch tool |
 
 Lưu ý:
 
-- Đặt `max_tool_iterations = 0` sẽ dùng giá trị mặc định an toàn `10`.
+- Đặt `max_tool_iterations = 0` sẽ dùng giá trị mặc định an toàn `20`.
 - Nếu tin nhắn kênh vượt giá trị này, runtime trả về: `Agent exceeded maximum tool iterations (<value>)`.
 - Trong vòng lặp tool của CLI, gateway và channel, các lời gọi tool độc lập được thực thi đồng thời mặc định khi không cần phê duyệt; thứ tự kết quả giữ ổn định.
 - `parallel_tools` áp dụng cho API `Agent::turn()`. Không ảnh hưởng đến vòng lặp runtime của CLI, gateway hay channel.

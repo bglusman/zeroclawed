@@ -1593,6 +1593,10 @@ fn is_context_window_overflow_error(err: &anyhow::Error) -> bool {
     .any(|hint| lower.contains(hint))
 }
 
+fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
+    crate::agent::loop_::is_tool_iteration_limit_error(err)
+}
+
 fn load_cached_model_preview(workspace_dir: &Path, provider_name: &str) -> Vec<String> {
     let cache_path = workspace_dir.join("state").join(MODEL_CACHE_FILE);
     let Ok(raw) = std::fs::read_to_string(cache_path) else {
@@ -3217,6 +3221,46 @@ async fn process_channel_message(
                         let _ = channel
                             .send(
                                 &SendMessage::new(error_text, &msg.reply_target)
+                                    .in_thread(msg.thread_ts.clone()),
+                            )
+                            .await;
+                    }
+                }
+            } else if is_tool_iteration_limit_error(&e) {
+                let limit = ctx.max_tool_iterations.max(1);
+                let pause_text = format!(
+                    "⚠️ Reached tool-iteration limit ({limit}) for this turn. Context and progress were preserved. Reply \"continue\" to resume, or increase `agent.max_tool_iterations`."
+                );
+                runtime_trace::record_event(
+                    "channel_message_error",
+                    Some(msg.channel.as_str()),
+                    Some(route.provider.as_str()),
+                    Some(route.model.as_str()),
+                    None,
+                    Some(false),
+                    Some("tool iteration limit reached"),
+                    serde_json::json!({
+                        "sender": msg.sender,
+                        "elapsed_ms": started_at.elapsed().as_millis(),
+                        "max_tool_iterations": limit,
+                    }),
+                );
+                append_sender_turn(
+                    ctx.as_ref(),
+                    &history_key,
+                    ChatMessage::assistant(
+                        "[Task paused at tool-iteration limit — context preserved. Ask to continue.]",
+                    ),
+                );
+                if let Some(channel) = target_channel.as_ref() {
+                    if let Some(ref draft_id) = draft_message_id {
+                        let _ = channel
+                            .finalize_draft(&msg.reply_target, draft_id, &pause_text)
+                            .await;
+                    } else {
+                        let _ = channel
+                            .send(
+                                &SendMessage::new(pause_text, &msg.reply_target)
                                     .in_thread(msg.thread_ts.clone()),
                             )
                             .await;
@@ -7928,7 +7972,8 @@ BTC is currently around $65,000 based on latest tool output."#
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(sent_messages[0].starts_with("chat-iter-fail:"));
-        assert!(sent_messages[0].contains("⚠️ Error: Agent exceeded maximum tool iterations (3)"));
+        assert!(sent_messages[0].contains("⚠️ Reached tool-iteration limit (3)"));
+        assert!(sent_messages[0].contains("Context and progress were preserved"));
     }
 
     struct NoopMemory;
