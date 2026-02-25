@@ -183,9 +183,11 @@ Workflow: `.github/workflows/pub-release.yml`
    - trigger provenance is emitted as `release-trigger-guard` artifacts.
 3. `build-release` builds matrix artifacts across Linux/macOS/Windows targets.
 4. `verify-artifacts` runs `scripts/ci/release_artifact_guard.py` against `.github/release/release-artifact-contract.json` in verify-stage mode (archive contract required; manifest/SBOM/notice checks intentionally skipped) and uploads `release-artifact-guard-verify` evidence.
-5. In publish mode, after manifest generation, workflow reruns `release_artifact_guard.py` in full-contract mode and emits `release-artifact-guard.publish.json` plus `audit-event-release-artifact-guard-publish.json`.
-6. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, keyless cosign signatures, and verifies GHCR release-tag availability.
-7. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish.
+5. In publish mode, workflow generates SBOM (`CycloneDX` + `SPDX`), `SHA256SUMS`, and a checksum provenance statement (`zeroclaw.sha256sums.intoto.json`) plus audit-event envelope.
+6. In publish mode, after manifest generation, workflow reruns `release_artifact_guard.py` in full-contract mode and emits `release-artifact-guard.publish.json` plus `audit-event-release-artifact-guard-publish.json`.
+7. In publish mode, workflow keyless-signs release artifacts and composes a supply-chain release-notes preface via `release_notes_with_supply_chain_refs.py`.
+8. In publish mode, workflow verifies GHCR release-tag availability.
+9. In publish mode, workflow creates/updates the GitHub Release for the resolved tag and commit-ish, combining generated supply-chain preface with GitHub auto-generated commit notes.
 
 Pre-release path:
 

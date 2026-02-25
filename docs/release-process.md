@@ -46,6 +46,7 @@ Publish-mode guardrails:
 - Artifacts are verified before publish.
 - Trigger provenance is recorded in `release-trigger-guard.json` and `audit-event-release-trigger-guard.json`.
 - Multi-arch artifact contract is enforced by `.github/release/release-artifact-contract.json` through `release_artifact_guard.py`.
+- Release notes include a generated supply-chain evidence preface (`release-notes-supply-chain.md`) plus GitHub-generated commit-window notes.
 
 ## Maintainer Procedure
 
@@ -101,6 +102,8 @@ Expected publish outputs:
 - GitHub Release notes + assets
 - `release-artifact-guard.publish.json` + `release-artifact-guard.publish.md`
 - `audit-event-release-artifact-guard-publish.json` proving publish-stage artifact contract completeness
+- `zeroclaw.sha256sums.intoto.json` + `audit-event-release-sha256sums-provenance.json` for checksum provenance linkage
+- `release-notes-supply-chain.md` / `release-notes-supply-chain.json` with release-asset references (manifest, SBOM, provenance, guard audit artifacts)
 
 ### 5) Post-release validation
 

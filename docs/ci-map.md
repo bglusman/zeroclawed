@@ -61,6 +61,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
     - Additional behavior: `release_trigger_guard.py` enforces stable-tag contract, annotated-tag requirement, actor authorization allowlist, and emits trigger-provenance audit artifacts
     - Additional behavior: `release_artifact_guard.py` enforces `.github/release/release-artifact-contract.json` in verify/publish stages and emits auditable guard reports (`release-artifact-guard-verify`, `release-artifact-guard.publish.json`)
+    - Additional behavior: `release_notes_with_supply_chain_refs.py` composes release-note preface links for manifest/SBOM/provenance artifacts while GitHub auto-generates commit-window notes
 - `.github/workflows/pub-prerelease.yml` (`Pub Pre-release`)
     - Purpose: validate alpha/beta/rc/stable policy matrix integrity, enforce stage progression + monotonic stage numbering + tag/version integrity, publish transition audit trail and release-stage history, and optionally publish GitHub prerelease assets
 - `.github/workflows/ci-canary-gate.yml` (`CI Canary Gate`)
