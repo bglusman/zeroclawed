@@ -4021,9 +4021,9 @@ mod tests {
             _recipient: &str,
             _message_id: &str,
             text: &str,
-        ) -> anyhow::Result<()> {
+        ) -> anyhow::Result<Option<String>> {
             self.draft_updates.lock().await.push(text.to_string());
-            Ok(())
+            Ok(None)
         }
 
         async fn finalize_draft(
