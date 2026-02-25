@@ -531,12 +531,20 @@ pub fn all_tools_with_runtime(
             });
 
         if let Some((app_id, app_secret, use_feishu)) = feishu_creds {
-            tool_arcs.push(Arc::new(FeishuDocTool::new(
-                app_id,
-                app_secret,
-                use_feishu,
-                security.clone(),
-            )));
+            let app_id = app_id.trim().to_string();
+            let app_secret = app_secret.trim().to_string();
+            if app_id.is_empty() || app_secret.is_empty() {
+                tracing::warn!(
+                    "feishu_doc: skipped registration because app credentials are empty"
+                );
+            } else {
+                tool_arcs.push(Arc::new(FeishuDocTool::new(
+                    app_id,
+                    app_secret,
+                    use_feishu,
+                    security.clone(),
+                )));
+            }
         }
     }
 
