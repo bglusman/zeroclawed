@@ -107,10 +107,12 @@ jobs:
                   VERSION_TAG="${IMAGE}:${RELEASE_TAG}"
                   TAGS="${VERSION_TAG},${SHA_TAG},${LATEST_TAG}"
 
-                  echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-                  echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-                  echo "sha_tag=${SHA_SUFFIX}" >> "$GITHUB_OUTPUT"
-                  echo "latest_tag=${LATEST_SUFFIX}" >> "$GITHUB_OUTPUT"
+                  {
+                    echo "tags=${TAGS}"
+                    echo "release_tag=${RELEASE_TAG}"
+                    echo "sha_tag=${SHA_SUFFIX}"
+                    echo "latest_tag=${LATEST_SUFFIX}"
+                  } >> "$GITHUB_OUTPUT"
 
             - name: Build and push Docker image
               uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
