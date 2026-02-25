@@ -375,41 +375,60 @@ jobs:
         needs: [prepare, build-release]
         runs-on: blacksmith-2vcpu-ubuntu-2404
         steps:
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  ref: ${{ needs.prepare.outputs.release_ref }}
+
             - name: Download all artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   path: artifacts
 
-            - name: Validate expected archives
+            - name: Validate release archive contract (verify stage)
               shell: bash
               run: |
                   set -euo pipefail
-                  expected=(
-                    "zeroclaw-x86_64-unknown-linux-gnu.tar.gz"
-                    "zeroclaw-x86_64-unknown-linux-musl.tar.gz"
-                    "zeroclaw-aarch64-unknown-linux-gnu.tar.gz"
-                    "zeroclaw-aarch64-unknown-linux-musl.tar.gz"
-                    "zeroclaw-armv7-unknown-linux-gnueabihf.tar.gz"
-                    "zeroclaw-armv7-linux-androideabi.tar.gz"
-                    "zeroclaw-aarch64-linux-android.tar.gz"
-                    "zeroclaw-x86_64-apple-darwin.tar.gz"
-                    "zeroclaw-aarch64-apple-darwin.tar.gz"
-                    "zeroclaw-x86_64-pc-windows-msvc.zip"
-                  )
+                  python3 scripts/ci/release_artifact_guard.py \
+                    --artifacts-dir artifacts \
+                    --contract-file .github/release/release-artifact-contract.json \
+                    --output-json artifacts/release-artifact-guard.verify.json \
+                    --output-md artifacts/release-artifact-guard.verify.md \
+                    --allow-extra-archives \
+                    --skip-manifest-files \
+                    --skip-sbom-files \
+                    --skip-notice-files \
+                    --fail-on-violation
 
-                  missing=0
-                  for file in "${expected[@]}"; do
-                    if ! find artifacts -type f -name "$file" -print -quit | grep -q .; then
-                      echo "::error::Missing release archive: $file"
-                      missing=1
-                    fi
-                  done
+            - name: Emit verify-stage artifact guard audit event
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/emit_audit_event.py \
+                    --event-type release_artifact_guard_verify \
+                    --input-json artifacts/release-artifact-guard.verify.json \
+                    --output-json artifacts/audit-event-release-artifact-guard-verify.json \
+                    --artifact-name release-artifact-guard-verify \
+                    --retention-days 21
 
-                  if [ "$missing" -ne 0 ]; then
-                    exit 1
-                  fi
+            - name: Publish verify-stage artifact guard summary
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  cat artifacts/release-artifact-guard.verify.md >> "$GITHUB_STEP_SUMMARY"
 
-                  echo "All expected release archives are present."
+            - name: Upload verify-stage artifact guard reports
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: release-artifact-guard-verify
+                  path: |
+                      artifacts/release-artifact-guard.verify.json
+                      artifacts/release-artifact-guard.verify.md
+                      artifacts/audit-event-release-artifact-guard-verify.json
+                  if-no-files-found: error
+                  retention-days: 21
 
     publish:
         name: Publish Release
@@ -463,6 +482,39 @@ jobs:
                     --output-md artifacts/release-manifest.md \
                     --checksums-path artifacts/SHA256SUMS \
                     --fail-empty
+
+            - name: Validate release artifact contract (publish stage)
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/release_artifact_guard.py \
+                    --artifacts-dir artifacts \
+                    --contract-file .github/release/release-artifact-contract.json \
+                    --output-json artifacts/release-artifact-guard.publish.json \
+                    --output-md artifacts/release-artifact-guard.publish.md \
+                    --allow-extra-archives \
+                    --allow-extra-manifest-files \
+                    --allow-extra-sbom-files \
+                    --allow-extra-notice-files \
+                    --fail-on-violation
+
+            - name: Emit publish-stage artifact guard audit event
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/emit_audit_event.py \
+                    --event-type release_artifact_guard_publish \
+                    --input-json artifacts/release-artifact-guard.publish.json \
+                    --output-json artifacts/audit-event-release-artifact-guard-publish.json \
+                    --artifact-name release-artifact-guard-publish \
+                    --retention-days 30
+
+            - name: Publish artifact guard summary
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  cat artifacts/release-artifact-guard.publish.md >> "$GITHUB_STEP_SUMMARY"
 
             - name: Publish release manifest summary
               shell: bash
