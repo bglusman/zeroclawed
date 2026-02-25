@@ -2374,6 +2374,8 @@ mod tests {
             use_feishu: false,
             receive_mode: LarkReceiveMode::default(),
             port: None,
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
         let json = serde_json::to_string(&lc).unwrap();
         let parsed: LarkConfig = serde_json::from_str(&json).unwrap();
@@ -2397,6 +2399,8 @@ mod tests {
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
         let toml_str = toml::to_string(&lc).unwrap();
         let parsed: LarkConfig = toml::from_str(&toml_str).unwrap();
@@ -2432,6 +2436,8 @@ mod tests {
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
 
         let ch = LarkChannel::from_config(&cfg);
@@ -2457,6 +2463,8 @@ mod tests {
             use_feishu: true,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
 
         let ch = LarkChannel::from_lark_config(&cfg);
@@ -2479,6 +2487,8 @@ mod tests {
             group_reply: None,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
 
         let ch = LarkChannel::from_feishu_config(&cfg);
@@ -2652,6 +2662,8 @@ mod tests {
             group_reply: None,
             receive_mode: crate::config::schema::LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: 3_000,
+            max_draft_edits: 20,
         };
         let ch_feishu = LarkChannel::from_feishu_config(&feishu_cfg);
         assert_eq!(
