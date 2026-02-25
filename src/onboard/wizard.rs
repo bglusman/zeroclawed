@@ -2962,11 +2962,7 @@ fn prompt_allowed_domains_for_tool(tool_name: &str) -> Result<Vec<String>> {
 
 // ── Step 6: Web & Internet Tools ────────────────────────────────
 
-fn setup_web_tools() -> Result<(
-    WebSearchConfig,
-    WebFetchConfig,
-    HttpRequestConfig,
-)> {
+fn setup_web_tools() -> Result<(WebSearchConfig, WebFetchConfig, HttpRequestConfig)> {
     print_bullet("Configure web-facing tools: search, page fetch, and HTTP requests.");
     print_bullet("You can always change these later in config.toml.");
     println!();

@@ -533,7 +533,13 @@ mod tests {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
         });
-        let tool = HttpRequestTool::new(security, vec!["example.com".into()], 1_000_000, 30, "test".to_string());
+        let tool = HttpRequestTool::new(
+            security,
+            vec!["example.com".into()],
+            1_000_000,
+            30,
+            "test".to_string(),
+        );
         let result = tool
             .execute(json!({"url": "https://example.com"}))
             .await
@@ -548,7 +554,13 @@ mod tests {
             max_actions_per_hour: 0,
             ..SecurityPolicy::default()
         });
-        let tool = HttpRequestTool::new(security, vec!["example.com".into()], 1_000_000, 30, "test".to_string());
+        let tool = HttpRequestTool::new(
+            security,
+            vec!["example.com".into()],
+            1_000_000,
+            30,
+            "test".to_string(),
+        );
         let result = tool
             .execute(json!({"url": "https://example.com"}))
             .await
