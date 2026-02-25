@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use directories::UserDirs;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 #[cfg(unix)]
@@ -2420,6 +2420,19 @@ pub enum WasmCapabilityEscalationMode {
     Clamp,
 }
 
+/// Integrity policy for WASM modules pinned by SHA-256 digest.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WasmModuleHashPolicy {
+    /// Disable module hash validation.
+    Disabled,
+    /// Warn on missing or mismatched hashes, but allow execution.
+    #[default]
+    Warn,
+    /// Require exact hash match before execution.
+    Enforce,
+}
+
 /// Security policy controls for WASM runtime hardening.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WasmSecurityConfig {
@@ -2431,6 +2444,10 @@ pub struct WasmSecurityConfig {
     #[serde(default = "default_true")]
     pub reject_symlink_modules: bool,
 
+    /// Reject `runtime.wasm.tools_dir` when it is itself a symlink.
+    #[serde(default = "default_true")]
+    pub reject_symlink_tools_dir: bool,
+
     /// Strictly validate host allowlist entries (`host` or `host:port` only).
     #[serde(default = "default_true")]
     pub strict_host_validation: bool,
@@ -2438,6 +2455,14 @@ pub struct WasmSecurityConfig {
     /// Capability escalation handling policy.
     #[serde(default)]
     pub capability_escalation_mode: WasmCapabilityEscalationMode,
+
+    /// Module digest verification policy.
+    #[serde(default)]
+    pub module_hash_policy: WasmModuleHashPolicy,
+
+    /// Optional pinned SHA-256 digest map keyed by module name (without `.wasm`).
+    #[serde(default)]
+    pub module_sha256: BTreeMap<String, String>,
 }
 
 fn default_runtime_kind() -> String {
@@ -2510,8 +2535,11 @@ impl Default for WasmSecurityConfig {
         Self {
             require_workspace_relative_tools_dir: true,
             reject_symlink_modules: true,
+            reject_symlink_tools_dir: true,
             strict_host_validation: true,
             capability_escalation_mode: WasmCapabilityEscalationMode::Deny,
+            module_hash_policy: WasmModuleHashPolicy::Warn,
+            module_sha256: BTreeMap::new(),
         }
     }
 }
@@ -6240,11 +6268,17 @@ allowed_roots = []
         assert!(r.wasm.allowed_hosts.is_empty());
         assert!(r.wasm.security.require_workspace_relative_tools_dir);
         assert!(r.wasm.security.reject_symlink_modules);
+        assert!(r.wasm.security.reject_symlink_tools_dir);
         assert!(r.wasm.security.strict_host_validation);
         assert_eq!(
             r.wasm.security.capability_escalation_mode,
             WasmCapabilityEscalationMode::Deny
         );
+        assert_eq!(
+            r.wasm.security.module_hash_policy,
+            WasmModuleHashPolicy::Warn
+        );
+        assert!(r.wasm.security.module_sha256.is_empty());
     }
 
     #[test]
@@ -6554,8 +6588,13 @@ allowed_hosts = ["api.example.com", "cdn.example.com:443"]
 [runtime.wasm.security]
 require_workspace_relative_tools_dir = false
 reject_symlink_modules = false
+reject_symlink_tools_dir = false
 strict_host_validation = false
 capability_escalation_mode = "clamp"
+module_hash_policy = "enforce"
+
+[runtime.wasm.security.module_sha256]
+calc = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 "#;
 
         let parsed: Config = toml::from_str(raw).unwrap();
@@ -6578,10 +6617,19 @@ capability_escalation_mode = "clamp"
                 .require_workspace_relative_tools_dir
         );
         assert!(!parsed.runtime.wasm.security.reject_symlink_modules);
+        assert!(!parsed.runtime.wasm.security.reject_symlink_tools_dir);
         assert!(!parsed.runtime.wasm.security.strict_host_validation);
         assert_eq!(
             parsed.runtime.wasm.security.capability_escalation_mode,
             WasmCapabilityEscalationMode::Clamp
+        );
+        assert_eq!(
+            parsed.runtime.wasm.security.module_hash_policy,
+            WasmModuleHashPolicy::Enforce
+        );
+        assert_eq!(
+            parsed.runtime.wasm.security.module_sha256.get("calc"),
+            Some(&"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string())
         );
     }
 

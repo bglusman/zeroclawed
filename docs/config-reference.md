@@ -303,8 +303,18 @@ Notes:
 |---|---|---|
 | `require_workspace_relative_tools_dir` | `true` | Require `runtime.wasm.tools_dir` to be workspace-relative and reject `..` traversal |
 | `reject_symlink_modules` | `true` | Block symlinked `.wasm` module files during execution |
+| `reject_symlink_tools_dir` | `true` | Block execution when `runtime.wasm.tools_dir` is itself a symlink |
 | `strict_host_validation` | `true` | Fail config/invocation on invalid host entries instead of dropping them |
 | `capability_escalation_mode` | `"deny"` | Escalation policy: `deny` or `clamp` |
+| `module_hash_policy` | `"warn"` | Module integrity policy: `disabled`, `warn`, or `enforce` |
+| `module_sha256` | `{}` | Optional map of module names to pinned SHA-256 digests |
+
+Notes:
+
+- `module_sha256` keys must match module names (without `.wasm`) and use `[A-Za-z0-9_-]` only.
+- `module_sha256` values must be 64-character hexadecimal SHA-256 strings.
+- `module_hash_policy = "warn"` allows execution but logs missing/mismatched digests.
+- `module_hash_policy = "enforce"` blocks execution on missing/mismatched digests and requires at least one pin.
 
 WASM profile templates:
 
