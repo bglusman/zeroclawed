@@ -36,8 +36,10 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `.github/workflows/feature-matrix.yml` (`Feature Matrix`)
     - Purpose: compile-time matrix validation for `default`, `whatsapp-web`, `browser-native`, and `nightly-all-features` lanes
     - Additional behavior: each lane emits machine-readable result artifacts; summary lane aggregates owner routing from `.github/release/nightly-owner-routing.json`
+    - Additional behavior: required-check mapping is anchored to stable job name `Feature Matrix Summary`; lane jobs stay informational
 - `.github/workflows/nightly-all-features.yml` (`Nightly All-Features`)
     - Purpose: scheduled high-risk matrix execution with per-lane artifacts and summary rollup for overnight signal quality
+    - Additional behavior: owner routing + escalation policy is documented in `docs/operations/nightly-all-features-runbook.md`
 - `.github/workflows/sec-audit.yml` (`Security Audit`)
     - Purpose: dependency advisories (`rustsec/audit-check`, pinned SHA), policy/license checks (`cargo deny`), gitleaks-based secrets governance (allowlist policy metadata + expiry guard), and SBOM snapshot artifacts (`CycloneDX` + `SPDX`)
 - `.github/workflows/sec-codeql.yml` (`CodeQL Analysis`)
