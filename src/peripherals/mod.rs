@@ -26,6 +26,8 @@ pub mod rpi;
 
 use crate::config::{Config, PeripheralBoardConfig, PeripheralsConfig};
 #[cfg(feature = "hardware")]
+use crate::peripherals::traits::Peripheral;
+#[cfg(feature = "hardware")]
 use crate::tools::HardwareMemoryMapTool;
 use crate::tools::Tool;
 use anyhow::Result;
