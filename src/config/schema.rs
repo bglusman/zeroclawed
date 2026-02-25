@@ -248,6 +248,10 @@ pub struct Config {
     /// Voice transcription configuration (Whisper API via Groq).
     #[serde(default)]
     pub transcription: TranscriptionConfig,
+
+    /// Inter-process agent communication (`[agents_ipc]`).
+    #[serde(default)]
+    pub agents_ipc: AgentsIpcConfig,
 }
 
 /// Named provider profile definition compatible with Codex app-server style config.
@@ -419,6 +423,44 @@ impl Default for TranscriptionConfig {
             model: default_transcription_model(),
             language: None,
             max_duration_secs: default_transcription_max_duration_secs(),
+        }
+    }
+}
+
+// ── Agents IPC ──────────────────────────────────────────────────
+
+fn default_agents_ipc_db_path() -> String {
+    "~/.zeroclaw/agents.db".into()
+}
+
+fn default_agents_ipc_staleness_secs() -> u64 {
+    300
+}
+
+/// Inter-process agent communication configuration (`[agents_ipc]` section).
+///
+/// When enabled, registers IPC tools that let independent ZeroClaw processes
+/// on the same host discover each other and exchange messages via a shared
+/// SQLite database. Disabled by default (zero overhead when off).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentsIpcConfig {
+    /// Enable inter-process agent communication tools.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to shared SQLite database (all agents on this host share one file).
+    #[serde(default = "default_agents_ipc_db_path")]
+    pub db_path: String,
+    /// Agents not seen within this window are considered offline (seconds).
+    #[serde(default = "default_agents_ipc_staleness_secs")]
+    pub staleness_secs: u64,
+}
+
+impl Default for AgentsIpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path: default_agents_ipc_db_path(),
+            staleness_secs: default_agents_ipc_staleness_secs(),
         }
     }
 }
@@ -1113,6 +1155,15 @@ pub struct WebFetchConfig {
     /// Enable `web_fetch` tool for fetching web page content
     #[serde(default)]
     pub enabled: bool,
+    /// Provider: "fast_html2md", "nanohtml2text", or "firecrawl"
+    #[serde(default = "default_web_fetch_provider")]
+    pub provider: String,
+    /// Optional provider API key (required for provider = "firecrawl")
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Optional provider API URL override (for self-hosted providers)
+    #[serde(default)]
+    pub api_url: Option<String>,
     /// Allowed domains for web fetch (exact or subdomain match; `["*"]` = all public hosts)
     #[serde(default)]
     pub allowed_domains: Vec<String>,
@@ -1131,6 +1182,10 @@ fn default_web_fetch_max_response_size() -> usize {
     500_000 // 500KB
 }
 
+fn default_web_fetch_provider() -> String {
+    "fast_html2md".into()
+}
+
 fn default_web_fetch_timeout_secs() -> u64 {
     30
 }
@@ -1139,6 +1194,9 @@ impl Default for WebFetchConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            provider: default_web_fetch_provider(),
+            api_key: None,
+            api_url: None,
             allowed_domains: vec!["*".into()],
             blocked_domains: vec![],
             max_response_size: default_web_fetch_max_response_size(),
@@ -1158,6 +1216,12 @@ pub struct WebSearchConfig {
     /// Search provider: "duckduckgo" (free, no API key) or "brave" (requires API key)
     #[serde(default = "default_web_search_provider")]
     pub provider: String,
+    /// Generic provider API key (used by firecrawl and as fallback for brave)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Optional provider API URL override (for self-hosted providers)
+    #[serde(default)]
+    pub api_url: Option<String>,
     /// Brave Search API key (required if provider is "brave")
     #[serde(default)]
     pub brave_api_key: Option<String>,
@@ -1186,6 +1250,8 @@ impl Default for WebSearchConfig {
         Self {
             enabled: false,
             provider: default_web_search_provider(),
+            api_key: None,
+            api_url: None,
             brave_api_key: None,
             max_results: default_web_search_max_results(),
             timeout_secs: default_web_search_timeout_secs(),
@@ -3821,6 +3887,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             transcription: TranscriptionConfig::default(),
+            agents_ipc: AgentsIpcConfig::default(),
         }
     }
 }
@@ -5369,6 +5436,7 @@ default_temperature = 0.7
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            agents_ipc: AgentsIpcConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -5553,6 +5621,7 @@ tool_dispatcher = "xml"
             hooks: HooksConfig::default(),
             hardware: HardwareConfig::default(),
             transcription: TranscriptionConfig::default(),
+            agents_ipc: AgentsIpcConfig::default(),
         };
 
         config.save().await.unwrap();
