@@ -12,6 +12,8 @@ on:
             - "rust-toolchain.toml"
             - "dev/config.template.toml"
             - ".github/workflows/pub-docker-img.yml"
+            - ".github/release/ghcr-tag-policy.json"
+            - "scripts/ci/ghcr_publish_contract_guard.py"
     workflow_dispatch:
 
 concurrency:
@@ -92,16 +94,23 @@ jobs:
               run: |
                   set -euo pipefail
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-                  SHA_TAG="${IMAGE}:sha-${GITHUB_SHA::12}"
+                  SHA_SUFFIX="sha-${GITHUB_SHA::12}"
+                  SHA_TAG="${IMAGE}:${SHA_SUFFIX}"
+                  LATEST_SUFFIX="latest"
+                  LATEST_TAG="${IMAGE}:${LATEST_SUFFIX}"
                   if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
                     echo "::error::Docker publish is restricted to v* tag pushes."
                     exit 1
                   fi
 
-                  TAG_NAME="${GITHUB_REF#refs/tags/}"
-                  TAGS="${IMAGE}:${TAG_NAME},${SHA_TAG}"
+                  RELEASE_TAG="${GITHUB_REF#refs/tags/}"
+                  VERSION_TAG="${IMAGE}:${RELEASE_TAG}"
+                  TAGS="${VERSION_TAG},${SHA_TAG},${LATEST_TAG}"
 
                   echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+                  echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+                  echo "sha_tag=${SHA_SUFFIX}" >> "$GITHUB_OUTPUT"
+                  echo "latest_tag=${LATEST_SUFFIX}" >> "$GITHUB_OUTPUT"
 
             - name: Build and push Docker image
               uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
@@ -147,33 +156,56 @@ jobs:
                     done
                   done
 
-                  echo "::warning::Unable to update GHCR visibility via API in this run; proceeding to direct anonymous pull verification."
+                  echo "::warning::Unable to update GHCR visibility via API in this run; proceeding to GHCR publish contract verification."
 
-            - name: Verify anonymous GHCR pull access
+            - name: Validate GHCR publish contract
               shell: bash
               run: |
                   set -euo pipefail
-                  TAG_NAME="${GITHUB_REF#refs/tags/}"
-                  token_resp="$(curl -sS "https://ghcr.io/token?scope=repository:${GITHUB_REPOSITORY}:pull")"
-                  token="$(echo "$token_resp" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+                  mkdir -p artifacts
+                  python3 scripts/ci/ghcr_publish_contract_guard.py \
+                    --repository "${GITHUB_REPOSITORY,,}" \
+                    --release-tag "${{ steps.meta.outputs.release_tag }}" \
+                    --sha "${GITHUB_SHA}" \
+                    --policy-file .github/release/ghcr-tag-policy.json \
+                    --output-json artifacts/ghcr-publish-contract.json \
+                    --output-md artifacts/ghcr-publish-contract.md \
+                    --fail-on-violation
 
-                  if [ -z "$token" ]; then
-                    echo "::error::Anonymous GHCR token request failed: $token_resp"
-                    exit 1
+            - name: Emit GHCR publish contract audit event
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if [ -f artifacts/ghcr-publish-contract.json ]; then
+                    python3 scripts/ci/emit_audit_event.py \
+                      --event-type ghcr_publish_contract \
+                      --input-json artifacts/ghcr-publish-contract.json \
+                      --output-json artifacts/audit-event-ghcr-publish-contract.json \
+                      --artifact-name ghcr-publish-contract \
+                      --retention-days 21
                   fi
 
-                  code="$(curl -sS -o /tmp/ghcr-manifest.json -w "%{http_code}" \
-                    -H "Authorization: Bearer ${token}" \
-                    -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
-                    "https://ghcr.io/v2/${GITHUB_REPOSITORY}/manifests/${TAG_NAME}")"
-
-                  if [ "$code" != "200" ]; then
-                    echo "::error::Anonymous manifest pull failed with HTTP ${code}"
-                    cat /tmp/ghcr-manifest.json || true
-                    exit 1
+            - name: Publish GHCR contract summary
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if [ -f artifacts/ghcr-publish-contract.md ]; then
+                    cat artifacts/ghcr-publish-contract.md >> "$GITHUB_STEP_SUMMARY"
                   fi
 
-                  echo "Anonymous GHCR pull access verified."
+            - name: Upload GHCR publish contract artifacts
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: ghcr-publish-contract
+                  path: |
+                      artifacts/ghcr-publish-contract.json
+                      artifacts/ghcr-publish-contract.md
+                      artifacts/audit-event-ghcr-publish-contract.json
+                  if-no-files-found: ignore
+                  retention-days: 21
 
             - name: Scan published image for vulnerabilities (Trivy)
               shell: bash
@@ -181,13 +213,15 @@ jobs:
                   set -euo pipefail
                   mkdir -p artifacts
 
-                  TAG_NAME="${GITHUB_REF#refs/tags/}"
+                  TAG_NAME="${{ steps.meta.outputs.release_tag }}"
                   IMAGE_BASE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
                   VERSION_REF="${IMAGE_BASE}:${TAG_NAME}"
-                  SHA_REF="${IMAGE_BASE}:sha-${GITHUB_SHA::12}"
+                  SHA_REF="${IMAGE_BASE}:${{ steps.meta.outputs.sha_tag }}"
+                  LATEST_REF="${IMAGE_BASE}:${{ steps.meta.outputs.latest_tag }}"
                   SARIF_OUT="artifacts/trivy-${TAG_NAME}.sarif"
                   TABLE_OUT="artifacts/trivy-${TAG_NAME}.txt"
                   SHA_TABLE_OUT="artifacts/trivy-sha-${GITHUB_SHA::12}.txt"
+                  LATEST_TABLE_OUT="artifacts/trivy-latest.txt"
 
                   docker run --rm \
                     -v "$PWD/artifacts:/work" \
@@ -220,8 +254,18 @@ jobs:
                     --output "/work/trivy-sha-${GITHUB_SHA::12}.txt" \
                     "${SHA_REF}"
 
+                  docker run --rm \
+                    -v "$PWD/artifacts:/work" \
+                    aquasec/trivy:0.58.2 image \
+                    --quiet \
+                    --ignore-unfixed \
+                    --severity HIGH,CRITICAL \
+                    --format table \
+                    --output "/work/trivy-latest.txt" \
+                    "${LATEST_REF}"
+
                   echo "Generated Trivy reports:"
-                  ls -1 "$SARIF_OUT" "$TABLE_OUT" "$SHA_TABLE_OUT"
+                  ls -1 "$SARIF_OUT" "$TABLE_OUT" "$SHA_TABLE_OUT" "$LATEST_TABLE_OUT"
 
             - name: Upload Trivy SARIF
               if: always()
@@ -239,5 +283,6 @@ jobs:
                       artifacts/trivy-${{ github.ref_name }}.sarif
                       artifacts/trivy-${{ github.ref_name }}.txt
                       artifacts/trivy-sha-*.txt
+                      artifacts/trivy-latest.txt
                   if-no-files-found: ignore
                   retention-days: 14
