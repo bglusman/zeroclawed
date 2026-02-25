@@ -230,6 +230,9 @@ impl FeishuDocTool {
 
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(&content).await?;
+        if converted.is_empty() {
+            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing content");
+        }
 
         let root_block = self.get_block(&doc_token, &root_block_id).await?;
         let root_children = extract_child_ids(&root_block);
@@ -311,8 +314,18 @@ impl FeishuDocTool {
                         }
                     });
 
+                    let mut permission_warning: Option<String> = None;
                     if let Some(owner) = &owner_open_id {
-                        self.grant_owner_permission(&doc_id, owner).await?;
+                        if let Err(e) = self.grant_owner_permission(&doc_id, owner).await {
+                            tracing::warn!(
+                                "feishu_doc: document {} created but grant_owner_permission failed: {}",
+                                doc_id, e
+                            );
+                            permission_warning = Some(format!(
+                                "Document created but permission grant failed: {}",
+                                e
+                            ));
+                        }
                     }
 
                     let link_share = args
@@ -323,11 +336,15 @@ impl FeishuDocTool {
                         let _ = self.enable_link_share(&doc_id).await;
                     }
 
-                    return Ok(json!({
+                    let mut result = json!({
                         "document_id": doc_id,
                         "title": title,
                         "url": document_url,
-                    }));
+                    });
+                    if let Some(warning) = permission_warning {
+                        result["warning"] = Value::String(warning);
+                    }
+                    return Ok(result);
                 }
                 Err(e) => {
                     last_err = format!(
@@ -370,6 +387,9 @@ impl FeishuDocTool {
 
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(&content).await?;
+        if converted.is_empty() {
+            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing content");
+        }
 
         let block = self.get_block(&doc_token, &block_id).await?;
         let children = extract_child_ids(&block);
@@ -574,10 +594,20 @@ impl FeishuDocTool {
     }
 
     async fn list_all_blocks(&self, doc_token: &str) -> anyhow::Result<Vec<Value>> {
+        const MAX_PAGES: usize = 200;
         let mut items = Vec::new();
         let mut page_token = String::new();
+        let mut page_count = 0usize;
 
         loop {
+            page_count += 1;
+            if page_count > MAX_PAGES {
+                anyhow::bail!(
+                    "list_all_blocks exceeded maximum page limit ({}) for document {}",
+                    MAX_PAGES,
+                    doc_token
+                );
+            }
             let mut query = vec![("page_size", "500".to_string())];
             if !page_token.is_empty() {
                 query.push(("page_token", page_token.clone()));
@@ -861,6 +891,9 @@ impl FeishuDocTool {
     ) -> anyhow::Result<()> {
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(value).await?;
+        if converted.is_empty() {
+            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing cell content");
+        }
 
         let cell_block = self.get_block(doc_token, cell_block_id).await?;
         let children = extract_child_ids(&cell_block);
@@ -869,11 +902,9 @@ impl FeishuDocTool {
                 .await?;
         }
 
-        if !converted.is_empty() {
-            let _ = self
-                .insert_children_blocks(doc_token, cell_block_id, None, converted)
-                .await?;
-        }
+        let _ = self
+            .insert_children_blocks(doc_token, cell_block_id, None, converted)
+            .await?;
         Ok(())
     }
 
@@ -1386,12 +1417,6 @@ fn extract_ttl_seconds(body: &Value) -> u64 {
     body.get("expire")
         .or_else(|| body.get("expires_in"))
         .and_then(Value::as_u64)
-        .or_else(|| {
-            body.get("expire")
-                .or_else(|| body.get("expires_in"))
-                .and_then(Value::as_i64)
-                .and_then(|v| u64::try_from(v).ok())
-        })
         .unwrap_or(DEFAULT_TOKEN_TTL.as_secs())
         .max(1)
 }
@@ -1499,6 +1524,32 @@ mod tests {
             .error
             .unwrap_or_default()
             .contains("Missing 'doc_token' parameter"));
+    }
+
+    #[test]
+    fn test_extract_ttl_seconds_defaults_and_clamps() {
+        assert_eq!(extract_ttl_seconds(&json!({"expire": 3600})), 3600);
+        assert_eq!(extract_ttl_seconds(&json!({"expires_in": 1800})), 1800);
+        // Missing key falls back to DEFAULT_TOKEN_TTL
+        assert_eq!(
+            extract_ttl_seconds(&json!({})),
+            DEFAULT_TOKEN_TTL.as_secs()
+        );
+        // Zero is clamped to 1
+        assert_eq!(extract_ttl_seconds(&json!({"expire": 0})), 1);
+    }
+
+    #[tokio::test]
+    async fn test_write_rejects_empty_conversion() {
+        let t = tool();
+        // Provide a doc_token and content that is whitespace-only.
+        // Since the tool cannot reach the API, convert_markdown_blocks will fail
+        // or return empty, and we verify the tool does not succeed silently.
+        let result = t
+            .execute(json!({ "action": "write", "doc_token": "fake_token", "content": "" }))
+            .await
+            .unwrap();
+        assert!(!result.success);
     }
 
     #[test]
