@@ -483,6 +483,28 @@ jobs:
                     --checksums-path artifacts/SHA256SUMS \
                     --fail-empty
 
+            - name: Generate SHA256SUMS provenance statement
+              shell: bash
+              env:
+                  RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/generate_provenance.py \
+                    --artifact artifacts/SHA256SUMS \
+                    --subject-name "zeroclaw-${RELEASE_TAG}-sha256sums" \
+                    --output artifacts/zeroclaw.sha256sums.intoto.json
+
+            - name: Emit SHA256SUMS provenance audit event
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/emit_audit_event.py \
+                    --event-type release_sha256sums_provenance \
+                    --input-json artifacts/zeroclaw.sha256sums.intoto.json \
+                    --output-json artifacts/audit-event-release-sha256sums-provenance.json \
+                    --artifact-name release-sha256sums-provenance \
+                    --retention-days 30
+
             - name: Validate release artifact contract (publish stage)
               shell: bash
               run: |
@@ -537,6 +559,26 @@ jobs:
                       "$file"
                   done < <(find artifacts -type f ! -name '*.sig' ! -name '*.pem' ! -name '*.sigstore.json' -print0)
 
+            - name: Compose release-notes supply-chain references
+              shell: bash
+              env:
+                  RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+              run: |
+                  set -euo pipefail
+                  python3 scripts/ci/release_notes_with_supply_chain_refs.py \
+                    --artifacts-dir artifacts \
+                    --repository "${GITHUB_REPOSITORY}" \
+                    --release-tag "${RELEASE_TAG}" \
+                    --output-json artifacts/release-notes-supply-chain.json \
+                    --output-md artifacts/release-notes-supply-chain.md \
+                    --fail-on-missing
+
+            - name: Publish release-notes supply-chain summary
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  cat artifacts/release-notes-supply-chain.md >> "$GITHUB_STEP_SUMMARY"
+
             - name: Verify GHCR release tag availability
               shell: bash
               env:
@@ -582,6 +624,7 @@ jobs:
               with:
                   tag_name: ${{ needs.prepare.outputs.release_tag }}
                   draft: ${{ needs.prepare.outputs.draft_release == 'true' }}
+                  body_path: artifacts/release-notes-supply-chain.md
                   generate_release_notes: true
                   files: |
                       artifacts/**/*
