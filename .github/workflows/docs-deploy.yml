@@ -9,6 +9,8 @@ on:
             - ".github/workflows/docs-deploy.yml"
             - "scripts/ci/docs_quality_gate.sh"
             - "scripts/ci/collect_changed_links.py"
+            - ".github/release/docs-deploy-policy.json"
+            - "scripts/ci/docs_deploy_guard.py"
     push:
         branches: [dev, main]
         paths:
@@ -17,6 +19,8 @@ on:
             - ".github/workflows/docs-deploy.yml"
             - "scripts/ci/docs_quality_gate.sh"
             - "scripts/ci/collect_changed_links.py"
+            - ".github/release/docs-deploy-policy.json"
+            - "scripts/ci/docs_deploy_guard.py"
     workflow_dispatch:
         inputs:
             deploy_target:
@@ -27,6 +31,14 @@ on:
                 options:
                     - preview
                     - production
+            preview_evidence_run_url:
+                description: "Required for manual production deploys when policy enforces preview promotion evidence"
+                required: false
+                default: ""
+            rollback_ref:
+                description: "Optional rollback source ref (tag/sha/ref) for manual production dispatch"
+                required: false
+                default: ""
 
 concurrency:
     group: docs-deploy-${{ github.event.pull_request.number || github.sha }}
@@ -43,6 +55,13 @@ jobs:
         outputs:
             docs_files: ${{ steps.scope.outputs.docs_files }}
             base_sha: ${{ steps.scope.outputs.base_sha }}
+            deploy_target: ${{ steps.deploy_guard.outputs.deploy_target }}
+            deploy_mode: ${{ steps.deploy_guard.outputs.deploy_mode }}
+            source_ref: ${{ steps.deploy_guard.outputs.source_ref }}
+            production_branch_ref: ${{ steps.deploy_guard.outputs.production_branch_ref }}
+            ready_to_deploy: ${{ steps.deploy_guard.outputs.ready_to_deploy }}
+            docs_preview_retention_days: ${{ steps.deploy_guard.outputs.docs_preview_retention_days }}
+            docs_guard_artifact_retention_days: ${{ steps.deploy_guard.outputs.docs_guard_artifact_retention_days }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
               with:
@@ -75,6 +94,65 @@ jobs:
                     printf '%s\n' "$docs_files"
                     echo "EOF"
                   } >> "$GITHUB_OUTPUT"
+
+            - name: Validate docs deploy contract
+              id: deploy_guard
+              shell: bash
+              env:
+                  INPUT_DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || '' }}
+                  INPUT_PREVIEW_EVIDENCE_RUN_URL: ${{ github.event.inputs.preview_evidence_run_url || '' }}
+                  INPUT_ROLLBACK_REF: ${{ github.event.inputs.rollback_ref || '' }}
+              run: |
+                  set -euo pipefail
+                  mkdir -p artifacts
+                  python3 scripts/ci/docs_deploy_guard.py \
+                    --repo-root "$PWD" \
+                    --event-name "${GITHUB_EVENT_NAME}" \
+                    --git-ref "${GITHUB_REF}" \
+                    --git-sha "${GITHUB_SHA}" \
+                    --input-deploy-target "${INPUT_DEPLOY_TARGET}" \
+                    --input-preview-evidence-run-url "${INPUT_PREVIEW_EVIDENCE_RUN_URL}" \
+                    --input-rollback-ref "${INPUT_ROLLBACK_REF}" \
+                    --policy-file .github/release/docs-deploy-policy.json \
+                    --output-json artifacts/docs-deploy-guard.json \
+                    --output-md artifacts/docs-deploy-guard.md \
+                    --github-output-file "$GITHUB_OUTPUT" \
+                    --fail-on-violation
+
+            - name: Emit docs deploy guard audit event
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if [ -f artifacts/docs-deploy-guard.json ]; then
+                    python3 scripts/ci/emit_audit_event.py \
+                      --event-type docs_deploy_guard \
+                      --input-json artifacts/docs-deploy-guard.json \
+                      --output-json artifacts/audit-event-docs-deploy-guard.json \
+                      --artifact-name docs-deploy-guard \
+                      --retention-days 21
+                  fi
+
+            - name: Publish docs deploy guard summary
+              if: always()
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if [ -f artifacts/docs-deploy-guard.md ]; then
+                    cat artifacts/docs-deploy-guard.md >> "$GITHUB_STEP_SUMMARY"
+                  fi
+
+            - name: Upload docs deploy guard artifacts
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: docs-deploy-guard
+                  path: |
+                      artifacts/docs-deploy-guard.json
+                      artifacts/docs-deploy-guard.md
+                      artifacts/audit-event-docs-deploy-guard.json
+                  if-no-files-found: ignore
+                  retention-days: ${{ steps.deploy_guard.outputs.docs_guard_artifact_retention_days || 21 }}
 
             - name: Markdown quality gate
               env:
@@ -147,12 +225,12 @@ jobs:
                   name: docs-preview
                   path: site/**
                   if-no-files-found: error
-                  retention-days: 14
+                  retention-days: ${{ needs.docs-quality.outputs.docs_preview_retention_days || 14 }}
 
     docs-deploy:
         name: Deploy Docs to GitHub Pages
         needs: [docs-quality]
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'production')
+        if: needs.docs-quality.outputs.deploy_target == 'production' && needs.docs-quality.outputs.ready_to_deploy == 'true'
         runs-on: blacksmith-2vcpu-ubuntu-2404
         timeout-minutes: 20
         permissions:
@@ -164,6 +242,8 @@ jobs:
             url: ${{ steps.deployment.outputs.page_url }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+              with:
+                  ref: ${{ needs.docs-quality.outputs.source_ref }}
 
             - name: Build deploy bundle
               shell: bash
@@ -181,6 +261,16 @@ jobs:
                   - [Repository README](./README.md)
                   - [Docs Home](./docs/README.md)
                   EOF
+
+            - name: Publish deploy source summary
+              shell: bash
+              run: |
+                  {
+                    echo "## Docs Deploy Source"
+                    echo "- Deploy mode: \`${{ needs.docs-quality.outputs.deploy_mode }}\`"
+                    echo "- Source ref: \`${{ needs.docs-quality.outputs.source_ref }}\`"
+                    echo "- Production branch ref: \`${{ needs.docs-quality.outputs.production_branch_ref }}\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
 
             - name: Setup Pages
               uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
