@@ -5174,6 +5174,8 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     use_feishu,
                     receive_mode,
                     port,
+                    draft_update_interval_ms: 3000,
+                    max_draft_edits: 20,
                 });
             }
             ChannelMenuChoice::Nostr => {
