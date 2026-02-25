@@ -80,8 +80,8 @@ function PairingDialog({ onPair }: { onPair: (code: string) => Promise<void> }) 
 }
 
 function AppContent() {
-  const { isAuthenticated, loading, pair, logout } = useAuth();
-  const [locale, setLocaleState] = useState('tr');
+  const { isAuthenticated, pair, logout, loading } = useAuth();
+  const [locale, setLocaleState] = useState<Locale>('tr');
 
   const setAppLocale = (newLocale: string) => {
     setLocaleState(newLocale);

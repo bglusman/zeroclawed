@@ -297,7 +297,6 @@ pub struct ProviderConfig {
     #[serde(default)]
     pub reasoning_level: Option<String>,
 }
-
 // ── Delegate Agents ──────────────────────────────────────────────
 
 /// Configuration for a delegate sub-agent used by the `delegate` tool.
