@@ -232,7 +232,9 @@ impl FeishuDocTool {
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(&content).await?;
         if converted.is_empty() {
-            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing content");
+            anyhow::bail!(
+                "markdown conversion produced no blocks — refusing to delete existing content"
+            );
         }
 
         let root_block = self.get_block(&doc_token, &root_block_id).await?;
@@ -257,7 +259,9 @@ impl FeishuDocTool {
         let root_block_id = self.get_root_block_id(&doc_token).await?;
         let converted = self.convert_markdown_blocks(&content).await?;
         if converted.is_empty() {
-            anyhow::bail!("markdown conversion produced no blocks — refusing to append empty content");
+            anyhow::bail!(
+                "markdown conversion produced no blocks — refusing to append empty content"
+            );
         }
         self.insert_children_blocks(&doc_token, &root_block_id, None, converted.clone())
             .await?;
@@ -318,14 +322,14 @@ impl FeishuDocTool {
                         }
                     });
 
-                    let mut permission_warning: Option<String> = None;
+                    let mut warnings: Vec<String> = Vec::new();
                     if let Some(owner) = &owner_open_id {
                         if let Err(e) = self.grant_owner_permission(&doc_id, owner).await {
                             tracing::warn!(
                                 "feishu_doc: document {} created but grant_owner_permission failed: {}",
                                 doc_id, e
                             );
-                            permission_warning = Some(format!(
+                            warnings.push(format!(
                                 "Document created but permission grant failed: {}",
                                 e
                             ));
@@ -337,7 +341,17 @@ impl FeishuDocTool {
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     if link_share {
-                        let _ = self.enable_link_share(&doc_id).await;
+                        if let Err(e) = self.enable_link_share(&doc_id).await {
+                            tracing::warn!(
+                                "feishu_doc: document {} created but link share enable failed: {}",
+                                doc_id,
+                                e
+                            );
+                            warnings.push(format!(
+                                "Document created but link sharing could not be enabled: {}",
+                                e
+                            ));
+                        }
                     }
 
                     let mut result = json!({
@@ -345,19 +359,19 @@ impl FeishuDocTool {
                         "title": title,
                         "url": document_url,
                     });
-                    if let Some(warning) = permission_warning {
-                        result["warning"] = Value::String(warning);
+                    if !warnings.is_empty() {
+                        result["warning"] = Value::String(warnings.join("; "));
                     }
                     return Ok(result);
                 }
                 Err(e) => {
                     last_err = format!(
                         "API returned doc_token {} but document not found: {}",
-                        doc_id,
-                        e
+                        doc_id, e
                     );
                     if attempt < max_verify_attempts {
-                        tokio::time::sleep(std::time::Duration::from_millis(800 * attempt as u64)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(800 * attempt as u64))
+                            .await;
                     }
                 }
             }
@@ -392,7 +406,9 @@ impl FeishuDocTool {
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(&content).await?;
         if converted.is_empty() {
-            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing content");
+            anyhow::bail!(
+                "markdown conversion produced no blocks — refusing to delete existing content"
+            );
         }
 
         let block = self.get_block(&doc_token, &block_id).await?;
@@ -896,7 +912,9 @@ impl FeishuDocTool {
         // Convert first, then delete — prevents data loss if conversion fails
         let converted = self.convert_markdown_blocks(value).await?;
         if converted.is_empty() {
-            anyhow::bail!("markdown conversion produced no blocks — refusing to delete existing cell content");
+            anyhow::bail!(
+                "markdown conversion produced no blocks — refusing to delete existing cell content"
+            );
         }
 
         let cell_block = self.get_block(doc_token, cell_block_id).await?;
@@ -936,15 +954,19 @@ impl FeishuDocTool {
             .map_err(|e| anyhow::anyhow!("invalid media URL '{}': {}", url, e))?;
         match parsed.scheme() {
             "http" | "https" => {}
-            other => anyhow::bail!("unsupported URL scheme '{}': only http/https allowed", other),
+            other => anyhow::bail!(
+                "unsupported URL scheme '{}': only http/https allowed",
+                other
+            ),
         }
-        let host = parsed.host_str()
+        let host = parsed
+            .host_str()
             .ok_or_else(|| anyhow::anyhow!("media URL has no host: {}", url))?;
         if crate::tools::url_validation::is_private_or_local_host(host) {
             anyhow::bail!("Blocked local/private host in media URL: {}", host);
         }
 
-        let resp = self.http_client().get(url).send().await?;
+        let mut resp = self.http_client().get(url).send().await?;
         let status = resp.status();
         if let Some(len) = resp.content_length() {
             if len > MAX_MEDIA_BYTES as u64 {
@@ -963,13 +985,17 @@ impl FeishuDocTool {
                 crate::providers::sanitize_api_error(&body)
             );
         }
-        let bytes = resp.bytes().await?.to_vec();
-        if bytes.len() > MAX_MEDIA_BYTES {
-            anyhow::bail!(
-                "remote media too large after download: {} bytes (max {} bytes)",
-                bytes.len(),
-                MAX_MEDIA_BYTES
-            );
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            bytes.extend_from_slice(&chunk);
+            if bytes.len() > MAX_MEDIA_BYTES {
+                anyhow::bail!(
+                    "remote media too large after download: {} bytes (max {} bytes)",
+                    bytes.len(),
+                    MAX_MEDIA_BYTES
+                );
+            }
         }
 
         let guessed = filename_from_url(url).unwrap_or_else(|| "upload.bin".to_string());
@@ -991,15 +1017,22 @@ impl FeishuDocTool {
             anyhow::bail!(self.security.resolved_path_violation_message(&resolved));
         }
 
-        let meta = tokio::fs::metadata(&resolved).await?;
-        if meta.len() > MAX_MEDIA_BYTES as u64 {
+        let metadata = tokio::fs::metadata(&resolved).await?;
+        if metadata.len() > MAX_MEDIA_BYTES as u64 {
             anyhow::bail!(
                 "local media too large: {} bytes (max {} bytes)",
-                meta.len(),
+                metadata.len(),
                 MAX_MEDIA_BYTES
             );
         }
         let bytes = tokio::fs::read(&resolved).await?;
+        if bytes.len() > MAX_MEDIA_BYTES {
+            anyhow::bail!(
+                "local media too large after read: {} bytes (max {} bytes)",
+                bytes.len(),
+                MAX_MEDIA_BYTES
+            );
+        }
         let fallback = resolved
             .file_name()
             .and_then(OsStr::to_str)
@@ -1416,9 +1449,16 @@ fn optional_usize(args: &Value, key: &str) -> anyhow::Result<Option<usize>> {
 }
 
 async fn parse_json_or_empty(resp: reqwest::Response) -> anyhow::Result<Value> {
-    resp.json::<Value>()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to parse API response as JSON: {}", e))
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    serde_json::from_str::<Value>(&body).map_err(|e| {
+        anyhow::anyhow!(
+            "invalid JSON response: status={} error={} body={}",
+            status,
+            e,
+            crate::providers::sanitize_api_error(&body)
+        )
+    })
 }
 
 fn sanitize_api_json(body: &Value) -> String {
@@ -1428,10 +1468,17 @@ fn sanitize_api_json(body: &Value) -> String {
 fn ensure_api_success(body: &Value, context: &str) -> anyhow::Result<()> {
     let code = body
         .get("code")
-        .and_then(Value::as_i64)
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "{} failed: response missing 'code' field, body={}",
+                "{} failed: response missing 'code' field body={}",
+                context,
+                sanitize_api_json(body)
+            )
+        })?
+        .as_i64()
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} failed: response 'code' is not an integer body={}",
                 context,
                 sanitize_api_json(body)
             )
@@ -1578,10 +1625,7 @@ mod tests {
         assert_eq!(extract_ttl_seconds(&json!({"expire": 3600})), 3600);
         assert_eq!(extract_ttl_seconds(&json!({"expires_in": 1800})), 1800);
         // Missing key falls back to DEFAULT_TOKEN_TTL
-        assert_eq!(
-            extract_ttl_seconds(&json!({})),
-            DEFAULT_TOKEN_TTL.as_secs()
-        );
+        assert_eq!(extract_ttl_seconds(&json!({})), DEFAULT_TOKEN_TTL.as_secs());
         // Zero is clamped to 1
         assert_eq!(extract_ttl_seconds(&json!({"expire": 0})), 1);
     }
