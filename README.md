@@ -72,6 +72,7 @@ Use this board for important notices (breaking changes, security advisories, mai
 - 💰 **Cost-Efficient Deployment:** Designed for low-cost boards and small cloud instances without heavyweight runtime dependencies.
 - ⚡ **Fast Cold Starts:** Single-binary Rust runtime keeps command and daemon startup near-instant for daily operations.
 - 🌍 **Portable Architecture:** One binary-first workflow across ARM, x86, and RISC-V with swappable providers/channels/tools.
+- 🔍 **Research Phase:** Proactive information gathering through tools before response generation — reduces hallucinations by fact-checking first.
 
 ### Why teams pick ZeroClaw
 
@@ -241,7 +242,6 @@ cd zeroclaw
 ./bootstrap.sh --onboard --api-key "sk-..." --provider openrouter [--model "openrouter/auto"]
 
 # Optional: run bootstrap + onboarding fully in Docker-compatible mode
-# See docs/docker-setup.md for full Docker guide
 ./bootstrap.sh --docker
 
 # Optional: force Podman as container CLI
@@ -1022,12 +1022,6 @@ open_skills_enabled = true
 You can also override at runtime with `ZEROCLAW_OPEN_SKILLS_ENABLED`, `ZEROCLAW_OPEN_SKILLS_DIR`, and `ZEROCLAW_SKILLS_PROMPT_MODE` (`full` or `compact`).
 
 Skill installs are now gated by a built-in static security audit. `zeroclaw skills install <source>` blocks symlinks, script-like files, unsafe markdown link patterns, and high-risk shell payload snippets before accepting a skill. You can run `zeroclaw skills audit <source_or_name>` to validate a local directory or an installed skill manually.
-
-### Ecosystem Projects
-
-Community-built projects that extend ZeroClaw UX and operations:
-
-- **ZeroClaw Views**: Full-stack dashboard companion (Vue 3 frontend + Rust BFF) covering chat, agents, memory browsing, config editing, and workflow integrations. Repository: <https://github.com/liuguangzhong/zeroclaw-views>
 
 ## Development
 
