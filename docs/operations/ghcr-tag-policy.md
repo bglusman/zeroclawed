@@ -7,6 +7,7 @@ This document defines the production container tag contract for `.github/workflo
 - Machine policy: `.github/release/ghcr-tag-policy.json`
 - Enforcement script: `scripts/ci/ghcr_publish_contract_guard.py`
 - Workflow integration: `.github/workflows/pub-docker-img.yml` (`publish` job)
+- Related vulnerability gate policy: `.github/release/ghcr-vulnerability-policy.json` (`scripts/ci/ghcr_vulnerability_gate.py`)
 
 ## Tag Taxonomy
 
@@ -43,11 +44,15 @@ Publish run emits:
 - `ghcr-publish-contract.json`
 - `ghcr-publish-contract.md`
 - `audit-event-ghcr-publish-contract.json`
-- Trivy reports (`trivy-<tag>.sarif`, `trivy-<tag>.txt`, `trivy-sha-<12>.txt`, `trivy-latest.txt`)
+- `ghcr-vulnerability-gate.json`
+- `ghcr-vulnerability-gate.md`
+- `audit-event-ghcr-vulnerability-gate.json`
+- Trivy reports (`trivy-<tag>.sarif`, `trivy-<tag>.txt`, `trivy-<tag>.json`, `trivy-sha-<12>.txt`, `trivy-sha-<12>.json`, `trivy-latest.txt`, `trivy-latest.json`)
 
 Retention defaults:
 
 - Contract artifacts: `21` days
+- Vulnerability gate artifacts: `21` days
 - Trivy scan artifacts: `14` days
 
 Retention values are defined in `.github/release/ghcr-tag-policy.json` and reflected in workflow artifact uploads.

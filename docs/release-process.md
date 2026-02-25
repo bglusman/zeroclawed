@@ -104,7 +104,7 @@ Expected publish outputs:
 - `audit-event-release-artifact-guard-publish.json` proving publish-stage artifact contract completeness
 - `zeroclaw.sha256sums.intoto.json` + `audit-event-release-sha256sums-provenance.json` for checksum provenance linkage
 - `release-notes-supply-chain.md` / `release-notes-supply-chain.json` with release-asset references (manifest, SBOM, provenance, guard audit artifacts)
-- Docker publish evidence from `Pub Docker Img`: `ghcr-publish-contract.json` + `audit-event-ghcr-publish-contract.json` + Trivy reports
+- Docker publish evidence from `Pub Docker Img`: `ghcr-publish-contract.json` + `audit-event-ghcr-publish-contract.json` + `ghcr-vulnerability-gate.json` + `audit-event-ghcr-vulnerability-gate.json` + Trivy reports
 
 ### 5) Post-release validation
 
@@ -113,7 +113,8 @@ Expected publish outputs:
 3. Verify GHCR digest parity evidence confirms:
    - `digest(vX.Y.Z) == digest(sha-<12>)`
    - `digest(latest) == digest(vX.Y.Z)`
-4. Verify install paths that rely on release assets (for example bootstrap binary download).
+4. Verify GHCR vulnerability gate evidence (`ghcr-vulnerability-gate.json`) reports `ready=true` and that `audit-event-ghcr-vulnerability-gate.json` is present.
+5. Verify install paths that rely on release assets (for example bootstrap binary download).
 
 ### 5.1) Canary gate before broad rollout
 

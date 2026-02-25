@@ -167,8 +167,9 @@ Workflow: `.github/workflows/pub-docker-img.yml`
 5. Multi-platform publish is used for tag pushes (`linux/amd64,linux/arm64`).
 6. `scripts/ci/ghcr_publish_contract_guard.py` validates anonymous pullability and digest parity across `vX.Y.Z`, `sha-<12>`, and `latest`, then emits rollback candidate mapping evidence.
 7. Trivy scans are emitted for version, SHA, and latest references.
-8. Typical runtime in recent sample: ~139.9s.
-9. Result: pushed image tags under `ghcr.io/<owner>/<repo>` with publish-contract + scan artifacts.
+8. `scripts/ci/ghcr_vulnerability_gate.py` validates Trivy JSON outputs against `.github/release/ghcr-vulnerability-policy.json` and emits audit-event evidence.
+9. Typical runtime in recent sample: ~139.9s.
+10. Result: pushed image tags under `ghcr.io/<owner>/<repo>` with publish-contract + vulnerability-gate + scan artifacts.
 
 Important: Docker publish now requires a `v*` tag push; regular `dev`/`main` branch pushes do not publish images.
 
