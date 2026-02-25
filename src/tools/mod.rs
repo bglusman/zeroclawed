@@ -75,6 +75,8 @@ pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
 pub use delegate_coordination_status::DelegateCoordinationStatusTool;
+#[cfg(feature = "channel-lark")]
+pub use feishu_doc::FeishuDocTool;
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
@@ -86,8 +88,6 @@ pub use hardware_board_info::HardwareBoardInfoTool;
 pub use hardware_memory_map::HardwareMemoryMapTool;
 #[cfg(feature = "hardware")]
 pub use hardware_memory_read::HardwareMemoryReadTool;
-#[cfg(feature = "channel-lark")]
-pub use feishu_doc::FeishuDocTool;
 pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
 pub use memory_forget::MemoryForgetTool;
@@ -492,7 +492,6 @@ pub fn all_tools_with_runtime(
         }
     }
 
-
     // Feishu document tools (enabled when channel-lark feature is active)
     #[cfg(feature = "channel-lark")]
     {
@@ -502,9 +501,11 @@ pub fn all_tools_with_runtime(
             .as_ref()
             .map(|fs| (fs.app_id.clone(), fs.app_secret.clone(), true))
             .or_else(|| {
-                root_config.channels_config.lark.as_ref().map(|lk| {
-                    (lk.app_id.clone(), lk.app_secret.clone(), lk.use_feishu)
-                })
+                root_config
+                    .channels_config
+                    .lark
+                    .as_ref()
+                    .map(|lk| (lk.app_id.clone(), lk.app_secret.clone(), lk.use_feishu))
             });
 
         if let Some((app_id, app_secret, use_feishu)) = feishu_creds {
