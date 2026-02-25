@@ -5,9 +5,9 @@ use crate::config::schema::{
 };
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    FeishuConfig, HeartbeatConfig, HttpRequestConfig, IMessageConfig, LarkConfig, MatrixConfig,
-    MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig,
-    TelegramConfig, WebFetchConfig, WebSearchConfig, WebhookConfig,
+    HeartbeatConfig, HttpRequestConfig, IMessageConfig, LarkConfig, MatrixConfig, MemoryConfig,
+    ObservabilityConfig, RuntimeConfig, SecretsConfig, SlackConfig, StorageConfig, TelegramConfig,
+    WebFetchConfig, WebSearchConfig, WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -165,7 +165,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         composio: composio_config,
         secrets: secrets_config,
         browser: BrowserConfig::default(),
-        http_request: crate::config::HttpRequestConfig::default(),
+        http_request: http_request_config,
         multimodal: crate::config::MultimodalConfig::default(),
         web_fetch: web_fetch_config,
         web_search: web_search_config,
