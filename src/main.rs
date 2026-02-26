@@ -41,6 +41,12 @@ use std::io::Write;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
+#[derive(Debug, Clone, ValueEnum)]
+enum QuotaFormat {
+    Text,
+    Json,
+}
+
 fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     let t: f64 = s.parse().map_err(|e| format!("{e}"))?;
     if !(0.0..=2.0).contains(&t) {
@@ -407,9 +413,9 @@ Examples:
         #[arg(long)]
         provider: Option<String>,
 
-        /// Output format: text or json (default: text)
-        #[arg(long, default_value = "text")]
-        format: String,
+        /// Output format (text or json)
+        #[arg(long, value_enum, default_value_t = QuotaFormat::Text)]
+        format: QuotaFormat,
     },
     /// Manage channels (telegram, discord, slack)
     #[command(long_about = "\
@@ -1077,7 +1083,11 @@ async fn main() -> Result<()> {
         },
 
         Commands::ProvidersQuota { provider, format } => {
-            providers::quota_cli::run(&config, provider.as_deref(), &format).await
+            let format_str = match format {
+                QuotaFormat::Text => "text",
+                QuotaFormat::Json => "json",
+            };
+            providers::quota_cli::run(&config, provider.as_deref(), format_str).await
         }
 
         Commands::Providers => {

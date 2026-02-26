@@ -42,7 +42,7 @@ impl ProviderSimulator {
         for (start, end, fail_count) in &self.failure_windows {
             if elapsed_secs >= *start
                 && elapsed_secs < *end
-                && attempt % (fail_count + 1) < *fail_count
+                && (*fail_count == 0 || attempt % (fail_count + 1) < *fail_count)
             {
                 let error = format!("{} failure in window {}-{}s", self.name, start, end);
                 health.record_failure(&self.name, &error);

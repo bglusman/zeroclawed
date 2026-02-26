@@ -41,7 +41,10 @@ impl CheckProviderQuotaTool {
     }
 
     async fn build_quota_summary(&self, provider_filter: Option<&str>) -> Result<QuotaSummary> {
-        // Initialize health tracker with same settings as reliable.rs
+        // Fresh tracker on each call: provides a point-in-time snapshot of
+        // provider health, not persistent state. This is intentional — the tool
+        // reports quota/profile data from OAuth profiles, not cumulative circuit
+        // breaker state (which lives in ReliableProvider's own tracker).
         let health_tracker = ProviderHealthTracker::new(
             3,                       // failure_threshold
             Duration::from_secs(60), // cooldown

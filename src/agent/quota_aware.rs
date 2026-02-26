@@ -88,7 +88,7 @@ pub async fn check_quota_warning(
                     };
 
                     return Ok(Some(format!(
-                        "⚠️ **Low Quota Warning**: {} profile '{}' has only {}/{} requests remaining{:.0}%{}. \
+                        "⚠️ **Low Quota Warning**: {} profile '{}' has only {}/{} requests remaining ({:.0}%){}. \
                          Your operation requires {} calls. \
                          Consider: (1) reducing parallel operations, (2) switching providers, or (3) waiting for quota reset.",
                         provider_name,
