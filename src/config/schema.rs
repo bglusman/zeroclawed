@@ -4558,6 +4558,10 @@ fn default_otp_enabled() -> bool {
     true
 }
 
+fn default_otp_enabled() -> bool {
+    true
+}
+
 fn default_otp_token_ttl_secs() -> u64 {
     30
 }
