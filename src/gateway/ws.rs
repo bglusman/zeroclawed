@@ -129,7 +129,8 @@ pub async fn handle_ws_chat(
         }
     }
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    ws.protocols(["zeroclaw.v1"])
+        .on_upgrade(move |socket| handle_socket(socket, state))
         .into_response()
 }
 
