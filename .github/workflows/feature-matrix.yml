@@ -167,8 +167,13 @@ jobs:
             - name: Install Linux deps for all-features lane
               if: matrix.install_libudev
               run: |
-                  sudo apt-get update -qq
-                  sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
+                  if command -v sudo >/dev/null 2>&1; then
+                    sudo apt-get update -qq
+                    sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
+                  else
+                    apt-get update -qq
+                    apt-get install -y --no-install-recommends libudev-dev pkg-config
+                  fi
 
             - name: Run matrix lane command
               id: lane

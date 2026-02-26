@@ -224,8 +224,13 @@ jobs:
             - name: Install cross-compilation toolchain (Linux)
               if: runner.os == 'Linux' && matrix.cross_compiler != ''
               run: |
-                  sudo apt-get update -qq
-                  sudo apt-get install -y ${{ matrix.cross_compiler }}
+                  if command -v sudo >/dev/null 2>&1; then
+                    sudo apt-get update -qq
+                    sudo apt-get install -y ${{ matrix.cross_compiler }}
+                  else
+                    apt-get update -qq
+                    apt-get install -y ${{ matrix.cross_compiler }}
+                  fi
 
             - name: Setup Android NDK
               if: matrix.android_ndk
@@ -238,8 +243,13 @@ jobs:
                   NDK_ROOT="${RUNNER_TEMP}/android-ndk"
                   NDK_HOME="${NDK_ROOT}/android-ndk-${NDK_VERSION}"
 
-                  sudo apt-get update -qq
-                  sudo apt-get install -y unzip
+                  if command -v sudo >/dev/null 2>&1; then
+                    sudo apt-get update -qq
+                    sudo apt-get install -y unzip
+                  else
+                    apt-get update -qq
+                    apt-get install -y unzip
+                  fi
 
                   mkdir -p "${NDK_ROOT}"
                   curl -fsSL "${NDK_URL}" -o "${RUNNER_TEMP}/${NDK_ZIP}"
