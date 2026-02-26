@@ -94,8 +94,8 @@ module.exports = async ({ github, context, core }) => {
     prBaseRef === "main" && !promotionAuthorAllowlist.has(prAuthor);
 
   if (linearKeys.length === 0) {
-    blockingFindings.push(
-      "Missing Linear issue key reference (`RMN-<id>`, `CDV-<id>`, or `COM-<id>`) in PR title/body.",
+    advisoryFindings.push(
+      "No Linear issue key reference detected (`RMN-<id>`, `CDV-<id>`, or `COM-<id>`).",
     );
   }
 
@@ -170,7 +170,7 @@ module.exports = async ({ github, context, core }) => {
     "",
     "Action items:",
     "1. Complete required PR template sections/fields.",
-    "2. Link this PR to exactly one active Linear issue key (`RMN-xxx`/`CDV-xxx`/`COM-xxx`).",
+    "2. Optional: add a Linear issue key (`RMN-xxx`/`CDV-xxx`/`COM-xxx`) when tracking exists.",
     "3. Remove tabs, trailing whitespace, and merge conflict markers from added lines.",
     "4. Re-run local checks before pushing:",
     "   - `./scripts/ci/rust_quality_gate.sh`",
