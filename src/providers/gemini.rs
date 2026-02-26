@@ -327,8 +327,7 @@ fn refresh_gemini_cli_token(
         .unwrap_or_else(|_| "<failed to read response body>".to_string());
 
     if !status.is_success() {
-        let sanitized = super::sanitize_api_error(&body);
-        anyhow::bail!("Gemini CLI OAuth refresh failed (HTTP {status}): {sanitized}");
+        anyhow::bail!("Gemini CLI OAuth refresh failed (HTTP {status}): {body}");
     }
 
     #[derive(Deserialize)]
@@ -842,8 +841,7 @@ impl GeminiProvider {
                 );
                 return Ok(seed);
             }
-            let sanitized = super::sanitize_api_error(&body);
-            anyhow::bail!("loadCodeAssist failed (HTTP {status}): {sanitized}");
+            anyhow::bail!("loadCodeAssist failed (HTTP {status}): {body}");
         }
 
         #[derive(Deserialize)]

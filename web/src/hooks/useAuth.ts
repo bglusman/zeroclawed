@@ -12,7 +12,6 @@ import {
   setToken as writeToken,
   clearToken as removeToken,
   isAuthenticated as checkAuth,
-  TOKEN_STORAGE_KEY,
 } from '../lib/auth';
 import { pair as apiPair, getPublicHealth } from '../lib/api';
 
@@ -70,10 +69,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
-  // Keep state in sync if token storage is changed from another browser context.
+  // Keep state in sync if localStorage is changed in another tab
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key === TOKEN_STORAGE_KEY) {
+      if (e.key === 'zeroclaw_token') {
         const t = readToken();
         setTokenState(t);
         setAuthenticated(t !== null && t.length > 0);

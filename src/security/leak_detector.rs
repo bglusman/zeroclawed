@@ -311,7 +311,7 @@ mod tests {
                 assert!(patterns.iter().any(|p| p.contains("Stripe")));
                 assert!(redacted.contains("[REDACTED"));
             }
-            LeakResult::Clean => panic!("Should detect Stripe key"),
+            _ => panic!("Should detect Stripe key"),
         }
     }
 
@@ -324,7 +324,7 @@ mod tests {
             LeakResult::Detected { patterns, .. } => {
                 assert!(patterns.iter().any(|p| p.contains("AWS")));
             }
-            LeakResult::Clean => panic!("Should detect AWS key"),
+            _ => panic!("Should detect AWS key"),
         }
     }
 
@@ -342,7 +342,7 @@ MIIEowIBAAKCAQEA0ZPr5JeyVDonXsKhfq...
                 assert!(patterns.iter().any(|p| p.contains("private key")));
                 assert!(redacted.contains("[REDACTED_PRIVATE_KEY]"));
             }
-            LeakResult::Clean => panic!("Should detect private key"),
+            _ => panic!("Should detect private key"),
         }
     }
 
@@ -356,7 +356,7 @@ MIIEowIBAAKCAQEA0ZPr5JeyVDonXsKhfq...
                 assert!(patterns.iter().any(|p| p.contains("JWT")));
                 assert!(redacted.contains("[REDACTED_JWT]"));
             }
-            LeakResult::Clean => panic!("Should detect JWT"),
+            _ => panic!("Should detect JWT"),
         }
     }
 
@@ -369,7 +369,7 @@ MIIEowIBAAKCAQEA0ZPr5JeyVDonXsKhfq...
             LeakResult::Detected { patterns, .. } => {
                 assert!(patterns.iter().any(|p| p.contains("PostgreSQL")));
             }
-            LeakResult::Clean => panic!("Should detect database URL"),
+            _ => panic!("Should detect database URL"),
         }
     }
 

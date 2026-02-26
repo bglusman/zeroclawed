@@ -17,21 +17,6 @@ pub enum AutonomyLevel {
     Full,
 }
 
-impl std::str::FromStr for AutonomyLevel {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "read_only" | "readonly" => Ok(Self::ReadOnly),
-            "supervised" => Ok(Self::Supervised),
-            "full" => Ok(Self::Full),
-            _ => Err(format!(
-                "invalid autonomy level '{s}': expected read_only, supervised, or full"
-            )),
-        }
-    }
-}
-
 /// Risk score for shell command execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandRiskLevel {
@@ -692,10 +677,6 @@ impl SecurityPolicy {
             return Err(format!("Command not allowed by security policy: {command}"));
         }
 
-        if let Some(path) = self.forbidden_path_argument(command) {
-            return Err(format!("Path blocked by security policy: {path}"));
-        }
-
         let risk = self.command_risk_level(command);
 
         if risk == CommandRiskLevel::High {
@@ -1245,7 +1226,7 @@ mod tests {
         assert!(p.is_command_allowed("/usr/bin/antigravity"));
 
         // Wildcard still respects risk gates in validate_command_execution.
-        let blocked = p.validate_command_execution("rm -rf tmp_test_dir", true);
+        let blocked = p.validate_command_execution("rm -rf /tmp/test", true);
         assert!(blocked.is_err());
         assert!(blocked.unwrap_err().contains("high-risk"));
     }
@@ -1350,7 +1331,7 @@ mod tests {
             ..SecurityPolicy::default()
         };
 
-        let result = p.validate_command_execution("rm -rf tmp_test_dir", true);
+        let result = p.validate_command_execution("rm -rf /tmp/test", true);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("high-risk"));
     }
@@ -1770,15 +1751,6 @@ mod tests {
             p.forbidden_path_argument("cat /etc/passwd"),
             Some("/etc/passwd".into())
         );
-    }
-
-    #[test]
-    fn validate_command_execution_rejects_forbidden_paths() {
-        let p = default_policy();
-        let err = p
-            .validate_command_execution("cat /etc/shadow", false)
-            .unwrap_err();
-        assert!(err.contains("Path blocked by security policy"));
     }
 
     #[test]

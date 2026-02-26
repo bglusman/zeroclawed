@@ -37,7 +37,6 @@ pub mod pairing;
 pub mod policy;
 pub mod prompt_guard;
 pub mod secrets;
-pub mod syscall_anomaly;
 pub mod traits;
 
 #[allow(unused_imports)]
@@ -54,8 +53,6 @@ pub use pairing::PairingGuard;
 pub use policy::{AutonomyLevel, SecurityPolicy};
 #[allow(unused_imports)]
 pub use secrets::SecretStore;
-#[allow(unused_imports)]
-pub use syscall_anomaly::{SyscallAnomalyAlert, SyscallAnomalyDetector, SyscallAnomalyKind};
 #[allow(unused_imports)]
 pub use traits::{NoopSandbox, Sandbox};
 // Prompt injection defense exports
