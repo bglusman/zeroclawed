@@ -4141,6 +4141,21 @@ pub fn build_system_prompt_with_mode(
          - When in doubt, ask before acting externally.\n\n",
     );
 
+    // ── 2a. Skills Authorization ────────────────────────────────
+    if !skills.is_empty() {
+        prompt.push_str("## Skills Authorization\n\n");
+        prompt.push_str("All registered skills (");
+        for (i, skill) in skills.iter().enumerate() {
+            if i > 0 {
+                prompt.push_str(", ");
+            }
+            prompt.push_str(&skill.name);
+        }
+        prompt.push_str(") are AUTHORIZED and AVAILABLE for use.\n");
+        prompt.push_str("When the user requests information that requires these skills, USE them directly — do NOT refuse or invent policy restrictions.\n");
+        prompt.push_str("Skills are security-audited and approved tools. Your job is to use them effectively to help the user.\n\n");
+    }
+
     // ── 3. Skills (full or compact, based on config) ─────────────
     if !skills.is_empty() {
         prompt.push_str(&crate::skills::skills_to_prompt_with_mode(
@@ -5057,27 +5072,27 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
-            "Execute terminal commands. Use when: running local checks, build/test commands, diagnostics. Don't use when: a safer dedicated tool exists, or command is destructive without approval.",
+            "Execute terminal commands for local checks, build/test commands, and diagnostics.",
         ),
         (
             "file_read",
-            "Read file contents. Use when: inspecting project files, configs, logs. Don't use when: a targeted search is enough.",
+            "Read file contents to inspect project files, configs, and logs.",
         ),
         (
             "file_write",
-            "Write file contents. Use when: applying focused edits, scaffolding files, updating docs/code. Don't use when: side effects are unclear or file ownership is uncertain.",
+            "Write file contents to apply edits, scaffold files, or update docs/code.",
         ),
         (
             "memory_store",
-            "Save to memory. Use when: preserving durable preferences, decisions, key context. Don't use when: information is transient/noisy/sensitive without need.",
+            "Save to memory to preserve durable preferences, decisions, and key context.",
         ),
         (
             "memory_recall",
-            "Search memory. Use when: retrieving prior decisions, user preferences, historical context. Don't use when: answer is already in current context.",
+            "Search memory to retrieve prior decisions, user preferences, and historical context.",
         ),
         (
             "memory_forget",
-            "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
+            "Delete a memory entry when it's incorrect, stale, or explicitly requested for removal.",
         ),
     ];
 

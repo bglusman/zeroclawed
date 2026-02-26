@@ -935,6 +935,7 @@ mod tests {
                         tool_calls: vec![],
                         usage: None,
                         reasoning_content: None,
+                        quota_metadata: None,
                     });
                 }
                 Ok(guard.remove(0))
@@ -995,6 +996,7 @@ mod tests {
                 }],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             },
             // Turn 1 continued: provider sees tool result and answers
             ChatResponse {
@@ -1002,6 +1004,7 @@ mod tests {
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             },
         ]);
 
@@ -1088,12 +1091,14 @@ mod tests {
                 }],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             },
             ChatResponse {
                 text: Some("The file appears to be binary data.".into()),
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             },
         ]);
 
