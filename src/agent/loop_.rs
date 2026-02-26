@@ -46,7 +46,7 @@ const STREAM_CHUNK_MIN_CHARS: usize = 80;
 
 /// Default maximum agentic tool-use iterations per user message to prevent runaway loops.
 /// Used as a safe fallback when `max_tool_iterations` is unset or configured as zero.
-const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
+const DEFAULT_MAX_TOOL_ITERATIONS: usize = 20;
 
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
@@ -270,6 +270,14 @@ impl std::error::Error for ToolLoopCancelled {}
 
 pub(crate) fn is_tool_loop_cancelled(err: &anyhow::Error) -> bool {
     err.chain().any(|source| source.is::<ToolLoopCancelled>())
+}
+
+pub(crate) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|source| {
+        source
+            .to_string()
+            .contains("Agent exceeded maximum tool iterations")
+    })
 }
 
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
@@ -1568,6 +1576,16 @@ pub async fn run(
             {
                 Ok(resp) => resp,
                 Err(e) => {
+                    if is_tool_iteration_limit_error(&e) {
+                        let pause_notice = format!(
+                            "⚠️ Reached tool-iteration limit ({}). Context and progress are preserved. \
+                            Reply \"continue\" to resume, or increase `agent.max_tool_iterations` in config.",
+                            config.agent.max_tool_iterations.max(DEFAULT_MAX_TOOL_ITERATIONS)
+                        );
+                        history.push(ChatMessage::assistant(&pause_notice));
+                        eprintln!("\n{pause_notice}\n");
+                        continue;
+                    }
                     eprintln!("\nError: {e}\n");
                     continue;
                 }
