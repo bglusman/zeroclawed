@@ -58,18 +58,50 @@ impl DiscordChannel {
 /// Process Discord message attachments and return a string to append to the
 /// agent message context.
 ///
-/// Only `text/*` MIME types are fetched and inlined. All other types are
-/// silently skipped. Fetch errors are logged as warnings.
+/// `text/*` MIME types are fetched and inlined. If Discord omits `content_type`
+/// or reports `application/octet-stream`, text-like filenames are inferred via
+/// extension (for example `message.txt` for auto-converted long messages).
+/// Unsupported attachments are skipped with warning-level logs.
+const DISCORD_TEXT_ATTACHMENT_EXTENSIONS: &[&str] = &[
+    "txt", "md", "json", "csv", "log", "py", "js", "ts", "rs", "toml", "yaml", "yml", "xml",
+    "html", "css", "sh",
+];
+
+fn is_text_like_discord_attachment(content_type: Option<&str>, filename: &str) -> bool {
+    let normalized_content_type = content_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    if let Some(content_type) = normalized_content_type.as_deref() {
+        if content_type.starts_with("text/") {
+            return true;
+        }
+        if content_type != "application/octet-stream" {
+            return false;
+        }
+    }
+
+    if filename.eq_ignore_ascii_case("message.txt") {
+        return true;
+    }
+
+    let Some(extension) = Path::new(filename).extension().and_then(|ext| ext.to_str()) else {
+        return false;
+    };
+
+    DISCORD_TEXT_ATTACHMENT_EXTENSIONS
+        .iter()
+        .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+}
+
 async fn process_attachments(
     attachments: &[serde_json::Value],
     client: &reqwest::Client,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
     for att in attachments {
-        let ct = att
-            .get("content_type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let ct = att.get("content_type").and_then(|v| v.as_str());
         let name = att
             .get("filename")
             .and_then(|v| v.as_str())
@@ -78,13 +110,16 @@ async fn process_attachments(
             tracing::warn!(name, "discord: attachment has no url, skipping");
             continue;
         };
-        if ct.starts_with("text/") {
+        if is_text_like_discord_attachment(ct, name) {
             match client.get(url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    if let Ok(text) = resp.text().await {
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(text) => {
                         parts.push(format!("[{name}]\n{text}"));
                     }
-                }
+                    Err(error) => {
+                        tracing::warn!(name, error = %error, "discord attachment read error");
+                    }
+                },
                 Ok(resp) => {
                     tracing::warn!(name, status = %resp.status(), "discord attachment fetch failed");
                 }
@@ -93,9 +128,9 @@ async fn process_attachments(
                 }
             }
         } else {
-            tracing::debug!(
+            tracing::warn!(
                 name,
-                content_type = ct,
+                content_type = ct.unwrap_or(""),
                 "discord: skipping unsupported attachment type"
             );
         }
@@ -885,6 +920,8 @@ impl Channel for DiscordChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn discord_channel_name() {
@@ -1434,6 +1471,65 @@ mod tests {
         })];
         let result = process_attachments(&attachments, &client).await;
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn process_attachments_infers_text_when_content_type_missing() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/message.txt"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("hello from discord"))
+            .mount(&mock_server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let attachments = vec![serde_json::json!({
+            "url": format!("{}/message.txt", mock_server.uri()),
+            "filename": "message.txt"
+        })];
+
+        let result = process_attachments(&attachments, &client).await;
+        assert!(result.contains("[message.txt]"));
+        assert!(result.contains("hello from discord"));
+    }
+
+    #[tokio::test]
+    async fn process_attachments_infers_text_for_octet_stream_txt_extension() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/notes.TXT"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("line one\nline two"))
+            .mount(&mock_server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let attachments = vec![serde_json::json!({
+            "url": format!("{}/notes.TXT", mock_server.uri()),
+            "filename": "notes.TXT",
+            "content_type": "application/octet-stream"
+        })];
+
+        let result = process_attachments(&attachments, &client).await;
+        assert!(result.contains("[notes.TXT]"));
+        assert!(result.contains("line one"));
+    }
+
+    #[test]
+    fn text_like_discord_attachment_detection_respects_mime_and_filename_fallback() {
+        assert!(is_text_like_discord_attachment(
+            Some("text/plain"),
+            "report.bin"
+        ));
+        assert!(is_text_like_discord_attachment(None, "message.txt"));
+        assert!(is_text_like_discord_attachment(
+            Some("application/octet-stream"),
+            "trace.log"
+        ));
+        assert!(!is_text_like_discord_attachment(
+            Some("application/pdf"),
+            "notes.txt"
+        ));
+        assert!(!is_text_like_discord_attachment(None, "image.png"));
     }
 
     #[test]
