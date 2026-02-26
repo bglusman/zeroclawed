@@ -1,5 +1,4 @@
 #![warn(clippy::all, clippy::pedantic)]
-#![forbid(unsafe_code)]
 #![allow(
     clippy::assigning_clones,
     clippy::bool_to_int_with_if,
