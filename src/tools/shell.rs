@@ -1,5 +1,6 @@
 use super::traits::{Tool, ToolResult};
 use crate::runtime::RuntimeAdapter;
+use crate::security::is_valid_env_var_name;
 use crate::security::SecurityPolicy;
 use crate::security::SyscallAnomalyDetector;
 use async_trait::async_trait;
@@ -41,15 +42,6 @@ impl ShellTool {
             syscall_detector,
         }
     }
-}
-
-fn is_valid_env_var_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
-        _ => return false,
-    }
-    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 pub(super) fn collect_allowed_shell_env_vars(security: &SecurityPolicy) -> Vec<String> {

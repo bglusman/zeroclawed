@@ -1,3 +1,4 @@
+use super::is_valid_env_var_name;
 use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -404,15 +405,6 @@ fn contains_unquoted_char(command: &str, target: char) -> bool {
     false
 }
 
-fn is_valid_shell_env_var_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
-        _ => return false,
-    }
-    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
-
 /// Detect unquoted shell variable expansions that are not explicitly allowlisted.
 ///
 /// Allowed forms:
@@ -504,7 +496,7 @@ fn contains_disallowed_unquoted_shell_variable_expansion(
                 }
 
                 let inner: String = chars[i + 2..j].iter().collect();
-                if !is_valid_shell_env_var_name(&inner)
+                if !is_valid_env_var_name(&inner)
                     || !allowed_vars.iter().any(|allowed| allowed == &inner)
                 {
                     return true;
@@ -1786,22 +1778,24 @@ mod tests {
     #[test]
     fn command_allows_explicit_shell_env_passthrough_variables() {
         let p = SecurityPolicy {
-            shell_env_passthrough: vec!["TOKEN_VAR".into()],
+            shell_env_passthrough: vec!["ZEROCLAW_TEST_TOKEN".into()],
             ..SecurityPolicy::default()
         };
-        assert!(p.is_command_allowed("echo $TOKEN_VAR"));
-        assert!(p.is_command_allowed("echo ${TOKEN_VAR}"));
-        assert!(p.is_command_allowed("echo \"Authorization: Bearer $TOKEN_VAR\""));
+        assert!(p.is_command_allowed("echo $ZEROCLAW_TEST_TOKEN"));
+        assert!(p.is_command_allowed("echo ${ZEROCLAW_TEST_TOKEN}"));
+        assert!(p.is_command_allowed("echo \"Authorization: Bearer $ZEROCLAW_TEST_TOKEN\""));
+        assert!(p.is_command_allowed("echo \"Authorization: Bearer ${ZEROCLAW_TEST_TOKEN}\""));
     }
 
     #[test]
     fn command_rejects_non_passthrough_or_complex_variable_expansions() {
         let p = SecurityPolicy {
-            shell_env_passthrough: vec!["TOKEN_VAR".into()],
+            shell_env_passthrough: vec!["ZEROCLAW_TEST_TOKEN".into()],
             ..SecurityPolicy::default()
         };
         assert!(!p.is_command_allowed("echo $HOME"));
-        assert!(!p.is_command_allowed("echo ${TOKEN_VAR:-fallback}"));
+        assert!(!p.is_command_allowed("echo \"Authorization: Bearer ${HOME}\""));
+        assert!(!p.is_command_allowed("echo ${ZEROCLAW_TEST_TOKEN:-fallback}"));
         assert!(!p.is_command_allowed("echo $1"));
     }
 
