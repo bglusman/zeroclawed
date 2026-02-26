@@ -970,14 +970,6 @@ fn filtered_tool_specs_for_runtime(
         .collect()
 }
 
-fn is_non_cli_tool_excluded(ctx: &ChannelRuntimeContext, tool_name: &str) -> bool {
-    ctx.non_cli_excluded_tools
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .any(|excluded| excluded == tool_name)
-}
-
 fn build_runtime_tool_visibility_prompt(
     tools_registry: &[Box<dyn Tool>],
     excluded_tools: &[String],
@@ -1147,6 +1139,87 @@ async fn remove_non_cli_approval_from_config(
     }
 
     Ok(Some((config_path, removed)))
+}
+
+fn remove_non_cli_tool_exclusion_from_runtime(
+    ctx: &ChannelRuntimeContext,
+    tool_name: &str,
+) -> bool {
+    let mut excluded = ctx
+        .non_cli_excluded_tools
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let before_len = excluded.len();
+    excluded.retain(|entry| entry != tool_name);
+    excluded.len() != before_len
+}
+
+async fn remove_non_cli_excluded_tool_from_config(
+    ctx: &ChannelRuntimeContext,
+    tool_name: &str,
+) -> Result<Option<(PathBuf, bool)>> {
+    let Some(config_path) = runtime_config_path(ctx) else {
+        return Ok(None);
+    };
+
+    let contents = tokio::fs::read_to_string(&config_path)
+        .await
+        .with_context(|| format!("Failed to read {}", config_path.display()))?;
+    let mut parsed: Config = toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+    parsed.config_path = config_path.clone();
+
+    let before_len = parsed.autonomy.non_cli_excluded_tools.len();
+    parsed
+        .autonomy
+        .non_cli_excluded_tools
+        .retain(|entry| entry != tool_name);
+    let removed = parsed.autonomy.non_cli_excluded_tools.len() != before_len;
+    if removed {
+        parsed.save().await?;
+    }
+
+    Ok(Some((config_path, removed)))
+}
+
+async fn clear_non_cli_exclusion_after_approval(
+    ctx: &ChannelRuntimeContext,
+    tool_name: &str,
+) -> Option<String> {
+    let runtime_removed = remove_non_cli_tool_exclusion_from_runtime(ctx, tool_name);
+    match remove_non_cli_excluded_tool_from_config(ctx, tool_name).await {
+        Ok(Some((path, persisted_removed))) => match (runtime_removed, persisted_removed) {
+            (true, true) => Some(format!(
+                "Removed `{tool_name}` from `autonomy.non_cli_excluded_tools` in runtime and persisted config (`{}`).",
+                path.display()
+            )),
+            (true, false) => Some(format!(
+                "Removed `{tool_name}` from runtime `autonomy.non_cli_excluded_tools` (it was already absent from persisted config `{}`).",
+                path.display()
+            )),
+            (false, true) => Some(format!(
+                "Removed `{tool_name}` from persisted `autonomy.non_cli_excluded_tools` in `{}`.",
+                path.display()
+            )),
+            (false, false) => None,
+        },
+        Ok(None) => runtime_removed.then(|| {
+            format!(
+                "Removed `{tool_name}` from runtime `autonomy.non_cli_excluded_tools`."
+            )
+        }),
+        Err(err) => {
+            if runtime_removed {
+                Some(format!(
+                    "Removed `{tool_name}` from runtime `autonomy.non_cli_excluded_tools`, but failed to persist config update: {err}"
+                ))
+            } else {
+                Some(format!(
+                    "Failed to update persisted `autonomy.non_cli_excluded_tools` for `{tool_name}`: {err}"
+                ))
+            }
+        }
+    }
 }
 
 async fn describe_non_cli_approvals(
@@ -2100,7 +2173,7 @@ async fn handle_runtime_command_if_needed(
                         ctx.approval_manager
                             .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
                         let tool_name = req.tool_name;
-                        let approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
+                        let mut approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
                             let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
                             format!(
                                 "Approved one-time all-tools bypass from request `{request_id}`.\nApplies to the next non-CLI agent tool-execution turn only.\nThis bypass is runtime-only and does not persist to config.\nChannel exclusions from `autonomy.non_cli_excluded_tools` still apply.\nQueued one-time all-tools bypass tokens: `{remaining}`."
@@ -2122,6 +2195,14 @@ async fn handle_runtime_command_if_needed(
                                 ),
                             }
                         };
+                        if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN {
+                            if let Some(exclusion_note) =
+                                clear_non_cli_exclusion_after_approval(ctx, &tool_name).await
+                            {
+                                approval_message.push('\n');
+                                approval_message.push_str(&exclusion_note);
+                            }
+                        }
                         runtime_trace::record_event(
                             "approval_request_confirmed",
                             Some(source_channel),
@@ -2137,16 +2218,7 @@ async fn handle_runtime_command_if_needed(
                                 "channel": source_channel,
                             }),
                         );
-
-                        if tool_name != APPROVAL_ALL_TOOLS_ONCE_TOKEN
-                            && is_non_cli_tool_excluded(ctx, &tool_name)
-                        {
-                            format!(
-                                "{approval_message}\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
-                            )
-                        } else {
-                            approval_message
-                        }
+                        approval_message
                     }
                     Err(PendingApprovalError::NotFound) => {
                         runtime_trace::record_event(
@@ -2368,14 +2440,16 @@ async fn handle_runtime_command_if_needed(
                         "Approved supervised execution for `{tool_name}` in-memory.\nFailed to persist this approval to config: {err}"
                     ),
                 };
-
-                if is_non_cli_tool_excluded(ctx, &tool_name) {
-                    format!(
-                        "{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.\nNote: `{tool_name}` is currently listed in `autonomy.non_cli_excluded_tools` for this runtime. Remove it from config; the channel runtime auto-reloads this list from disk."
-                    )
-                } else {
-                    format!("{persistence_message}\nRuntime pending requests cleared: {cleared_pending}.")
+                let mut response = format!(
+                    "{persistence_message}\nRuntime pending requests cleared: {cleared_pending}."
+                );
+                if let Some(exclusion_note) =
+                    clear_non_cli_exclusion_after_approval(ctx, &tool_name).await
+                {
+                    response.push('\n');
+                    response.push_str(&exclusion_note);
                 }
+                response
             }
         }
         ChannelRuntimeCommand::UnapproveTool(raw_tool_name) => {
@@ -6557,6 +6631,7 @@ BTC is currently around $65,000 based on latest tool output."#
         persisted.config_path = config_path.clone();
         persisted.workspace_dir = workspace_dir;
         persisted.autonomy.always_ask = vec!["mock_price".to_string()];
+        persisted.autonomy.non_cli_excluded_tools = vec!["mock_price".to_string()];
         persisted.autonomy.non_cli_natural_language_approval_mode =
             crate::config::NonCliNaturalLanguageApprovalMode::RequestConfirm;
         persisted.save().await.expect("save config");
@@ -6596,7 +6671,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
-            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            non_cli_excluded_tools: Arc::new(Mutex::new(vec!["mock_price".to_string()])),
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
@@ -6633,6 +6708,7 @@ BTC is currently around $65,000 based on latest tool output."#
         assert_eq!(sent.len(), 1);
         assert!(sent[0].contains("Approved supervised execution for `mock_price`"));
         assert!(sent[0].contains("including after restart"));
+        assert!(sent[0].contains("Removed `mock_price` from `autonomy.non_cli_excluded_tools`"));
 
         assert!(runtime_ctx
             .approval_manager
@@ -6662,6 +6738,20 @@ BTC is currently around $65,000 based on latest tool output."#
                 .iter()
                 .all(|tool| tool != "mock_price"),
             "persisted config should remove mock_price from autonomy.always_ask"
+        );
+        assert!(
+            saved
+                .autonomy
+                .non_cli_excluded_tools
+                .iter()
+                .all(|tool| tool != "mock_price"),
+            "persisted config should remove mock_price from autonomy.non_cli_excluded_tools"
+        );
+        assert!(
+            snapshot_non_cli_excluded_tools(runtime_ctx.as_ref())
+                .iter()
+                .all(|tool| tool != "mock_price"),
+            "runtime exclusions should remove mock_price immediately after approval"
         );
     }
 
@@ -7002,6 +7092,7 @@ BTC is currently around $65,000 based on latest tool output."#
         persisted.config_path = config_path.clone();
         persisted.workspace_dir = workspace_dir;
         persisted.autonomy.always_ask = vec!["mock_price".to_string()];
+        persisted.autonomy.non_cli_excluded_tools = vec!["mock_price".to_string()];
         persisted.autonomy.non_cli_natural_language_approval_mode =
             crate::config::NonCliNaturalLanguageApprovalMode::RequestConfirm;
         persisted.save().await.expect("save config");
@@ -7041,7 +7132,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: false,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
-            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
+            non_cli_excluded_tools: Arc::new(Mutex::new(vec!["mock_price".to_string()])),
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
@@ -7099,6 +7190,7 @@ BTC is currently around $65,000 based on latest tool output."#
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 2);
         assert!(sent[1].contains("Approved supervised execution for `mock_price` from request"));
+        assert!(sent[1].contains("Removed `mock_price` from `autonomy.non_cli_excluded_tools`"));
         assert!(runtime_ctx
             .approval_manager
             .is_non_cli_session_granted("mock_price"));
@@ -7118,6 +7210,14 @@ BTC is currently around $65,000 based on latest tool output."#
             .auto_approve
             .iter()
             .any(|tool| tool == "mock_price"));
+        assert!(saved
+            .autonomy
+            .non_cli_excluded_tools
+            .iter()
+            .all(|tool| tool != "mock_price"));
+        assert!(snapshot_non_cli_excluded_tools(runtime_ctx.as_ref())
+            .iter()
+            .all(|tool| tool != "mock_price"));
     }
 
     #[tokio::test]
