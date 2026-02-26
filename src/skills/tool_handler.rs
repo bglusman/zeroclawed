@@ -79,6 +79,18 @@ impl SkillToolHandler {
         tool_def: SkillTool,
         security: Arc<SecurityPolicy>,
     ) -> Result<Self> {
+        if !tool_def.kind.eq_ignore_ascii_case("shell") {
+            tracing::warn!(
+                skill = %skill_name,
+                tool = %tool_def.name,
+                kind = %tool_def.kind,
+                "Skipping skill tool: only kind=\"shell\" is supported"
+            );
+            bail!(
+                "Unsupported tool kind '{}': only shell tools are supported",
+                tool_def.kind
+            );
+        }
         let parameters = Self::extract_parameters(&tool_def)?;
         Ok(Self {
             skill_name,
@@ -248,12 +260,25 @@ impl SkillToolHandler {
 
                 let escaped_value = match param_type {
                     ParameterType::String => {
-                        // Always quote strings, even if they look numeric
-                        // This handles cases like contact_name=5084292206
                         format!("'{}'", value.replace('\'', "'\\''"))
                     }
-                    ParameterType::Integer | ParameterType::Boolean => {
-                        // Numbers and booleans don't need quoting
+                    ParameterType::Integer => {
+                        if value.parse::<i64>().is_err() {
+                            bail!(
+                                "Parameter '{}' declared as integer but got non-numeric value",
+                                placeholder
+                            );
+                        }
+                        value.clone()
+                    }
+                    ParameterType::Boolean => {
+                        if value != "true" && value != "false" {
+                            bail!(
+                                "Parameter '{}' declared as boolean but got '{}'",
+                                placeholder,
+                                value
+                            );
+                        }
                         value.clone()
                     }
                 };
@@ -327,19 +352,41 @@ impl Tool for SkillToolHandler {
     }
 
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
-        // Render the command with substituted arguments
+        if self.security.is_rate_limited() {
+            return Ok(ToolResult {
+                output: "Rate limit exceeded — try again later.".into(),
+                success: false,
+                error: None,
+            });
+        }
+
         let command = self
             .render_command(&args)
             .context("Failed to render skill tool command")?;
 
+        if let Err(e) = self.security.validate_command_execution(&command, false) {
+            return Ok(ToolResult {
+                output: format!("Blocked by security policy: {e}"),
+                success: false,
+                error: None,
+            });
+        }
+
+        if !self.security.record_action() {
+            return Ok(ToolResult {
+                output: "Action limit exceeded — try again later.".into(),
+                success: false,
+                error: None,
+            });
+        }
+
         tracing::debug!(
             skill = %self.skill_name,
             tool = %self.tool_def.name,
-            command = %command,
+            command_template = %self.tool_def.command,
             "Executing skill tool"
         );
 
-        // Execute the command using tokio
         let output = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(&command)
