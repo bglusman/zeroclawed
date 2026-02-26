@@ -44,7 +44,7 @@ env:
 jobs:
     prepare:
         name: Prepare Release Context
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: self-hosted
         outputs:
             release_ref: ${{ steps.vars.outputs.release_ref }}
             release_tag: ${{ steps.vars.outputs.release_tag }}
@@ -328,7 +328,7 @@ jobs:
     verify-artifacts:
         name: Verify Artifact Set
         needs: [prepare, build-release]
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: self-hosted
         steps:
             - name: Download all artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -368,7 +368,7 @@ jobs:
         name: Publish Release
         if: needs.prepare.outputs.publish_release == 'true'
         needs: [prepare, verify-artifacts]
-        runs-on: blacksmith-2vcpu-ubuntu-2404
+        runs-on: self-hosted
         timeout-minutes: 45
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

@@ -31,7 +31,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  python - <<'PY'
+                  python3 - <<'PY'
                   from __future__ import annotations
 
                   import pathlib
