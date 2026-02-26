@@ -1580,6 +1580,15 @@ async fn handle_linq_webhook(
     let messages = linq.parse_webhook_payload(&payload);
 
     if messages.is_empty() {
+        if payload
+            .get("event_type")
+            .and_then(|v| v.as_str())
+            .is_some_and(|event| event == "message.received")
+        {
+            tracing::warn!(
+                "Linq webhook message.received produced no actionable messages (possible unsupported payload shape)"
+            );
+        }
         // Acknowledge the webhook even if no messages (could be status/delivery events)
         return (StatusCode::OK, Json(serde_json::json!({"status": "ok"})));
     }
