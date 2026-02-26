@@ -36,6 +36,7 @@ pub mod otp;
 pub mod pairing;
 pub mod policy;
 pub mod prompt_guard;
+pub mod roles;
 pub mod secrets;
 pub mod syscall_anomaly;
 pub mod traits;
@@ -52,6 +53,8 @@ pub use otp::OtpValidator;
 #[allow(unused_imports)]
 pub use pairing::PairingGuard;
 pub use policy::{AutonomyLevel, SecurityPolicy};
+#[allow(unused_imports)]
+pub use roles::{RoleRegistry, ToolAccess};
 #[allow(unused_imports)]
 pub use secrets::SecretStore;
 #[allow(unused_imports)]
