@@ -219,11 +219,11 @@ Canary policy lane:
 
 ## Mermaid Diagrams
 
-### PR to Dev
+### PR to Main
 
 ```mermaid
 flowchart TD
-  A["PR opened or updated -> dev"] --> B["pull_request_target lane"]
+  A["PR opened or updated -> main"] --> B["pull_request_target lane"]
   B --> B1["pr-intake-checks.yml"]
   B --> B2["pr-labeler.yml"]
   B --> B3["pr-auto-response.yml"]
@@ -237,7 +237,7 @@ flowchart TD
   D --> E{"Checks + review policy pass?"}
   E -->|No| F["PR stays open"]
   E -->|Yes| G["Merge PR"]
-  G --> H["push event on dev"]
+  G --> H["push event on main"]
 ```
 
 ### Promotion and Release
@@ -246,7 +246,7 @@ flowchart TD
 flowchart TD
   D0["Commit reaches dev"] --> B0["ci-run.yml"]
   D0 --> C0["sec-audit.yml"]
-  P["Promotion PR dev -> main"] --> PG["main-promotion-gate.yml"]
+  P["PR to main"] --> PG["main-promotion-gate.yml"]
   PG --> M["Merge to main"]
   M --> A["Commit reaches main"]
   A --> B["ci-run.yml"]
