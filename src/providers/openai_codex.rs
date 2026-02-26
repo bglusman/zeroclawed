@@ -731,32 +731,6 @@ mod tests {
             .expect("env lock poisoned")
     }
 
-    struct EnvGuard {
-        key: &'static str,
-        original: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: Option<&str>) -> Self {
-            let original = std::env::var(key).ok();
-            match value {
-                Some(next) => std::env::set_var(key, next),
-                None => std::env::remove_var(key),
-            }
-            Self { key, original }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            if let Some(original) = self.original.as_deref() {
-                std::env::set_var(self.key, original);
-            } else {
-                std::env::remove_var(self.key);
-            }
-        }
-    }
-
     #[test]
     fn extracts_output_text_first() {
         let response = ResponsesResponse {

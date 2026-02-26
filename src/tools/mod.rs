@@ -356,16 +356,6 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    if web_fetch_config.enabled {
-        tool_arcs.push(Arc::new(WebFetchTool::new(
-            security.clone(),
-            web_fetch_config.allowed_domains.clone(),
-            web_fetch_config.blocked_domains.clone(),
-            web_fetch_config.max_response_size,
-            web_fetch_config.timeout_secs,
-        )));
-    }
-
     // Web search tool (enabled by default for GLM and other models)
     if root_config.web_search.enabled {
         let provider = root_config.web_search.provider.trim().to_lowercase();
