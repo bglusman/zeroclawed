@@ -367,6 +367,6 @@ mod tests {
             },
         ]);
         assert!(result.is_err());
-        assert!(result.err().expect("error").to_string().contains("cycle"));
+        assert!(result.expect_err("error").to_string().contains("cycle"));
     }
 }
