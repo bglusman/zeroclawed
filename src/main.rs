@@ -1577,7 +1577,7 @@ fn set_owner_only_permissions(_path: &std::path::Path) -> Result<()> {
 fn is_pending_login_stale(pending: &PendingOAuthLogin) -> bool {
     if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&pending.created_at) {
         let age = chrono::Utc::now().signed_duration_since(created);
-        age.num_hours() > 24
+        age > chrono::Duration::hours(24)
     } else {
         // If we can't parse the timestamp, consider it stale
         true

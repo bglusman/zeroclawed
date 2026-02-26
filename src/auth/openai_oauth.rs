@@ -298,8 +298,9 @@ pub fn parse_code_from_redirect(input: &str, expected_state: Option<&str>) -> Re
         if let Some(got) = params.get("state") {
             if got != expected_state {
                 let mut err_msg = format!(
-                    "OAuth state mismatch: expected {}, got {}",
-                    expected_state, got
+                    "OAuth state mismatch (expected length={}, got length={})",
+                    expected_state.len(),
+                    got.len()
                 );
 
                 // Add helpful hint if truncation detected
@@ -307,7 +308,7 @@ pub fn parse_code_from_redirect(input: &str, expected_state: Option<&str>) -> Re
                     crate::auth::oauth_common::detect_url_truncation(input, expected_state.len())
                 {
                     let _ = write!(
-                        err_msg,
+                        &mut err_msg,
                         "\n\n💡 Tip: {}\n   \
                         Try copying ONLY the authorization code instead of the full URL.\n   \
                         The code looks like: eyJh...",
