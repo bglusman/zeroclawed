@@ -164,6 +164,10 @@ enum Commands {
         /// Memory backend (sqlite, lucid, markdown, none) - used in quick mode, default: sqlite
         #[arg(long)]
         memory: Option<String>,
+
+        /// Disable OTP in quick setup (not recommended)
+        #[arg(long)]
+        no_totp: bool,
     },
 
     /// Start the AI agent loop
@@ -764,6 +768,7 @@ async fn main() -> Result<()> {
         provider,
         model,
         memory,
+        no_totp,
     } = &cli.command
     {
         let interactive = *interactive;
@@ -773,14 +778,21 @@ async fn main() -> Result<()> {
         let provider = provider.clone();
         let model = model.clone();
         let memory = memory.clone();
+        let no_totp = *no_totp;
 
         if interactive && channels_only {
             bail!("Use either --interactive or --channels-only, not both");
         }
         if channels_only
-            && (api_key.is_some() || provider.is_some() || model.is_some() || memory.is_some())
+            && (api_key.is_some()
+                || provider.is_some()
+                || model.is_some()
+                || memory.is_some()
+                || no_totp)
         {
-            bail!("--channels-only does not accept --api-key, --provider, --model, or --memory");
+            bail!(
+                "--channels-only does not accept --api-key, --provider, --model, --memory, or --no-totp"
+            );
         }
         if channels_only && force {
             bail!("--channels-only does not accept --force");
@@ -796,6 +808,7 @@ async fn main() -> Result<()> {
                 model.as_deref(),
                 memory.as_deref(),
                 force,
+                no_totp,
             )
             .await
         }?;
@@ -2081,6 +2094,17 @@ mod tests {
 
         match cli.command {
             Commands::Onboard { force, .. } => assert!(force),
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_no_totp_flag() {
+        let cli = Cli::try_parse_from(["zeroclaw", "onboard", "--no-totp"])
+            .expect("onboard --no-totp should parse");
+
+        match cli.command {
+            Commands::Onboard { no_totp, .. } => assert!(no_totp),
             other => panic!("expected onboard command, got {other:?}"),
         }
     }
