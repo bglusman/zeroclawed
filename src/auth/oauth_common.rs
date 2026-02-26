@@ -99,9 +99,8 @@ pub fn detect_url_truncation(input: &str, expected_state_len: usize) -> Option<S
         return Some("URL appears truncated (ends with & but missing parameters)".to_string());
     }
 
-    // Check state parameter length if present
-    if let Some(state_param) = input.split("state=").nth(1) {
-        let state_value = state_param.split('&').next().unwrap_or("");
+    let params = parse_query_params(input);
+    if let Some(state_value) = params.get("state") {
         if state_value.len() < expected_state_len.saturating_sub(5) {
             return Some(format!(
                 "State parameter is shorter than expected (got {}, expected ~{})",
