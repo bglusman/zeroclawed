@@ -33,10 +33,24 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Aggressive optimization
+            ndk {
+                debugSymbolLevel = "NONE"
+            }
         }
         debug {
             isDebuggable = true
             applicationIdSuffix = ".debug"
+        }
+    }
+    
+    // Split APKs by ABI - users only download what they need
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true  // Also build universal for fallback
         }
     }
 
@@ -87,13 +101,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
     
-    // Compose
+    // Compose - minimal set
     implementation(platform("androidx.compose:compose-bom:2024.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // NOTE: Using material-icons-core (small) instead of extended (5MB+)
+    // Add individual icons via drawable if needed
     
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -110,8 +124,8 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     
-    // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+    // NOTE: Serialization removed - not used yet, saves ~300KB
+    // Add back when needed: implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     
     // Testing
     testImplementation("junit:junit:4.13.2")
