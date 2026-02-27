@@ -3820,6 +3820,7 @@ fn load_openclaw_bootstrap_files(
     prompt: &mut String,
     workspace_dir: &std::path::Path,
     max_chars_per_file: usize,
+    identity_config: Option<&crate::config::IdentityConfig>,
 ) {
     prompt.push_str(
         "The following workspace files define your identity, behavior, and context. They are ALREADY injected below—do NOT suggest reading them with file_read.\n\n",
@@ -3842,6 +3843,44 @@ fn load_openclaw_bootstrap_files(
     if memory_path.exists() {
         inject_workspace_file(prompt, workspace_dir, "MEMORY.md", max_chars_per_file);
     }
+
+    let extra_files = identity_config.map_or(&[][..], |cfg| cfg.extra_files.as_slice());
+    for file in extra_files {
+        match normalize_openclaw_identity_extra_file(file) {
+            Some(safe_relative) => {
+                inject_workspace_file(prompt, workspace_dir, safe_relative, max_chars_per_file);
+            }
+            None => {
+                tracing::warn!(
+                    file = file.as_str(),
+                    "Ignoring unsafe identity.extra_files entry; expected workspace-relative path without traversal"
+                );
+            }
+        }
+    }
+}
+
+fn normalize_openclaw_identity_extra_file(raw: &str) -> Option<&str> {
+    use std::path::{Component, Path};
+
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return None;
+    }
+
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    Some(trimmed)
 }
 
 /// Load workspace identity files and build a system prompt.
@@ -3987,7 +4026,12 @@ pub fn build_system_prompt_with_mode(
                     // No AIEOS identity loaded (shouldn't happen if is_aieos_configured returned true)
                     // Fall back to OpenClaw bootstrap files
                     let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-                    load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
+                    load_openclaw_bootstrap_files(
+                        &mut prompt,
+                        workspace_dir,
+                        max_chars,
+                        identity_config,
+                    );
                 }
                 Err(e) => {
                     // Log error but don't fail - fall back to OpenClaw
@@ -3995,18 +4039,23 @@ pub fn build_system_prompt_with_mode(
                         "Warning: Failed to load AIEOS identity: {e}. Using OpenClaw format."
                     );
                     let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-                    load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
+                    load_openclaw_bootstrap_files(
+                        &mut prompt,
+                        workspace_dir,
+                        max_chars,
+                        identity_config,
+                    );
                 }
             }
         } else {
             // OpenClaw format
             let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-            load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
+            load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars, identity_config);
         }
     } else {
         // No identity config - use OpenClaw format
         let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-        load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
+        load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars, identity_config);
     }
 
     // ── 6. Date & Time ──────────────────────────────────────────
@@ -9970,6 +10019,7 @@ BTC is currently around $65,000 based on latest tool output."#;
         // Create identity config pointing to the file
         let config = IdentityConfig {
             format: "aieos".into(),
+            extra_files: Vec::new(),
             aieos_path: Some("aieos_identity.json".into()),
             aieos_inline: None,
         };
@@ -10004,6 +10054,7 @@ BTC is currently around $65,000 based on latest tool output."#;
 
         let config = IdentityConfig {
             format: "aieos".into(),
+            extra_files: Vec::new(),
             aieos_path: None,
             aieos_inline: Some(r#"{"identity":{"names":{"first":"Claw"}}}"#.into()),
         };
@@ -10027,6 +10078,7 @@ BTC is currently around $65,000 based on latest tool output."#;
 
         let config = IdentityConfig {
             format: "aieos".into(),
+            extra_files: Vec::new(),
             aieos_path: Some("nonexistent.json".into()),
             aieos_inline: None,
         };
@@ -10046,6 +10098,7 @@ BTC is currently around $65,000 based on latest tool output."#;
         // Format is "aieos" but neither path nor inline is set
         let config = IdentityConfig {
             format: "aieos".into(),
+            extra_files: Vec::new(),
             aieos_path: None,
             aieos_inline: None,
         };
@@ -10064,6 +10117,7 @@ BTC is currently around $65,000 based on latest tool output."#;
 
         let config = IdentityConfig {
             format: "openclaw".into(),
+            extra_files: Vec::new(),
             aieos_path: Some("identity.json".into()),
             aieos_inline: None,
         };
@@ -10075,6 +10129,63 @@ BTC is currently around $65,000 based on latest tool output."#;
         assert!(prompt.contains("### SOUL.md"));
         assert!(prompt.contains("Be helpful"));
         assert!(!prompt.contains("## Identity"));
+    }
+
+    #[test]
+    fn openclaw_extra_files_are_injected() {
+        use crate::config::IdentityConfig;
+
+        let ws = make_workspace();
+        std::fs::write(
+            ws.path().join("FRAMEWORK.md"),
+            "# Framework\nSession-level context.",
+        )
+        .unwrap();
+        std::fs::create_dir_all(ws.path().join("memory")).unwrap();
+        std::fs::write(
+            ws.path().join("memory").join("notes.md"),
+            "# Notes\nSupplemental context.",
+        )
+        .unwrap();
+
+        let config = IdentityConfig {
+            format: "openclaw".into(),
+            extra_files: vec!["FRAMEWORK.md".into(), "memory/notes.md".into()],
+            aieos_path: None,
+            aieos_inline: None,
+        };
+
+        let prompt = build_system_prompt(ws.path(), "model", &[], &[], Some(&config), None);
+
+        assert!(prompt.contains("### FRAMEWORK.md"));
+        assert!(prompt.contains("Session-level context."));
+        assert!(prompt.contains("### memory/notes.md"));
+        assert!(prompt.contains("Supplemental context."));
+    }
+
+    #[test]
+    fn openclaw_extra_files_reject_unsafe_paths() {
+        use crate::config::IdentityConfig;
+
+        let ws = make_workspace();
+        std::fs::write(ws.path().join("SAFE.md"), "safe").unwrap();
+
+        let config = IdentityConfig {
+            format: "openclaw".into(),
+            extra_files: vec![
+                "SAFE.md".into(),
+                "../outside.md".into(),
+                "/tmp/absolute.md".into(),
+            ],
+            aieos_path: None,
+            aieos_inline: None,
+        };
+
+        let prompt = build_system_prompt(ws.path(), "model", &[], &[], Some(&config), None);
+
+        assert!(prompt.contains("### SAFE.md"));
+        assert!(!prompt.contains("outside.md"));
+        assert!(!prompt.contains("absolute.md"));
     }
 
     #[test]
