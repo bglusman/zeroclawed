@@ -11,11 +11,10 @@ pub use schema::{
     DockerRuntimeConfig, EmbeddingRouteConfig, EstopConfig, FeishuConfig, GatewayConfig,
     GroupReplyConfig, GroupReplyMode, HardwareConfig, HardwareTransport, HeartbeatConfig,
     HooksConfig, HttpRequestConfig, IMessageConfig, IdentityConfig, LarkConfig, MatrixConfig,
-    McpConfig, McpServerConfig, McpTransport, MemoryConfig, ModelRouteConfig, MultimodalConfig,
-    NextcloudTalkConfig, NonCliNaturalLanguageApprovalMode, ObservabilityConfig,
-    OtpChallengeDelivery, OtpConfig, OtpMethod, PeripheralBoardConfig, PeripheralsConfig,
-    PluginEntryConfig, PluginsConfig, ProviderConfig, ProxyConfig, ProxyScope, QdrantConfig,
-    QueryClassificationConfig,
+    MemoryConfig, ModelRouteConfig, MultimodalConfig, NextcloudTalkConfig,
+    NonCliNaturalLanguageApprovalMode, ObservabilityConfig, OtpChallengeDelivery, OtpConfig,
+    OtpMethod, PeripheralBoardConfig, PeripheralsConfig, PluginEntryConfig, PluginsConfig,
+    ProviderConfig, ProxyConfig, ProxyScope, QdrantConfig, QueryClassificationConfig,
     ReliabilityConfig, ResearchPhaseConfig, ResearchTrigger, ResourceLimitsConfig, RuntimeConfig,
     SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
     SecurityRoleConfig, SkillsConfig, SkillsPromptInjectionMode, SlackConfig, StorageConfig,
@@ -24,6 +23,7 @@ pub use schema::{
     WasmModuleHashPolicy, WasmRuntimeConfig, WasmSecurityConfig, WebFetchConfig, WebSearchConfig,
     WebhookConfig,
 };
+pub use schema::{McpConfig, McpServerConfig, McpTransport};
 
 pub fn name_and_presence<T: traits::ChannelConfig>(channel: Option<&T>) -> (&'static str, bool) {
     (T::name(), channel.is_some())
