@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.repeatOnLifecycle
 import ai.zeroclaw.android.data.ZeroClawSettings
 import ai.zeroclaw.android.util.BatteryUtils
 
@@ -28,7 +29,7 @@ fun SettingsScreen(
 ) {
     var showApiKey by remember { mutableStateOf(false) }
     var localSettings by remember(settings) { mutableStateOf(settings) }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -112,7 +113,7 @@ fun SettingsScreen(
                     )
                     else -> listOf("auto" to "Auto")
                 }
-                
+
                 ExposedDropdownMenuBox(
                     expanded = modelExpanded,
                     onExpandedChange = { modelExpanded = it }
@@ -164,7 +165,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                
+
                 Text(
                     text = "Your API key is stored securely in Android Keystore",
                     style = MaterialTheme.typography.bodySmall,
@@ -181,7 +182,7 @@ fun SettingsScreen(
                     checked = localSettings.autoStart,
                     onCheckedChange = { localSettings = localSettings.copy(autoStart = it) }
                 )
-                
+
                 SettingsSwitch(
                     title = "Notifications",
                     description = "Show agent messages as notifications",
@@ -206,9 +207,16 @@ fun SettingsScreen(
 
             // Battery Optimization Section
             val context = LocalContext.current
-            // Note: This won't update live, but that's fine - user needs to return to screen
-            val isOptimized = BatteryUtils.isIgnoringBatteryOptimizations(context)
-            
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            var isOptimized by remember { mutableStateOf(BatteryUtils.isIgnoringBatteryOptimizations(context)) }
+
+            // Refresh battery optimization state when screen resumes
+            LaunchedEffect(lifecycleOwner) {
+                lifecycleOwner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+                    isOptimized = BatteryUtils.isIgnoringBatteryOptimizations(context)
+                }
+            }
+
             SettingsSection(title = "Battery") {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -224,14 +232,14 @@ fun SettingsScreen(
                         )
                     }
                     if (!isOptimized) {
-                        TextButton(onClick = { 
-                            BatteryUtils.requestBatteryOptimizationExemption(context) 
+                        TextButton(onClick = {
+                            BatteryUtils.requestBatteryOptimizationExemption(context)
                         }) {
                             Text("Fix")
                         }
                     }
                 }
-                
+
                 if (BatteryUtils.hasAggressiveBatteryOptimization()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(

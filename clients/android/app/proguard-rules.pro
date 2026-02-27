@@ -41,12 +41,9 @@
     public static int i(...);
 }
 
-# Remove Kotlin null checks (we handle nulls properly)
--assumenosideeffects class kotlin.jvm.internal.Intrinsics {
-    public static void checkNotNull(...);
-    public static void checkNotNullParameter(...);
-    public static void checkNotNullExpressionValue(...);
-}
+# KEEP Kotlin null checks - stripping them hides bugs and causes crashes
+# (Previously removed; CodeRabbit HIGH severity fix)
+# -assumenosideeffects class kotlin.jvm.internal.Intrinsics { ... }
 
 # Optimize enums
 -optimizations !code/simplification/enum*

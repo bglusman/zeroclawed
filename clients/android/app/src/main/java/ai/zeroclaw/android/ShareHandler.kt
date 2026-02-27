@@ -5,7 +5,7 @@ import android.net.Uri
 
 /**
  * Handles content shared TO ZeroClaw from other apps.
- * 
+ *
  * Supports:
  * - Plain text
  * - URLs
@@ -34,6 +34,7 @@ object ShareHandler {
 
         return when {
             type == "text/plain" -> parseTextIntent(intent)
+            type == "text/uri-list" -> parseUriListIntent(intent)
             type.startsWith("image/") -> parseImageIntent(intent)
             else -> parseFileIntent(intent, type)
         }
@@ -41,14 +42,26 @@ object ShareHandler {
 
     private fun parseTextIntent(intent: Intent): SharedContent {
         val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return SharedContent.None
-        
+
         // Check if it's a URL
         if (text.startsWith("http://") || text.startsWith("https://")) {
             val title = intent.getStringExtra(Intent.EXTRA_SUBJECT)
             return SharedContent.Url(text, title)
         }
-        
+
         return SharedContent.Text(text)
+    }
+
+    private fun parseUriListIntent(intent: Intent): SharedContent {
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return SharedContent.None
+        // text/uri-list contains URLs separated by newlines
+        val firstUrl = text.lines().firstOrNull { it.startsWith("http://") || it.startsWith("https://") }
+        return if (firstUrl != null) {
+            val title = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            SharedContent.Url(firstUrl, title)
+        } else {
+            SharedContent.Text(text)
+        }
     }
 
     private fun parseImageIntent(intent: Intent): SharedContent {
@@ -58,7 +71,7 @@ object ShareHandler {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
-        
+
         return uri?.let { SharedContent.Image(it) } ?: SharedContent.None
     }
 
@@ -69,7 +82,7 @@ object ShareHandler {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
         }
-        
+
         return uri?.let { SharedContent.File(it, mimeType) } ?: SharedContent.None
     }
 

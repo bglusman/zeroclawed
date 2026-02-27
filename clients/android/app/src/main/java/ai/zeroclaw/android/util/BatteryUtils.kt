@@ -9,12 +9,12 @@ import android.provider.Settings
 
 /**
  * Utilities for handling battery optimization.
- * 
+ *
  * ZeroClaw needs to run reliably in the background for:
  * - Heartbeat checks
  * - Cron job execution
  * - Notification monitoring
- * 
+ *
  * This helper manages battery optimization exemption requests.
  */
 object BatteryUtils {
@@ -29,7 +29,7 @@ object BatteryUtils {
 
     /**
      * Request battery optimization exemption.
-     * 
+     *
      * Note: This shows a system dialog - use sparingly and explain to user first.
      * Google Play policy requires justification for this permission.
      */
@@ -42,7 +42,7 @@ object BatteryUtils {
             data = Uri.parse("package:${context.packageName}")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        
+
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
@@ -58,7 +58,7 @@ object BatteryUtils {
         val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        
+
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
@@ -99,7 +99,7 @@ object BatteryUtils {
      */
     fun getManufacturerBatteryIntent(context: Context): Intent? {
         val manufacturer = Build.MANUFACTURER.lowercase()
-        
+
         return when {
             manufacturer.contains("xiaomi") || manufacturer.contains("redmi") -> {
                 Intent().apply {

@@ -12,12 +12,12 @@ import ai.zeroclaw.android.service.ZeroClawService
 
 /**
  * Home screen widget for ZeroClaw.
- * 
+ *
  * Features:
  * - Shows agent status (running/stopped)
  * - Quick action button to toggle or send message
  * - Tap to open app
- * 
+ *
  * Widget sizes:
  * - Small (2x1): Status + toggle button
  * - Medium (4x1): Status + quick message
@@ -45,7 +45,7 @@ class ZeroClawWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        
+
         when (intent.action) {
             ACTION_TOGGLE -> {
                 toggleAgent(context)

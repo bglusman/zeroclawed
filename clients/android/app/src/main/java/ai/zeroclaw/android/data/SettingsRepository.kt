@@ -7,14 +7,16 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 // Extension for DataStore
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "zeroclaw_settings")
 
 /**
  * Repository for persisting ZeroClaw settings.
- * 
+ *
  * Uses DataStore for general settings and EncryptedSharedPreferences
  * for sensitive data like API keys.
  */
@@ -46,8 +48,17 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    // Flow of settings
-    val settings: Flow<ZeroClawSettings> = context.dataStore.data.map { prefs ->
+    // Flow of settings with IOException handling for DataStore corruption
+    val settings: Flow<ZeroClawSettings> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                android.util.Log.e("SettingsRepository", "Error reading DataStore", exception)
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { prefs ->
         ZeroClawSettings(
             provider = prefs[Keys.PROVIDER] ?: "anthropic",
             model = prefs[Keys.MODEL] ?: "claude-sonnet-4-5",
@@ -59,9 +70,18 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    val isFirstRun: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[Keys.FIRST_RUN] ?: true
-    }
+    val isFirstRun: Flow<Boolean> = context.dataStore.data
+        .catch { exception ->
+            if (exception is IOException) {
+                android.util.Log.e("SettingsRepository", "Error reading DataStore", exception)
+                emit(emptyPreferences())
+            } else {
+                throw exception
+            }
+        }
+        .map { prefs ->
+            prefs[Keys.FIRST_RUN] ?: true
+        }
 
     suspend fun updateSettings(settings: ZeroClawSettings) {
         // Save API key to encrypted storage

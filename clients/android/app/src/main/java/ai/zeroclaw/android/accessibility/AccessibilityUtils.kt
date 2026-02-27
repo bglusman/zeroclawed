@@ -10,7 +10,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 
 /**
  * Accessibility utilities for ZeroClaw Android.
- * 
+ *
  * Ensures the app is usable with:
  * - TalkBack (screen reader)
  * - Switch Access

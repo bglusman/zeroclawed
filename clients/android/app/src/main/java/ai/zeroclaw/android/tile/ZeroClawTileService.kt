@@ -1,5 +1,6 @@
 package ai.zeroclaw.android.tile
 
+import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -9,7 +10,7 @@ import ai.zeroclaw.android.service.ZeroClawService
 
 /**
  * Quick Settings tile for ZeroClaw.
- * 
+ *
  * Allows users to:
  * - See agent status at a glance
  * - Toggle agent on/off from notification shade
@@ -24,9 +25,9 @@ class ZeroClawTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        
+
         val tile = qsTile ?: return
-        
+
         when (tile.state) {
             Tile.STATE_ACTIVE -> {
                 // Stop the agent
@@ -45,7 +46,7 @@ class ZeroClawTileService : TileService() {
                 openApp()
             }
         }
-        
+
         tile.updateTile()
     }
 
@@ -56,19 +57,19 @@ class ZeroClawTileService : TileService() {
 
     private fun updateTile() {
         val tile = qsTile ?: return
-        
+
         // TODO: Check actual agent status from bridge
         // val isRunning = ZeroClawBridge.isRunning()
         val isRunning = isServiceRunning()
-        
+
         tile.state = if (isRunning) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "ZeroClaw"
         tile.subtitle = if (isRunning) "Running" else "Stopped"
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.subtitle = if (isRunning) "Running" else "Tap to start"
         }
-        
+
         tile.updateTile()
     }
 
@@ -76,7 +77,7 @@ class ZeroClawTileService : TileService() {
         val intent = Intent(this, ZeroClawService::class.java).apply {
             action = ZeroClawService.ACTION_START
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -95,9 +96,16 @@ class ZeroClawTileService : TileService() {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startActivityAndCollapse(intent)
+            // API 34+ requires PendingIntent overload
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            startActivityAndCollapse(pendingIntent)
         } else {
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
