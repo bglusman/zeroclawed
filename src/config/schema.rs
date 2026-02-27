@@ -1467,6 +1467,9 @@ pub struct BrowserConfig {
     /// Allowed domains for `browser_open` (exact or subdomain match)
     #[serde(default)]
     pub allowed_domains: Vec<String>,
+    /// Browser for browser_open tool: "disable" | "brave" | "chrome" | "firefox" | "edge" | "default"
+    #[serde(default = "default_browser_open")]
+    pub browser_open: String,
     /// Browser session name (for agent-browser automation)
     #[serde(default)]
     pub session_name: Option<String>,
@@ -1491,6 +1494,10 @@ fn default_browser_backend() -> String {
     "agent_browser".into()
 }
 
+fn default_browser_open() -> String {
+    "default".into()
+}
+
 fn default_browser_webdriver_url() -> String {
     "http://127.0.0.1:9515".into()
 }
@@ -1500,6 +1507,7 @@ impl Default for BrowserConfig {
         Self {
             enabled: false,
             allowed_domains: Vec::new(),
+            browser_open: default_browser_open(),
             session_name: None,
             backend: default_browser_backend(),
             native_headless: default_true(),
@@ -9280,6 +9288,7 @@ default_temperature = 0.7
         let b = BrowserConfig {
             enabled: true,
             allowed_domains: vec!["example.com".into(), "docs.example.com".into()],
+            browser_open: "chrome".into(),
             session_name: None,
             backend: "auto".into(),
             native_headless: false,

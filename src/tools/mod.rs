@@ -322,11 +322,15 @@ pub fn all_tools_with_runtime(
 
     if browser_config.enabled {
         // Add legacy browser_open tool for simple URL opening
-        tool_arcs.push(Arc::new(BrowserOpenTool::new(
-            security.clone(),
-            browser_config.allowed_domains.clone(),
-            root_config.security.url_access.clone(),
-        )));
+        let browser_choice = browser_open::BrowserChoice::from_str(&browser_config.browser_open);
+        if browser_choice != browser_open::BrowserChoice::Disable {
+            tool_arcs.push(Arc::new(BrowserOpenTool::new(
+                security.clone(),
+                browser_config.allowed_domains.clone(),
+                root_config.security.url_access.clone(),
+                browser_choice,
+            )));
+        }
         // Add full browser automation tool (pluggable backend)
         tool_arcs.push(Arc::new(BrowserTool::new_with_backend(
             security.clone(),
