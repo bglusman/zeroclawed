@@ -824,6 +824,27 @@ impl TelegramChannel {
             .unwrap_or(false)
     }
 
+    fn should_surface_unauthorized_prompt(
+        &self,
+        message: &serde_json::Value,
+        text: &str,
+        bind_code: Option<&str>,
+    ) -> bool {
+        if !self.mention_only || !Self::is_group_message(message) {
+            return true;
+        }
+
+        // Pairing commands should still be processed even without @mentions.
+        if bind_code.is_some() {
+            return true;
+        }
+
+        let bot_username = self.bot_username.lock();
+        bot_username
+            .as_ref()
+            .is_some_and(|name| Self::contains_bot_mention(text, name))
+    }
+
     fn is_user_allowed(&self, username: &str) -> bool {
         let identity = Self::normalize_identity(username);
         self.allowed_users
@@ -882,7 +903,12 @@ impl TelegramChannel {
             return;
         }
 
-        if let Some(code) = Self::extract_bind_code(text) {
+        let bind_code = Self::extract_bind_code(text);
+        if !self.should_surface_unauthorized_prompt(message, text, bind_code) {
+            return;
+        }
+
+        if let Some(code) = bind_code {
             if let Some(pairing) = self.pairing.as_ref() {
                 match pairing.try_pair(code, &chat_id).await {
                     Ok(Some(_token)) => {
@@ -4269,6 +4295,52 @@ mod tests {
             .parse_update_message(&update)
             .expect("sender override should bypass mention requirement");
         assert_eq!(parsed.content, "run daily sync");
+    }
+
+    #[test]
+    fn unauthorized_prompt_is_suppressed_for_unmentioned_group_message_when_mention_only() {
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        {
+            let mut cache = ch.bot_username.lock();
+            *cache = Some("mybot".to_string());
+        }
+
+        let message = serde_json::json!({
+            "chat": { "type": "group" }
+        });
+        assert!(!ch.should_surface_unauthorized_prompt(&message, "hello everyone", None));
+    }
+
+    #[test]
+    fn unauthorized_prompt_is_allowed_for_mentioned_group_message_when_mention_only() {
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        {
+            let mut cache = ch.bot_username.lock();
+            *cache = Some("mybot".to_string());
+        }
+
+        let message = serde_json::json!({
+            "chat": { "type": "supergroup" }
+        });
+        assert!(ch.should_surface_unauthorized_prompt(&message, "hi @mybot", None));
+    }
+
+    #[test]
+    fn unauthorized_prompt_allows_bind_command_without_mention_in_group() {
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        {
+            let mut cache = ch.bot_username.lock();
+            *cache = Some("mybot".to_string());
+        }
+
+        let message = serde_json::json!({
+            "chat": { "type": "group" }
+        });
+        assert!(ch.should_surface_unauthorized_prompt(
+            &message,
+            "/bind 123456",
+            Some("123456")
+        ));
     }
 
     #[test]

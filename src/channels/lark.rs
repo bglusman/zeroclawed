@@ -296,6 +296,7 @@ pub struct LarkChannel {
     /// Bot open_id resolved at runtime via `/bot/v3/info`.
     resolved_bot_open_id: Arc<StdRwLock<Option<String>>>,
     mention_only: bool,
+    platform: LarkPlatform,
     /// When true, use Feishu (CN) endpoints; when false, use Lark (international).
     use_feishu: bool,
     /// How to receive events: WebSocket long-connection or HTTP webhook.
@@ -321,6 +322,7 @@ impl LarkChannel {
             verification_token,
             port,
             allowed_users,
+            mention_only,
             LarkPlatform::Lark,
         )
     }
@@ -331,6 +333,7 @@ impl LarkChannel {
         verification_token: String,
         port: Option<u16>,
         allowed_users: Vec<String>,
+        mention_only: bool,
         platform: LarkPlatform,
     ) -> Self {
         Self {
@@ -341,7 +344,8 @@ impl LarkChannel {
             allowed_users,
             resolved_bot_open_id: Arc::new(StdRwLock::new(None)),
             mention_only,
-            use_feishu: true,
+            platform,
+            use_feishu: matches!(platform, LarkPlatform::Feishu),
             receive_mode: crate::config::schema::LarkReceiveMode::default(),
             tenant_token: Arc::new(RwLock::new(None)),
             ws_seen_ids: Arc::new(RwLock::new(HashMap::new())),
@@ -362,7 +366,36 @@ impl LarkChannel {
             config.verification_token.clone().unwrap_or_default(),
             config.port,
             config.allowed_users.clone(),
-            config.mention_only,
+            config.effective_group_reply_mode().requires_mention(),
+            platform,
+        );
+        ch.receive_mode = config.receive_mode.clone();
+        ch
+    }
+
+    pub fn from_lark_config(config: &crate::config::schema::LarkConfig) -> Self {
+        let mut ch = Self::new_with_platform(
+            config.app_id.clone(),
+            config.app_secret.clone(),
+            config.verification_token.clone().unwrap_or_default(),
+            config.port,
+            config.allowed_users.clone(),
+            config.effective_group_reply_mode().requires_mention(),
+            LarkPlatform::Lark,
+        );
+        ch.receive_mode = config.receive_mode.clone();
+        ch
+    }
+
+    pub fn from_feishu_config(config: &crate::config::schema::FeishuConfig) -> Self {
+        let mut ch = Self::new_with_platform(
+            config.app_id.clone(),
+            config.app_secret.clone(),
+            config.verification_token.clone().unwrap_or_default(),
+            config.port,
+            config.allowed_users.clone(),
+            config.effective_group_reply_mode().requires_mention(),
+            LarkPlatform::Feishu,
         );
         ch.receive_mode = config.receive_mode.clone();
         ch
@@ -1999,9 +2032,12 @@ mod tests {
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["ou_user1".into(), "ou_user2".into()],
             mention_only: false,
+            group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::default(),
             port: None,
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
         let json = serde_json::to_string(&lc).unwrap();
         let parsed: LarkConfig = serde_json::from_str(&json).unwrap();
@@ -2021,9 +2057,12 @@ mod tests {
             verification_token: Some("tok".into()),
             allowed_users: vec!["*".into()],
             mention_only: false,
+            group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
         let toml_str = toml::to_string(&lc).unwrap();
         let parsed: LarkConfig = toml::from_str(&toml_str).unwrap();
@@ -2055,9 +2094,12 @@ mod tests {
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
             mention_only: false,
+            group_reply: None,
             use_feishu: false,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
 
         let ch = LarkChannel::from_config(&cfg);
@@ -2078,9 +2120,13 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
+            mention_only: false,
+            group_reply: None,
             use_feishu: true,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
 
         let ch = LarkChannel::from_lark_config(&cfg);
@@ -2100,8 +2146,11 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
+            group_reply: None,
             receive_mode: LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
 
         let ch = LarkChannel::from_feishu_config(&cfg);
@@ -2272,8 +2321,11 @@ mod tests {
             encrypt_key: None,
             verification_token: Some("vtoken789".into()),
             allowed_users: vec!["*".into()],
+            group_reply: None,
             receive_mode: crate::config::schema::LarkReceiveMode::Webhook,
             port: Some(9898),
+            draft_update_interval_ms: crate::config::schema::default_lark_draft_update_interval_ms(),
+            max_draft_edits: crate::config::schema::default_lark_max_draft_edits(),
         };
         let ch_feishu = LarkChannel::from_feishu_config(&feishu_cfg);
         assert_eq!(
