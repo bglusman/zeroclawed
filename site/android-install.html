@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install ZeroClaw for Android</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card: #161b22;
+            --border: #30363d;
+            --text: #e6edf3;
+            --muted: #8b949e;
+            --accent: #E85C0D;
+            --green: #3fb950;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 40px 0;
+        }
+        
+        .logo { font-size: 64px; margin-bottom: 16px; }
+        h1 { font-size: 28px; margin-bottom: 8px; }
+        .tagline { color: var(--muted); font-size: 16px; }
+        
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+        
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .card p {
+            color: var(--muted);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+        
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 16px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        
+        .btn-secondary {
+            background: var(--border);
+            color: var(--text);
+        }
+        
+        .code {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-family: monospace;
+            font-size: 14px;
+            overflow-x: auto;
+            margin-bottom: 12px;
+            position: relative;
+        }
+        
+        .code-copy {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--border);
+            border: none;
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-easy { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+        .badge-power { background: rgba(232, 92, 13, 0.2); color: var(--accent); }
+        
+        .qr-section {
+            text-align: center;
+            padding: 20px;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        
+        .qr-placeholder {
+            width: 150px;
+            height: 150px;
+            background: white;
+            margin: 0 auto 12px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--bg);
+        }
+        
+        .steps {
+            counter-reset: step;
+            list-style: none;
+            padding: 0;
+        }
+        
+        .steps li {
+            position: relative;
+            padding-left: 40px;
+            margin-bottom: 16px;
+            color: var(--muted);
+        }
+        
+        .steps li::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            width: 28px;
+            height: 28px;
+            background: var(--border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        
+        .hidden { display: none !important; }
+        
+        @media (min-width: 768px) {
+            .container { padding: 40px; }
+            .hero { padding: 60px 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hero">
+            <div class="logo">🦀</div>
+            <h1>Install ZeroClaw</h1>
+            <p class="tagline">Your AI assistant, now on Android</p>
+        </div>
+
+        <!-- Auto-detect and show relevant option -->
+        <div id="android-section">
+            <div class="card">
+                <h2><span class="badge badge-easy">EASIEST</span> Direct Download</h2>
+                <p>Download and install the APK directly. No technical setup needed.</p>
+                <a href="https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/zeroclaw-android.apk" 
+                   class="btn btn-primary">
+                    📥 Download ZeroClaw APK
+                </a>
+                <ol class="steps" style="margin-top: 16px;">
+                    <li>Tap the download button above</li>
+                    <li>Open the downloaded APK file</li>
+                    <li>Allow installation from this source if prompted</li>
+                    <li>Open ZeroClaw and enter your API key</li>
+                </ol>
+            </div>
+        </div>
+
+        <div id="desktop-section" class="hidden">
+            <div class="card">
+                <h2>📱 Scan to Install</h2>
+                <p>Scan this QR code with your Android phone to download.</p>
+                <div class="qr-section">
+                    <div class="qr-placeholder">[QR Code]</div>
+                    <p style="color: var(--muted); font-size: 12px;">Points to APK download</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="badge badge-power">POWER USER</span> ADB Install</h2>
+                <p>Install via USB from your computer.</p>
+                <div class="code">
+                    curl -fsSL https://zeroclaw.dev/adb | bash
+                    <button class="code-copy" onclick="copyCode(this)">Copy</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2><span class="badge badge-power">TERMUX</span> CLI Install</h2>
+            <p>For Termux users who want the full CLI experience.</p>
+            <div class="code">
+                curl -fsSL https://zeroclaw.dev/termux | bash
+                <button class="code-copy" onclick="copyCode(this)">Copy</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📦 F-Droid</h2>
+            <p>Coming soon to F-Droid for easy updates.</p>
+            <button class="btn btn-secondary" disabled>Coming Soon</button>
+        </div>
+    </div>
+
+    <script>
+        // Detect platform and show relevant sections
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        
+        if (isAndroid) {
+            document.getElementById('desktop-section').classList.add('hidden');
+            document.getElementById('android-section').classList.remove('hidden');
+        } else {
+            document.getElementById('desktop-section').classList.remove('hidden');
+        }
+
+        function copyCode(btn) {
+            const code = btn.parentElement.textContent.replace('Copy', '').trim();
+            navigator.clipboard.writeText(code);
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = 'Copy', 2000);
+        }
+    </script>
+</body>
+</html>

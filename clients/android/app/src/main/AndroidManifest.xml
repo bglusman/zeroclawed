@@ -95,6 +95,23 @@
             </intent-filter>
         </receiver>
 
+        <!-- Home Screen Widget -->
+        <receiver
+            android:name=".widget.ZeroClawWidget"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="ai.zeroclaw.widget.TOGGLE" />
+                <action android:name="ai.zeroclaw.widget.QUICK_MESSAGE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
         <!-- WorkManager Initialization (disable default, we initialize manually) -->
         <provider
             android:name="androidx.startup.InitializationProvider"
