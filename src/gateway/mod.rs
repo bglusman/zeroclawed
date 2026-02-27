@@ -718,7 +718,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/health", get(handle_health))
         .route("/metrics", get(handle_metrics))
         .route("/pair", post(handle_pair))
-        .route("/webhook", post(handle_webhook))
+        .route("/webhook", get(handle_webhook_usage).post(handle_webhook))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .route("/linq", post(handle_linq_webhook))
@@ -1162,6 +1162,21 @@ async fn handle_node_control(
 }
 
 /// POST /webhook — main webhook endpoint
+async fn handle_webhook_usage() -> impl IntoResponse {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        Json(serde_json::json!({
+            "error": "Use POST /webhook with a JSON body: {\"message\":\"...\"}",
+            "method": "POST",
+            "path": "/webhook",
+            "example": {
+                "message": "Hello from webhook"
+            }
+        })),
+    )
+}
+
+/// POST /webhook — main webhook endpoint
 async fn handle_webhook(
     State(state): State<AppState>,
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
@@ -1257,7 +1272,13 @@ async fn handle_webhook(
         }
     }
 
-    let message = &webhook_body.message;
+    let message = webhook_body.message.trim();
+    if message.is_empty() {
+        let err = serde_json::json!({
+            "error": "The `message` field is required and must be a non-empty string."
+        });
+        return (StatusCode::BAD_REQUEST, Json(err));
+    }
 
     if state.auto_save {
         let key = webhook_memory_key();
@@ -1977,6 +1998,18 @@ mod tests {
         let missing = r#"{"other": "field"}"#;
         let parsed: Result<WebhookBody, _> = serde_json::from_str(missing);
         assert!(parsed.is_err());
+    }
+
+    #[tokio::test]
+    async fn webhook_get_usage_returns_explicit_method_hint() {
+        let response = handle_webhook_usage().await.into_response();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        let payload = response.into_body().collect().await.unwrap().to_bytes();
+        let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(parsed["method"], "POST");
+        assert_eq!(parsed["path"], "/webhook");
+        assert_eq!(parsed["example"]["message"], "Hello from webhook");
     }
 
     #[test]
@@ -2728,6 +2761,57 @@ Reminder set successfully."#;
         .into_response();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn webhook_rejects_empty_message() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "   ".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
