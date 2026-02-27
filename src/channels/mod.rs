@@ -15,6 +15,7 @@
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
 pub mod clawdtalk;
+pub mod acp;
 pub mod cli;
 pub mod dingtalk;
 pub mod discord;
@@ -44,6 +45,7 @@ pub mod whatsapp_storage;
 #[cfg(feature = "whatsapp-web")]
 pub mod whatsapp_web;
 
+pub use acp::AcpChannel;
 pub use clawdtalk::ClawdTalkChannel;
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
@@ -4889,6 +4891,12 @@ fn collect_configured_channels(
         });
     }
 
+    if let Some(ref acp) = config.channels_config.acp {
+        channels.push(ConfiguredChannel {
+            display_name: "ACP",
+            channel: Arc::new(AcpChannel::new(acp.clone())),
+        });
+    }
     channels
 }
 
