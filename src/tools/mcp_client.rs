@@ -11,7 +11,7 @@ use serde_json::json;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
 
-use crate::config::McpServerConfig;
+use crate::config::schema::McpServerConfig;
 use crate::tools::mcp_protocol::{
     JsonRpcRequest, McpToolDef, McpToolsListResult, MCP_PROTOCOL_VERSION,
 };
@@ -286,7 +286,7 @@ impl McpRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::McpTransport;
+    use crate::config::schema::McpTransport;
 
     #[test]
     fn tool_name_prefix_format() {

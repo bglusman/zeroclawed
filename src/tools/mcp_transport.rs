@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::time::{timeout, Duration};
 
-use crate::config::{McpServerConfig, McpTransport};
+use crate::config::schema::{McpServerConfig, McpTransport};
 use crate::tools::mcp_protocol::{JsonRpcRequest, JsonRpcResponse};
 
 /// Maximum bytes for a single JSON-RPC response.

@@ -180,7 +180,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         agents_ipc: crate::config::AgentsIpcConfig::default(),
-        mcp: crate::config::McpConfig::default(),
+        mcp: crate::config::schema::McpConfig::default(),
         model_support_vision: None,
     };
 
@@ -539,7 +539,7 @@ async fn run_quick_setup_with_home(
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         agents_ipc: crate::config::AgentsIpcConfig::default(),
-        mcp: crate::config::McpConfig::default(),
+        mcp: crate::config::schema::McpConfig::default(),
         model_support_vision: None,
     };
 
