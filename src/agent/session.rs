@@ -1,0 +1,440 @@
+use crate::providers::ChatMessage;
+use crate::{config::AgentSessionBackend, config::AgentSessionConfig, config::AgentSessionStrategy};
+use anyhow::Result;
+use async_trait::async_trait;
+use parking_lot::Mutex;
+use rusqlite::{params, Connection};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::RwLock;
+use tokio::time;
+
+pub fn resolve_session_id(
+    session_config: &AgentSessionConfig,
+    sender_id: &str,
+    channel_name: Option<&str>,
+) -> String {
+    match session_config.strategy {
+        AgentSessionStrategy::Main => "main".to_string(),
+        AgentSessionStrategy::PerChannel => channel_name.unwrap_or("main").to_string(),
+        AgentSessionStrategy::PerSender => match channel_name {
+            Some(channel) => format!("{channel}:{sender_id}"),
+            None => sender_id.to_string(),
+        },
+    }
+}
+
+pub fn create_session_manager(
+    session_config: &AgentSessionConfig,
+    workspace_dir: &Path,
+) -> Result<Option<Arc<dyn SessionManager>>> {
+    let ttl = Duration::from_secs(session_config.ttl_seconds);
+    let max_messages = session_config.max_messages;
+    match session_config.backend {
+        AgentSessionBackend::None => Ok(None),
+        AgentSessionBackend::Memory => Ok(Some(MemorySessionManager::new(ttl, max_messages))),
+        AgentSessionBackend::Sqlite => {
+            let path = SqliteSessionManager::default_db_path(workspace_dir);
+            Ok(Some(SqliteSessionManager::new(path, ttl, max_messages)?))
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Session {
+    id: String,
+    manager: Arc<dyn SessionManager>,
+}
+
+impl Session {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub async fn get_history(&self) -> Result<Vec<ChatMessage>> {
+        self.manager.get_history(&self.id).await
+    }
+
+    pub async fn update_history(&self, history: Vec<ChatMessage>) -> Result<()> {
+        self.manager.set_history(&self.id, history).await
+    }
+}
+
+#[async_trait]
+pub trait SessionManager: Send + Sync {
+    fn clone_arc(&self) -> Arc<dyn SessionManager>;
+    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>>;
+    async fn set_history(&self, session_id: &str, history: Vec<ChatMessage>) -> Result<()>;
+    async fn delete(&self, session_id: &str) -> Result<()>;
+    async fn cleanup_expired(&self) -> Result<usize>;
+
+    async fn get_or_create(&self, session_id: &str) -> Result<Session> {
+        let _ = self.get_history(session_id).await?;
+        Ok(Session {
+            id: session_id.to_string(),
+            manager: self.clone_arc(),
+        })
+    }
+}
+
+fn unix_seconds_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0))
+        .as_secs() as i64
+}
+
+fn trim_non_system(history: &mut Vec<ChatMessage>, max_messages: usize) {
+    history.retain(|m| m.role != "system");
+    if max_messages == 0 || history.len() <= max_messages {
+        return;
+    }
+    let drop_count = history.len() - max_messages;
+    history.drain(0..drop_count);
+}
+
+#[derive(Debug, Clone)]
+struct MemorySessionState {
+    history: Vec<ChatMessage>,
+    updated_at_unix: i64,
+}
+
+struct MemorySessionManagerInner {
+    sessions: RwLock<HashMap<String, MemorySessionState>>,
+    ttl: Duration,
+    max_messages: usize,
+}
+
+#[derive(Clone)]
+pub struct MemorySessionManager {
+    inner: Arc<MemorySessionManagerInner>,
+}
+
+impl MemorySessionManager {
+    pub fn new(ttl: Duration, max_messages: usize) -> Arc<Self> {
+        let mgr = Arc::new(Self {
+            inner: Arc::new(MemorySessionManagerInner {
+                sessions: RwLock::new(HashMap::new()),
+                ttl,
+                max_messages,
+            }),
+        });
+        mgr.spawn_cleanup_task();
+        mgr
+    }
+
+    fn spawn_cleanup_task(self: &Arc<Self>) {
+        let mgr = Arc::clone(self);
+        let interval = cleanup_interval(mgr.inner.ttl);
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let _ = mgr.cleanup_expired().await;
+            }
+        });
+    }
+}
+
+#[async_trait]
+impl SessionManager for MemorySessionManager {
+    fn clone_arc(&self) -> Arc<dyn SessionManager> {
+        Arc::new(self.clone())
+    }
+
+    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
+        let mut sessions = self.inner.sessions.write().await;
+        let now = unix_seconds_now();
+        let entry = sessions.entry(session_id.to_string()).or_insert_with(|| MemorySessionState {
+            history: Vec::new(),
+            updated_at_unix: now,
+        });
+        entry.updated_at_unix = now;
+        Ok(entry.history.clone())
+    }
+
+    async fn set_history(&self, session_id: &str, mut history: Vec<ChatMessage>) -> Result<()> {
+        trim_non_system(&mut history, self.inner.max_messages);
+        let mut sessions = self.inner.sessions.write().await;
+        sessions.insert(
+            session_id.to_string(),
+            MemorySessionState {
+                history,
+                updated_at_unix: unix_seconds_now(),
+            },
+        );
+        Ok(())
+    }
+
+    async fn delete(&self, session_id: &str) -> Result<()> {
+        let mut sessions = self.inner.sessions.write().await;
+        sessions.remove(session_id);
+        Ok(())
+    }
+
+    async fn cleanup_expired(&self) -> Result<usize> {
+        if self.inner.ttl.is_zero() {
+            return Ok(0);
+        }
+        let cutoff = unix_seconds_now() - self.inner.ttl.as_secs() as i64;
+        let mut sessions = self.inner.sessions.write().await;
+        let before = sessions.len();
+        sessions.retain(|_, s| s.updated_at_unix >= cutoff);
+        Ok(before.saturating_sub(sessions.len()))
+    }
+}
+
+#[derive(Clone)]
+pub struct SqliteSessionManager {
+    conn: Arc<Mutex<Connection>>,
+    ttl: Duration,
+    max_messages: usize,
+}
+
+impl SqliteSessionManager {
+    pub fn new(db_path: PathBuf, ttl: Duration, max_messages: usize) -> Result<Arc<Self>> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous  = NORMAL;",
+        )?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS agent_sessions (
+                session_id   TEXT PRIMARY KEY,
+                history_json TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated_at
+             ON agent_sessions(updated_at);",
+        )?;
+
+        let mgr = Arc::new(Self {
+            conn: Arc::new(Mutex::new(conn)),
+            ttl,
+            max_messages,
+        });
+        mgr.spawn_cleanup_task();
+        Ok(mgr)
+    }
+
+    pub fn default_db_path(workspace_dir: &Path) -> PathBuf {
+        workspace_dir.join("memory").join("sessions.db")
+    }
+
+    fn spawn_cleanup_task(self: &Arc<Self>) {
+        let mgr = Arc::clone(self);
+        let interval = cleanup_interval(mgr.ttl);
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            loop {
+                ticker.tick().await;
+                let _ = mgr.cleanup_expired().await;
+            }
+        });
+    }
+}
+
+#[async_trait]
+impl SessionManager for SqliteSessionManager {
+    fn clone_arc(&self) -> Arc<dyn SessionManager> {
+        Arc::new(self.clone())
+    }
+
+    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
+        let now = unix_seconds_now();
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT history_json FROM agent_sessions WHERE session_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        if let Some(row) = rows.next()? {
+            let json: String = row.get(0)?;
+            conn.execute(
+                "UPDATE agent_sessions SET updated_at = ?2 WHERE session_id = ?1",
+                params![session_id, now],
+            )?;
+            let mut history: Vec<ChatMessage> = serde_json::from_str(&json).unwrap_or_default();
+            trim_non_system(&mut history, self.max_messages);
+            return Ok(history);
+        }
+
+        conn.execute(
+            "INSERT INTO agent_sessions(session_id, history_json, updated_at) VALUES(?1, '[]', ?2)",
+            params![session_id, now],
+        )?;
+        Ok(Vec::new())
+    }
+
+    async fn set_history(&self, session_id: &str, mut history: Vec<ChatMessage>) -> Result<()> {
+        trim_non_system(&mut history, self.max_messages);
+        let json = serde_json::to_string(&history)?;
+        let now = unix_seconds_now();
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO agent_sessions(session_id, history_json, updated_at)
+             VALUES(?1, ?2, ?3)
+             ON CONFLICT(session_id) DO UPDATE SET history_json=excluded.history_json, updated_at=excluded.updated_at",
+            params![session_id, json, now],
+        )?;
+        Ok(())
+    }
+
+    async fn delete(&self, session_id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "DELETE FROM agent_sessions WHERE session_id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    async fn cleanup_expired(&self) -> Result<usize> {
+        if self.ttl.is_zero() {
+            return Ok(0);
+        }
+        let cutoff = unix_seconds_now() - self.ttl.as_secs() as i64;
+        let conn = self.conn.lock();
+        let removed = conn.execute(
+            "DELETE FROM agent_sessions WHERE updated_at < ?1",
+            params![cutoff],
+        )?;
+        Ok(removed)
+    }
+}
+
+fn cleanup_interval(ttl: Duration) -> Duration {
+    if ttl.is_zero() {
+        return Duration::from_secs(60);
+    }
+    let half = ttl / 2;
+    if half < Duration::from_secs(30) {
+        Duration::from_secs(30)
+    } else if half > Duration::from_secs(300) {
+        Duration::from_secs(300)
+    } else {
+        half
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_session_id_respects_strategy() {
+        let mut cfg = AgentSessionConfig::default();
+        cfg.strategy = AgentSessionStrategy::Main;
+        assert_eq!(resolve_session_id(&cfg, "u1", Some("whatsapp")), "main");
+
+        cfg.strategy = AgentSessionStrategy::PerChannel;
+        assert_eq!(resolve_session_id(&cfg, "u1", Some("whatsapp")), "whatsapp");
+        assert_eq!(resolve_session_id(&cfg, "u1", None), "main");
+
+        cfg.strategy = AgentSessionStrategy::PerSender;
+        assert_eq!(
+            resolve_session_id(&cfg, "u1", Some("whatsapp")),
+            "whatsapp:u1"
+        );
+        assert_eq!(resolve_session_id(&cfg, "u1", None), "u1");
+    }
+
+    #[tokio::test]
+    async fn memory_session_accumulates_history() -> Result<()> {
+        let mgr = MemorySessionManager::new(Duration::from_secs(3600), 50);
+        let session = mgr.get_or_create("s1").await?;
+
+        assert!(session.get_history().await?.is_empty());
+
+        session
+            .update_history(vec![ChatMessage::user("hi"), ChatMessage::assistant("ok")])
+            .await?;
+        assert_eq!(session.get_history().await?.len(), 2);
+
+        let mut h = session.get_history().await?;
+        h.push(ChatMessage::user("again"));
+        h.push(ChatMessage::assistant("ok2"));
+        session.update_history(h).await?;
+        assert_eq!(session.get_history().await?.len(), 4);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn memory_sessions_do_not_mix_histories() -> Result<()> {
+        let mgr = MemorySessionManager::new(Duration::from_secs(3600), 50);
+        let a = mgr.get_or_create("a").await?;
+        let b = mgr.get_or_create("b").await?;
+
+        a.update_history(vec![ChatMessage::user("u1"), ChatMessage::assistant("a1")])
+            .await?;
+        b.update_history(vec![ChatMessage::user("u2"), ChatMessage::assistant("b1")])
+            .await?;
+
+        let ha = a.get_history().await?;
+        let hb = b.get_history().await?;
+        assert_eq!(ha[0].content, "u1");
+        assert_eq!(hb[0].content, "u2");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn max_messages_trims_oldest_non_system() -> Result<()> {
+        let mgr = MemorySessionManager::new(Duration::from_secs(3600), 2);
+        let session = mgr.get_or_create("s1").await?;
+        session
+            .update_history(vec![
+                ChatMessage::system("s"),
+                ChatMessage::user("1"),
+                ChatMessage::assistant("2"),
+                ChatMessage::user("3"),
+                ChatMessage::assistant("4"),
+            ])
+            .await?;
+        let h = session.get_history().await?;
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0].content, "3");
+        assert_eq!(h[1].content, "4");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_persists_across_instances() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db_path = dir.path().join("sessions.db");
+
+        {
+            let mgr = SqliteSessionManager::new(db_path.clone(), Duration::from_secs(3600), 50)?;
+            let session = mgr.get_or_create("s1").await?;
+            session
+                .update_history(vec![ChatMessage::user("hi"), ChatMessage::assistant("ok")])
+                .await?;
+        }
+
+        let mgr2 = SqliteSessionManager::new(db_path, Duration::from_secs(3600), 50)?;
+        let session2 = mgr2.get_or_create("s1").await?;
+        let history = session2.get_history().await?;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[1].role, "assistant");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sqlite_session_cleanup_expires() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db_path = dir.path().join("sessions.db");
+        let mgr = SqliteSessionManager::new(db_path, Duration::from_secs(1), 50)?;
+        let session = mgr.get_or_create("s1").await?;
+        session
+            .update_history(vec![ChatMessage::user("hi"), ChatMessage::assistant("ok")])
+            .await?;
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        let removed = mgr.cleanup_expired().await?;
+        assert!(removed >= 1);
+        Ok(())
+    }
+}

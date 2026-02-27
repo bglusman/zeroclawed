@@ -977,9 +977,11 @@ async fn run_gateway_chat_simple(state: &AppState, message: &str) -> anyhow::Res
 pub(super) async fn run_gateway_chat_with_tools(
     state: &AppState,
     message: &str,
+    sender_id: &str,
+    channel_name: &str,
 ) -> anyhow::Result<String> {
     let config = state.config.lock().clone();
-    crate::agent::process_message(config, message).await
+    crate::agent::process_message(config, message, sender_id, channel_name).await
 }
 
 fn sanitize_gateway_response(response: &str, tools: &[Box<dyn Tool>]) -> String {
@@ -1808,7 +1810,7 @@ async fn handle_whatsapp_message(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, &msg.sender, "whatsapp").await {
             Ok(response) => {
                 let safe_response =
                     sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
@@ -1927,7 +1929,7 @@ async fn handle_linq_webhook(
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, &msg.sender, "linq").await {
             Ok(response) => {
                 let safe_response =
                     sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
@@ -2021,7 +2023,7 @@ async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, &msg.sender, "wati").await {
             Ok(response) => {
                 let safe_response =
                     sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
@@ -2127,7 +2129,9 @@ async fn handle_nextcloud_talk_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, &msg.sender, "nextcloud_talk")
+            .await
+        {
             Ok(response) => {
                 let safe_response =
                     sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
@@ -2218,7 +2222,7 @@ async fn handle_qq_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, &msg.sender, "qq").await {
             Ok(response) => {
                 let safe_response =
                     sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());

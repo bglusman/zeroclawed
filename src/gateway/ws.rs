@@ -11,7 +11,7 @@
 
 use super::AppState;
 use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs, run_tool_call_loop,
+    build_shell_policy_instructions, build_tool_instructions_from_specs,
 };
 use crate::approval::ApprovalManager;
 use crate::providers::ChatMessage;
@@ -23,6 +23,7 @@ use axum::{
     http::{header, HeaderMap},
     response::IntoResponse,
 };
+use uuid::Uuid;
 
 const EMPTY_WS_RESPONSE_FALLBACK: &str =
     "Tool execution completed, but the model returned no final text response. Please ask me to summarize the result.";
@@ -177,6 +178,7 @@ pub async fn handle_ws_chat(
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Maintain conversation history for this WebSocket session
     let mut history: Vec<ChatMessage> = Vec::new();
+    let ws_sender_id = Uuid::new_v4().to_string();
 
     // Build system prompt once for the session
     let system_prompt = {
@@ -192,7 +194,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     // Add system message to history
     history.push(ChatMessage::system(&system_prompt));
 
-    let approval_manager = {
+    let _approval_manager = {
         let config_guard = state.config.lock();
         ApprovalManager::from_config(&config_guard.autonomy)
     };
@@ -261,7 +263,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }));
 
         // Full agentic loop with tools (includes WASM skills, shell, memory, etc.)
-        match super::run_gateway_chat_with_tools(&state, &content).await {
+        match super::run_gateway_chat_with_tools(&state, &content, ws_sender_id.as_str(), "ws")
+            .await
+        {
             Ok(response) => {
                 let safe_response =
                     finalize_ws_response(&response, &history, state.tools_registry_exec.as_ref());

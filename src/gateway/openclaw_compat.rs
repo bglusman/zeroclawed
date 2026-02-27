@@ -184,7 +184,11 @@ pub async fn handle_api_chat(
         });
 
     // ── Run the full agent loop ──
-    match run_gateway_chat_with_tools(&state, &enriched_message).await {
+    let sender_id = chat_body
+        .session_id
+        .as_deref()
+        .unwrap_or(rate_key.as_str());
+    match run_gateway_chat_with_tools(&state, &enriched_message, sender_id, "api_chat").await {
         Ok(response) => {
             let safe_response =
                 sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
@@ -546,7 +550,14 @@ pub async fn handle_v1_chat_completions_with_tools(
     );
 
     // ── Run the full agent loop ──
-    let reply = match run_gateway_chat_with_tools(&state, &enriched_message).await {
+    let reply = match run_gateway_chat_with_tools(
+        &state,
+        &enriched_message,
+        rate_key.as_str(),
+        "openai_compat",
+    )
+    .await
+    {
         Ok(response) => {
             let safe = sanitize_gateway_response(&response, state.tools_registry_exec.as_ref());
             let duration = started_at.elapsed();

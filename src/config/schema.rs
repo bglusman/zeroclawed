@@ -695,6 +695,8 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
+    #[serde(default)]
+    pub session: AgentSessionConfig,
     /// Maximum tool-call loop turns per user message. Default: `20`.
     /// Setting to `0` falls back to the safe default of `20`.
     #[serde(default = "default_agent_max_tool_iterations")]
@@ -710,6 +712,34 @@ pub struct AgentConfig {
     pub tool_dispatcher: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentSessionBackend {
+    Memory,
+    Sqlite,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentSessionStrategy {
+    PerSender,
+    PerChannel,
+    Main,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentSessionConfig {
+    #[serde(default = "default_agent_session_backend")]
+    pub backend: AgentSessionBackend,
+    #[serde(default = "default_agent_session_strategy")]
+    pub strategy: AgentSessionStrategy,
+    #[serde(default = "default_agent_session_ttl_seconds")]
+    pub ttl_seconds: u64,
+    #[serde(default = "default_agent_session_max_messages")]
+    pub max_messages: usize,
+}
+
 fn default_agent_max_tool_iterations() -> usize {
     20
 }
@@ -722,14 +752,42 @@ fn default_agent_tool_dispatcher() -> String {
     "auto".into()
 }
 
+fn default_agent_session_backend() -> AgentSessionBackend {
+    AgentSessionBackend::None
+}
+
+fn default_agent_session_strategy() -> AgentSessionStrategy {
+    AgentSessionStrategy::PerSender
+}
+
+fn default_agent_session_ttl_seconds() -> u64 {
+    3600
+}
+
+fn default_agent_session_max_messages() -> usize {
+    default_agent_max_history_messages()
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             compact_context: true,
+            session: AgentSessionConfig::default(),
             max_tool_iterations: default_agent_max_tool_iterations(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+        }
+    }
+}
+
+impl Default for AgentSessionConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_agent_session_backend(),
+            strategy: default_agent_session_strategy(),
+            ttl_seconds: default_agent_session_ttl_seconds(),
+            max_messages: default_agent_session_max_messages(),
         }
     }
 }

@@ -24,6 +24,7 @@ use std::fmt::Write;
 use std::io::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
+use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -47,6 +48,7 @@ use parsing::{
     parse_perl_style_tool_calls, parse_structured_tool_calls, parse_tool_call_value,
     parse_tool_calls, parse_tool_calls_from_json_value, tool_call_signature, ParsedToolCall,
 };
+use crate::agent::session::{create_session_manager, resolve_session_id, SessionManager};
 
 /// Minimum characters per chunk when relaying LLM text to a streaming draft.
 const STREAM_CHUNK_MIN_CHARS: usize = 80;
@@ -132,6 +134,16 @@ impl Highlighter for SlashCommandCompleter {
 impl Validator for SlashCommandCompleter {}
 impl Helper for SlashCommandCompleter {}
 
+static CHANNEL_SESSION_MANAGER: OnceCell<Option<Arc<dyn SessionManager>>> = OnceCell::const_new();
+
+async fn channel_session_manager(config: &Config) -> Result<Option<Arc<dyn SessionManager>>> {
+    let mgr = CHANNEL_SESSION_MANAGER
+        .get_or_try_init(|| async {
+            create_session_manager(&config.agent.session, &config.workspace_dir)
+        })
+        .await?;
+    Ok(mgr.clone())
+}
 static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r"(?i)token",
@@ -2011,7 +2023,12 @@ pub async fn run(
 
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
-pub async fn process_message(config: Config, message: &str) -> Result<String> {
+pub async fn process_message(
+    config: Config,
+    message: &str,
+    sender_id: &str,
+    channel_name: &str,
+) -> Result<String> {
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -2179,24 +2196,52 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         format!("{context}[{now}] {message}")
     };
 
-    let mut history = vec![
-        ChatMessage::system(&system_prompt),
-        ChatMessage::user(&enriched),
-    ];
-
-    agent_turn(
-        provider.as_ref(),
-        &mut history,
-        &tools_registry,
-        observer.as_ref(),
-        provider_name,
-        &model_name,
-        config.default_temperature,
-        true,
-        &config.multimodal,
-        config.agent.max_tool_iterations,
-    )
-    .await
+    let session_manager = channel_session_manager(&config).await?;
+    let session_id = resolve_session_id(&config.agent.session, sender_id, Some(channel_name));
+    if let Some(mgr) = session_manager {
+        let session = mgr.get_or_create(&session_id).await?;
+        let mut history = Vec::new();
+        history.push(ChatMessage::system(&system_prompt));
+        history.extend(session.get_history().await?);
+        history.push(ChatMessage::user(&enriched));
+        let output = agent_turn(
+            provider.as_ref(),
+            &mut history,
+            &tools_registry,
+            observer.as_ref(),
+            provider_name,
+            &model_name,
+            config.default_temperature,
+            true,
+            &config.multimodal,
+            config.agent.max_tool_iterations,
+        )
+        .await?;
+        let persisted: Vec<ChatMessage> = history
+            .into_iter()
+            .filter(|m| m.role != "system")
+            .collect();
+        let _ = session.update_history(persisted).await;
+        Ok(output)
+    } else {
+        let mut history = vec![
+            ChatMessage::system(&system_prompt),
+            ChatMessage::user(&enriched),
+        ];
+        agent_turn(
+            provider.as_ref(),
+            &mut history,
+            &tools_registry,
+            observer.as_ref(),
+            provider_name,
+            &model_name,
+            config.default_temperature,
+            true,
+            &config.multimodal,
+            config.agent.max_tool_iterations,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]
