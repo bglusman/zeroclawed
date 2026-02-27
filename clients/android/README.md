@@ -5,7 +5,7 @@ Native Android client for ZeroClaw - run your autonomous AI assistant on Android
 ## Features
 
 - 🚀 **Native Performance** - Kotlin/Jetpack Compose, not a webview
-- 🔋 **Battery Efficient** - WorkManager, Doze-aware, minimal wake locks  
+- 🔋 **Battery Efficient** - WorkManager, Doze-aware, minimal wake locks
 - 🔐 **Security First** - Android Keystore for secrets, sandboxed execution
 - 🦀 **ZeroClaw Core** - Full Rust binary via UniFFI/JNI
 - 🎨 **Material You** - Dynamic theming, modern Android UX

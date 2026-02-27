@@ -15,7 +15,7 @@
 ```toml
 [profile.release]
 opt-level = "z"      # Optimize for size
-lto = true           # Link-time optimization  
+lto = true           # Link-time optimization
 codegen-units = 1    # Better optimization
 panic = "abort"      # No unwinding overhead
 strip = true         # Remove symbols
