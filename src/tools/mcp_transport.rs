@@ -1,5 +1,7 @@
 //! MCP transport abstraction — supports stdio, SSE, and HTTP transports.
 
+use std::borrow::Cow;
+
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -203,12 +205,49 @@ impl SseTransport {
     }
 }
 
+fn extract_json_from_sse_text(resp_text: &str) -> Cow<'_, str> {
+    let text = resp_text.trim_start_matches('\u{feff}');
+    let mut current_data_lines: Vec<&str> = Vec::new();
+    let mut last_event_data_lines: Vec<&str> = Vec::new();
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim_end_matches('\r').trim_start();
+        if line.is_empty() {
+            if !current_data_lines.is_empty() {
+                last_event_data_lines = std::mem::take(&mut current_data_lines);
+            }
+            continue;
+        }
+
+        if line.starts_with(':') {
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("data:") {
+            let rest = rest.strip_prefix(' ').unwrap_or(rest);
+            current_data_lines.push(rest);
+        }
+    }
+
+    if !current_data_lines.is_empty() {
+        last_event_data_lines = current_data_lines;
+    }
+
+    if last_event_data_lines.is_empty() {
+        return Cow::Borrowed(text.trim());
+    }
+
+    if last_event_data_lines.len() == 1 {
+        return Cow::Borrowed(last_event_data_lines[0].trim());
+    }
+
+    let joined = last_event_data_lines.join("\n");
+    Cow::Owned(joined.trim().to_string())
+}
+
 #[async_trait::async_trait]
 impl McpTransportConn for SseTransport {
     async fn send_and_recv(&mut self, request: &JsonRpcRequest) -> Result<JsonRpcResponse> {
-        // For SSE, we POST the request and the response comes via SSE stream.
-        // Simplified implementation: treat as HTTP for now, proper SSE would
-        // maintain a persistent event stream.
         let body = serde_json::to_string(request)?;
         let url = format!("{}/message", self.base_url.trim_end_matches('/'));
 
@@ -220,6 +259,9 @@ impl McpTransportConn for SseTransport {
         for (key, value) in &self.headers {
             req = req.header(key, value);
         }
+        if !self.headers.keys().any(|k| k.eq_ignore_ascii_case("Accept")) {
+            req = req.header("Accept", "text/event-stream");
+        }
 
         let resp = req.send().await.context("SSE POST to MCP server failed")?;
 
@@ -227,9 +269,9 @@ impl McpTransportConn for SseTransport {
             bail!("MCP server returned HTTP {}", resp.status());
         }
 
-        // For now, parse response directly. Full SSE would read from event stream.
         let resp_text = resp.text().await.context("failed to read SSE response")?;
-        let mcp_resp: JsonRpcResponse = serde_json::from_str(&resp_text)
+        let json_str = extract_json_from_sse_text(&resp_text);
+        let mcp_resp: JsonRpcResponse = serde_json::from_str(json_str.as_ref())
             .with_context(|| format!("invalid JSON-RPC response: {}", resp_text))?;
 
         Ok(mcp_resp)
@@ -281,5 +323,40 @@ mod tests {
             ..Default::default()
         };
         assert!(SseTransport::new(&config).is_err());
+    }
+
+    #[test]
+    fn test_extract_json_from_sse_data_no_space() {
+        let input = "data:{\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
+        let extracted = extract_json_from_sse_text(input);
+        let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
+    }
+
+    #[test]
+    fn test_extract_json_from_sse_with_event_and_id() {
+        let input = "id: 1\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
+        let extracted = extract_json_from_sse_text(input);
+        let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
+    }
+
+    #[test]
+    fn test_extract_json_from_sse_multiline_data() {
+        let input = "event: message\ndata: {\ndata:   \"jsonrpc\": \"2.0\",\ndata:   \"result\": {}\ndata: }\n\n";
+        let extracted = extract_json_from_sse_text(input);
+        let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
+    }
+
+    #[test]
+    fn test_extract_json_from_sse_skips_bom_and_leading_whitespace() {
+        let input = "\u{feff}\n\n  data: {\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
+        let extracted = extract_json_from_sse_text(input);
+        let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
+    }
+
+    #[test]
+    fn test_extract_json_from_sse_uses_last_event_with_data() {
+        let input = ": keep-alive\n\nid: 1\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
+        let extracted = extract_json_from_sse_text(input);
+        let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
     }
 }
