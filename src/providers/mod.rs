@@ -882,6 +882,14 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
     None
 }
 
+/// Returns true when a provider credential is resolvable from either:
+/// - explicit override (`credential_override`)
+/// - provider-specific environment variables
+/// - generic API key fallbacks (when applicable)
+pub(crate) fn has_provider_credential(name: &str, credential_override: Option<&str>) -> bool {
+    resolve_provider_credential(name, credential_override).is_some()
+}
+
 fn parse_custom_provider_url(
     raw_url: &str,
     provider_label: &str,
@@ -2230,6 +2238,20 @@ mod tests {
         let _guard = EnvGuard::set("OSAURUS_API_KEY", Some("osaurus-test-key"));
         let resolved = resolve_provider_credential("osaurus", None);
         assert_eq!(resolved, Some("osaurus-test-key".to_string()));
+    }
+
+    #[test]
+    fn has_provider_credential_detects_provider_env() {
+        let _env_lock = env_lock();
+        let _guard = EnvGuard::set("OPENROUTER_API_KEY", Some("openrouter-test-key"));
+        assert!(has_provider_credential("openrouter", None));
+    }
+
+    #[test]
+    fn has_provider_credential_false_when_missing() {
+        let _env_lock = env_lock();
+        let _guard = EnvGuard::set("OPENROUTER_API_KEY", None);
+        assert!(!has_provider_credential("openrouter", None));
     }
 
     // ── Extended ecosystem ───────────────────────────────────
