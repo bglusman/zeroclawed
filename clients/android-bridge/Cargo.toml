@@ -10,17 +10,15 @@ crate-type = ["cdylib"]
 name = "zeroclaw_android"
 
 [dependencies]
-zeroclaw = { path = "../.." }
-uniffi = { version = "0.27", features = ["cli"] }
+# Note: zeroclaw dep commented out until we integrate properly
+# zeroclaw = { path = "../.." }
+uniffi = { version = "0.27" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[build-dependencies]
-uniffi = { version = "0.27", features = ["build"] }
 
 [[bin]]
 name = "uniffi-bindgen"
