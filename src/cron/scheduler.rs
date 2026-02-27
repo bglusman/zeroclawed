@@ -1,5 +1,7 @@
 #[cfg(feature = "channel-lark")]
 use crate::channels::LarkChannel;
+#[cfg(feature = "channel-matrix")]
+use crate::channels::MatrixChannel;
 use crate::channels::{
     Channel, DiscordChannel, EmailChannel, MattermostChannel, QQChannel, SendMessage, SlackChannel,
     TelegramChannel,
@@ -422,6 +424,30 @@ pub(crate) async fn deliver_announcement(
                 .ok_or_else(|| anyhow::anyhow!("email channel not configured"))?;
             let channel = EmailChannel::new(email.clone());
             channel.send(&SendMessage::new(output, target)).await?;
+        }
+        "matrix" => {
+            #[cfg(feature = "channel-matrix")]
+            {
+                // NOTE: uses the basic constructor without session hints (user_id/device_id).
+                // Plain (non-E2EE) Matrix rooms work fine. Encrypted-room delivery is not
+                // supported in cron mode; use start_channels for full E2EE listener sessions.
+                let mx = config
+                    .channels_config
+                    .matrix
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("matrix channel not configured"))?;
+                let channel = MatrixChannel::new(
+                    mx.homeserver.clone(),
+                    mx.access_token.clone(),
+                    mx.room_id.clone(),
+                    mx.allowed_users.clone(),
+                );
+                channel.send(&SendMessage::new(output, target)).await?;
+            }
+            #[cfg(not(feature = "channel-matrix"))]
+            {
+                anyhow::bail!("matrix delivery channel requires `channel-matrix` feature");
+            }
         }
         other => anyhow::bail!("unsupported delivery channel: {other}"),
     }
@@ -1104,5 +1130,23 @@ mod tests {
         };
         let err = deliver_if_configured(&config, &job, "x").await.unwrap_err();
         assert!(err.to_string().contains("unsupported delivery channel"));
+    }
+
+    #[cfg(feature = "channel-matrix")]
+    #[tokio::test]
+    async fn deliver_if_configured_matrix_missing_config() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp).await;
+        let mut job = test_job("echo ok");
+        job.delivery = DeliveryConfig {
+            mode: "announce".into(),
+            channel: Some("matrix".into()),
+            to: Some("@zeroclaw_user:localhost".into()),
+            best_effort: false,
+        };
+        let err = deliver_if_configured(&config, &job, "hello")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("matrix channel not configured"));
     }
 }
