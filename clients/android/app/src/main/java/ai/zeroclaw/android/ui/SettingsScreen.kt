@@ -206,7 +206,8 @@ fun SettingsScreen(
 
             // Battery Optimization Section
             val context = LocalContext.current
-            val isOptimized = remember { BatteryUtils.isIgnoringBatteryOptimizations(context) }
+            // Note: This won't update live, but that's fine - user needs to return to screen
+            val isOptimized = BatteryUtils.isIgnoringBatteryOptimizations(context)
             
             SettingsSection(title = "Battery") {
                 Row(
