@@ -80,12 +80,19 @@ cargo ndk -t arm64-v8a -o app/src/main/jniLibs build --release
 - [x] Chat UI scaffold
 - [x] Theme system (Material 3)
 
-🚧 **Phase 3: Integration** (Next)
-- [ ] Cargo NDK build integration
+✅ **Phase 3: Integration** (Complete)
+- [x] WorkManager for cron/heartbeat
+- [x] DataStore + encrypted preferences
+- [x] Quick Settings tile
+- [x] Share intent handling
+- [x] Battery optimization helpers
+- [x] CI workflow for Android builds
+
+🚧 **Phase 4: Polish** (Next)
+- [ ] Cargo NDK CI integration
 - [ ] Native library loading
-- [ ] WorkManager for cron
-- [ ] DataStore persistence
-- [ ] Quick Settings tile
+- [ ] Widget support
+- [ ] Accessibility improvements
 
 ## Contributing
 

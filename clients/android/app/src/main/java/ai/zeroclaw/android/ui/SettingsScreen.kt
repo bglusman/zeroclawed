@@ -10,19 +10,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-
-data class ZeroClawSettings(
-    val provider: String = "anthropic",
-    val model: String = "claude-sonnet-4-5",
-    val apiKey: String = "",
-    val autoStart: Boolean = false,
-    val notificationsEnabled: Boolean = true,
-    val systemPrompt: String = ""
-)
+import ai.zeroclaw.android.data.ZeroClawSettings
+import ai.zeroclaw.android.util.BatteryUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -208,6 +202,43 @@ fun SettingsScreen(
                         .height(120.dp),
                     maxLines = 5
                 )
+            }
+
+            // Battery Optimization Section
+            val context = LocalContext.current
+            val isOptimized = remember { BatteryUtils.isIgnoringBatteryOptimizations(context) }
+            
+            SettingsSection(title = "Battery") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Battery Optimization")
+                        Text(
+                            text = if (isOptimized) "Unrestricted ✓" else "Restricted - may affect background tasks",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isOptimized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (!isOptimized) {
+                        TextButton(onClick = { 
+                            BatteryUtils.requestBatteryOptimizationExemption(context) 
+                        }) {
+                            Text("Fix")
+                        }
+                    }
+                }
+                
+                if (BatteryUtils.hasAggressiveBatteryOptimization()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "⚠️ Your device may have aggressive battery management. If ZeroClaw stops working in background, check manufacturer battery settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // About Section
