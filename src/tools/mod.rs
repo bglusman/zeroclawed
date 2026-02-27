@@ -17,6 +17,7 @@
 
 pub mod agents_ipc;
 pub mod apply_patch;
+pub mod auth_profile;
 pub mod browser;
 pub mod browser_open;
 pub mod cli_discovery;
@@ -58,6 +59,7 @@ pub mod pdf_read;
 pub mod process;
 pub mod proxy_config;
 pub mod pushover;
+pub mod quota_tools;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
@@ -133,6 +135,9 @@ pub use web_access_config::WebAccessConfigTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search_config::WebSearchConfigTool;
 pub use web_search_tool::WebSearchTool;
+
+pub use auth_profile::ManageAuthProfileTool;
+pub use quota_tools::{CheckProviderQuotaTool, EstimateQuotaCostTool, SwitchProviderTool};
 
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
@@ -290,6 +295,10 @@ pub fn all_tools_with_runtime(
         Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
         Arc::new(WebAccessConfigTool::new(config.clone(), security.clone())),
         Arc::new(WebSearchConfigTool::new(config.clone(), security.clone())),
+        Arc::new(ManageAuthProfileTool::new(config.clone())),
+        Arc::new(CheckProviderQuotaTool::new(config.clone())),
+        Arc::new(SwitchProviderTool::new(config.clone())),
+        Arc::new(EstimateQuotaCostTool),
         Arc::new(PushoverTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
