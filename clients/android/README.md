@@ -67,16 +67,29 @@ cargo ndk -t arm64-v8a -o app/src/main/jniLibs build --release
 
 ## Status
 
-🚧 **Phase 1: Foundation** (In Progress)
-- [ ] Project setup
-- [ ] Rust cross-compilation
-- [ ] UniFFI bindings
-- [ ] Basic JNI bridge
-- [ ] Foreground service
+✅ **Phase 1: Foundation** (Complete)
+- [x] Project setup (Kotlin/Compose/Gradle)
+- [x] Basic JNI bridge stub
+- [x] Foreground service
+- [x] Notification channels
+- [x] Boot receiver
+
+✅ **Phase 2: Core Features** (Complete)
+- [x] UniFFI bridge crate
+- [x] Settings UI (provider/model/API key)
+- [x] Chat UI scaffold
+- [x] Theme system (Material 3)
+
+🚧 **Phase 3: Integration** (Next)
+- [ ] Cargo NDK build integration
+- [ ] Native library loading
+- [ ] WorkManager for cron
+- [ ] DataStore persistence
+- [ ] Quick Settings tile
 
 ## Contributing
 
-See [RFC](/docs/rfcs/android-client.md) for design decisions.
+See the RFC in issue discussions for design decisions.
 
 ## License
 
