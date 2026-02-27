@@ -912,6 +912,14 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
     None
 }
 
+/// Check whether a provider credential can be resolved from override/env fallbacks.
+///
+/// This mirrors provider credential resolution while avoiding exposing the
+/// resolved secret value to callers that only need presence/absence.
+pub fn has_provider_credential(name: &str, credential_override: Option<&str>) -> bool {
+    resolve_provider_credential(name, credential_override).is_some()
+}
+
 /// Returns true if the provider can resolve any credential from the given override and/or
 /// its supported environment/cached sources.
 ///

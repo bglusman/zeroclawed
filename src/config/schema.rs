@@ -725,7 +725,7 @@ fn default_agent_tool_dispatcher() -> String {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            compact_context: false,
+            compact_context: true,
             max_tool_iterations: default_agent_max_tool_iterations(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
@@ -7796,7 +7796,7 @@ reasoning_level = "high"
     #[test]
     async fn agent_config_defaults() {
         let cfg = AgentConfig::default();
-        assert!(!cfg.compact_context);
+        assert!(cfg.compact_context);
         assert_eq!(cfg.max_tool_iterations, 20);
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
