@@ -272,7 +272,7 @@ impl McpTransportConn for SseTransport {
         let resp_text = resp.text().await.context("failed to read SSE response")?;
         let json_str = extract_json_from_sse_text(&resp_text);
         let mcp_resp: JsonRpcResponse = serde_json::from_str(json_str.as_ref())
-            .with_context(|| format!("invalid JSON-RPC response: {}", resp_text))?;
+            .with_context(|| format!("invalid JSON-RPC response (len={})", resp_text.len()))?;
 
         Ok(mcp_resp)
     }

@@ -1,6 +1,6 @@
 use crate::providers::ChatMessage;
 use crate::{config::AgentSessionBackend, config::AgentSessionConfig, config::AgentSessionStrategy};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
@@ -237,6 +237,23 @@ impl SqliteSessionManager {
             }
         });
     }
+
+    #[cfg(test)]
+    pub async fn force_expire_session(&self, session_id: &str, age: Duration) -> Result<()> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let age_secs = age.as_secs() as i64;
+        
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            let new_time = unix_seconds_now() - age_secs;
+            conn.execute(
+                "UPDATE agent_sessions SET updated_at = ?2 WHERE session_id = ?1",
+                params![session_id, new_time],
+            )?;
+            Ok(())
+        }).await?
+    }
 }
 
 #[async_trait]
@@ -247,63 +264,85 @@ impl SessionManager for SqliteSessionManager {
 
     async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
         let now = unix_seconds_now();
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT history_json FROM agent_sessions WHERE session_id = ?1",
-        )?;
-        let mut rows = stmt.query(params![session_id])?;
-        if let Some(row) = rows.next()? {
-            let json: String = row.get(0)?;
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let max_messages = self.max_messages;
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT history_json FROM agent_sessions WHERE session_id = ?1",
+            )?;
+            let mut rows = stmt.query(params![session_id])?;
+            if let Some(row) = rows.next()? {
+                let json: String = row.get(0)?;
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?2 WHERE session_id = ?1",
+                    params![session_id, now],
+                )?;
+                let mut history: Vec<ChatMessage> = serde_json::from_str(&json)
+                    .with_context(|| format!("Failed to parse session history for session_id={session_id}"))?;
+                trim_non_system(&mut history, max_messages);
+                return Ok(history);
+            }
+
             conn.execute(
-                "UPDATE agent_sessions SET updated_at = ?2 WHERE session_id = ?1",
+                "INSERT INTO agent_sessions(session_id, history_json, updated_at) VALUES(?1, '[]', ?2)",
                 params![session_id, now],
             )?;
-            let mut history: Vec<ChatMessage> = serde_json::from_str(&json).unwrap_or_default();
-            trim_non_system(&mut history, self.max_messages);
-            return Ok(history);
-        }
-
-        conn.execute(
-            "INSERT INTO agent_sessions(session_id, history_json, updated_at) VALUES(?1, '[]', ?2)",
-            params![session_id, now],
-        )?;
-        Ok(Vec::new())
+            Ok(Vec::new())
+        }).await?
     }
 
     async fn set_history(&self, session_id: &str, mut history: Vec<ChatMessage>) -> Result<()> {
         trim_non_system(&mut history, self.max_messages);
         let json = serde_json::to_string(&history)?;
         let now = unix_seconds_now();
-        let conn = self.conn.lock();
-        conn.execute(
-            "INSERT INTO agent_sessions(session_id, history_json, updated_at)
-             VALUES(?1, ?2, ?3)
-             ON CONFLICT(session_id) DO UPDATE SET history_json=excluded.history_json, updated_at=excluded.updated_at",
-            params![session_id, json, now],
-        )?;
-        Ok(())
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            conn.execute(
+                "INSERT INTO agent_sessions(session_id, history_json, updated_at)
+                 VALUES(?1, ?2, ?3)
+                 ON CONFLICT(session_id) DO UPDATE SET history_json=excluded.history_json, updated_at=excluded.updated_at",
+                params![session_id, json, now],
+            )?;
+            Ok(())
+        }).await?
     }
 
     async fn delete(&self, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock();
-        conn.execute(
-            "DELETE FROM agent_sessions WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        Ok(())
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            conn.execute(
+                "DELETE FROM agent_sessions WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            Ok(())
+        }).await?
     }
 
     async fn cleanup_expired(&self) -> Result<usize> {
         if self.ttl.is_zero() {
             return Ok(0);
         }
-        let cutoff = unix_seconds_now() - self.ttl.as_secs() as i64;
-        let conn = self.conn.lock();
-        let removed = conn.execute(
-            "DELETE FROM agent_sessions WHERE updated_at < ?1",
-            params![cutoff],
-        )?;
-        Ok(removed)
+        let conn = self.conn.clone();
+        let ttl_secs = self.ttl.as_secs() as i64;
+        
+        tokio::task::spawn_blocking(move || {
+            let cutoff = unix_seconds_now() - ttl_secs;
+            let conn = conn.lock();
+            let removed = conn.execute(
+                "DELETE FROM agent_sessions WHERE updated_at < ?1",
+                params![cutoff],
+            )?;
+            Ok(removed)
+        }).await?
     }
 }
 
@@ -427,12 +466,16 @@ mod tests {
     async fn sqlite_session_cleanup_expires() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let db_path = dir.path().join("sessions.db");
+        // TTL 1 second
         let mgr = SqliteSessionManager::new(db_path, Duration::from_secs(1), 50)?;
         let session = mgr.get_or_create("s1").await?;
         session
             .update_history(vec![ChatMessage::user("hi"), ChatMessage::assistant("ok")])
             .await?;
-        tokio::time::sleep(Duration::from_millis(2100)).await;
+        
+        // Force expire by setting age to 2 seconds
+        mgr.force_expire_session("s1", Duration::from_secs(2)).await?;
+        
         let removed = mgr.cleanup_expired().await?;
         assert!(removed >= 1);
         Ok(())

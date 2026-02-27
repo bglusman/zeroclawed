@@ -728,14 +728,27 @@ pub enum AgentSessionStrategy {
     Main,
 }
 
+/// Session persistence configuration (`[agent.session]` section).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AgentSessionConfig {
+    /// Session backend to use. Options: "memory", "sqlite", "none".
+    /// Default: "none" (no persistence).
+    /// Set to "none" to disable session persistence entirely.
     #[serde(default = "default_agent_session_backend")]
     pub backend: AgentSessionBackend,
+
+    /// Strategy for resolving session IDs. Options: "per-sender", "per-channel", "main".
+    /// Default: "per-sender" (each user gets a unique session per channel).
     #[serde(default = "default_agent_session_strategy")]
     pub strategy: AgentSessionStrategy,
+
+    /// Time-to-live for sessions in seconds.
+    /// Default: 3600 (1 hour).
     #[serde(default = "default_agent_session_ttl_seconds")]
     pub ttl_seconds: u64,
+
+    /// Maximum number of messages to retain per session.
+    /// Default: 50.
     #[serde(default = "default_agent_session_max_messages")]
     pub max_messages: usize,
 }

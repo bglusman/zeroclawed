@@ -32,7 +32,7 @@ venv/
 *.key
 *.pem
 credentials.json
-config.toml
+/config.toml
 .worktrees/
 
 # Nix

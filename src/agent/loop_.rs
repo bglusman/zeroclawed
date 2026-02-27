@@ -10,7 +10,7 @@ use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use regex::{Regex, RegexSet};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
@@ -19,12 +19,11 @@ use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Config as RlConfig, Context, Editor, Helper};
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 use std::io::Write as _;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -134,15 +133,28 @@ impl Highlighter for SlashCommandCompleter {
 impl Validator for SlashCommandCompleter {}
 impl Helper for SlashCommandCompleter {}
 
-static CHANNEL_SESSION_MANAGER: OnceCell<Option<Arc<dyn SessionManager>>> = OnceCell::const_new();
+static CHANNEL_SESSION_MANAGER: LazyLock<Mutex<HashMap<String, Arc<dyn SessionManager>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 async fn channel_session_manager(config: &Config) -> Result<Option<Arc<dyn SessionManager>>> {
-    let mgr = CHANNEL_SESSION_MANAGER
-        .get_or_try_init(|| async {
-            create_session_manager(&config.agent.session, &config.workspace_dir)
-        })
-        .await?;
-    Ok(mgr.clone())
+    let key = format!("{:?}:{:?}", config.workspace_dir, config.agent.session);
+
+    {
+        let map = CHANNEL_SESSION_MANAGER.lock().unwrap();
+        if let Some(mgr) = map.get(&key) {
+            return Ok(Some(mgr.clone()));
+        }
+    }
+
+    let mgr_opt = create_session_manager(&config.agent.session, &config.workspace_dir)?;
+
+    if let Some(mgr) = mgr_opt {
+        let mut map = CHANNEL_SESSION_MANAGER.lock().unwrap();
+        map.insert(key, mgr.clone());
+        Ok(Some(mgr))
+    } else {
+        Ok(None)
+    }
 }
 static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
@@ -2221,7 +2233,10 @@ pub async fn process_message(
             .into_iter()
             .filter(|m| m.role != "system")
             .collect();
-        let _ = session.update_history(persisted).await;
+        session
+            .update_history(persisted)
+            .await
+            .context("Failed to update session history")?;
         Ok(output)
     } else {
         let mut history = vec![
