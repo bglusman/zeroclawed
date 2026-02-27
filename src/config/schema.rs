@@ -237,6 +237,11 @@ pub struct Config {
     #[serde(default)]
     pub cost: CostConfig,
 
+    /// Economic agent survival tracking (`[economic]`).
+    /// Tracks balance, token costs, work income, and survival status.
+    #[serde(default)]
+    pub economic: EconomicConfig,
+
     /// Peripheral board configuration for hardware integration (`[peripherals]`).
     #[serde(default)]
     pub peripherals: PeripheralsConfig,
@@ -1087,6 +1092,83 @@ pub struct PeripheralBoardConfig {
     /// Baud rate for serial (default: 115200)
     #[serde(default = "default_peripheral_baud")]
     pub baud: u32,
+}
+
+// ── Economic Agent Config ─────────────────────────────────────────
+
+/// Token pricing configuration for economic tracking.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EconomicTokenPricing {
+    /// Price per million input tokens (USD)
+    #[serde(default = "default_input_price")]
+    pub input_price_per_million: f64,
+    /// Price per million output tokens (USD)
+    #[serde(default = "default_output_price")]
+    pub output_price_per_million: f64,
+}
+
+fn default_input_price() -> f64 {
+    3.0 // Claude Sonnet 4 input price
+}
+
+fn default_output_price() -> f64 {
+    15.0 // Claude Sonnet 4 output price
+}
+
+impl Default for EconomicTokenPricing {
+    fn default() -> Self {
+        Self {
+            input_price_per_million: default_input_price(),
+            output_price_per_million: default_output_price(),
+        }
+    }
+}
+
+/// Economic agent survival tracking configuration (`[economic]` section).
+///
+/// Implements the ClawWork economic model for AI agents, tracking
+/// balance, costs, income, and survival status.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct EconomicConfig {
+    /// Enable economic tracking (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Starting balance in USD (default: 1000.0)
+    #[serde(default = "default_initial_balance")]
+    pub initial_balance: f64,
+
+    /// Token pricing configuration
+    #[serde(default)]
+    pub token_pricing: EconomicTokenPricing,
+
+    /// Minimum evaluation score (0.0-1.0) to receive payment (default: 0.6)
+    #[serde(default = "default_min_evaluation_threshold")]
+    pub min_evaluation_threshold: f64,
+
+    /// Data directory for economic state persistence (relative to workspace)
+    #[serde(default)]
+    pub data_path: Option<String>,
+}
+
+fn default_initial_balance() -> f64 {
+    1000.0
+}
+
+fn default_min_evaluation_threshold() -> f64 {
+    0.6
+}
+
+impl Default for EconomicConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            initial_balance: default_initial_balance(),
+            token_pricing: EconomicTokenPricing::default(),
+            min_evaluation_threshold: default_min_evaluation_threshold(),
+            data_path: None,
+        }
+    }
 }
 
 fn default_peripheral_transport() -> String {
@@ -5064,6 +5146,7 @@ impl Default for Config {
             proxy: ProxyConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
+            economic: EconomicConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             coordination: CoordinationConfig::default(),
@@ -7626,6 +7709,7 @@ default_temperature = 0.7
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
+            economic: EconomicConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),
@@ -7997,6 +8081,7 @@ tool_dispatcher = "xml"
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
+            economic: EconomicConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hooks: HooksConfig::default(),
