@@ -187,7 +187,8 @@ async fn run_agent_job(
                 config.default_temperature,
                 vec![],
                 false,
-            ))
+                None,
+            )
             .await
         }
     };

@@ -1742,6 +1742,12 @@ pub(crate) fn build_shell_policy_instructions(autonomy: &crate::config::Autonomy
 // and hard trimming to keep the context window bounded.
 
 #[allow(clippy::too_many_lines)]
+/// Run the agent loop with the given configuration.
+///
+/// When `hooks` is `Some`, the supplied [`HookRunner`](crate::hooks::HookRunner)
+/// is invoked at every tool-call boundary (`before_tool_call` /
+/// `on_after_tool_call`), enabling library consumers to inject safety,
+/// audit, or transformation logic without patching the crate.
 pub async fn run(
     config: Config,
     message: Option<String>,
@@ -1750,6 +1756,7 @@ pub async fn run(
     temperature: f64,
     peripheral_overrides: Vec<String>,
     interactive: bool,
+    hooks: Option<&crate::hooks::HookRunner>,
 ) -> Result<String> {
     // ── Wire up agnostic subsystems ──────────────────────────────
     let base_observer = observability::create_observer(&config.observability);
@@ -2096,7 +2103,7 @@ pub async fn run(
                         config.agent.max_tool_iterations,
                         None,
                         None,
-                        None,
+                        hooks,
                         &[],
                     ),
                 ),
@@ -2273,7 +2280,7 @@ pub async fn run(
                             config.agent.max_tool_iterations,
                             None,
                             None,
-                            None,
+                            hooks,
                             &[],
                         ),
                     ),

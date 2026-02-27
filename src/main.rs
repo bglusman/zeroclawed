@@ -925,7 +925,8 @@ async fn main() -> Result<()> {
                 temperature,
                 peripheral,
                 interactive,
-            ))
+                None,
+            )
             .await
             .map(|_| ())
         }
