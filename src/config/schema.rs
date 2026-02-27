@@ -3255,6 +3255,7 @@ impl Default for AutonomyConfig {
                 "/sys".into(),
                 "/var".into(),
                 "/tmp".into(),
+                "/mnt".into(),
                 "~/.ssh".into(),
                 "~/.gnupg".into(),
                 "~/.aws".into(),
