@@ -208,7 +208,8 @@ impl AcpChannel {
 
         command.stdin(std::process::Stdio::piped());
         command.stdout(std::process::Stdio::piped());
-        command.stderr(std::process::Stdio::piped());
+        // Inherit stderr so the child cannot block on an unread stderr pipe.
+        command.stderr(std::process::Stdio::inherit());
 
         let mut child = command
             .spawn()
@@ -388,9 +389,49 @@ impl AcpChannel {
             .get("response")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("ACP response for: {}", prompt_text)); // Fallback
+            .with_context(|| {
+                format!(
+                    "Invalid session/prompt response: missing string field `response` for prompt {:?}: {:?}",
+                    prompt_text, response
+                )
+            })?;
 
         Ok(response_text)
+    }
+
+    fn process_is_running(process: &mut AcpProcess) -> bool {
+        matches!(process.child.try_wait(), Ok(None))
+    }
+
+    async fn initialize_fresh_process(&self) -> Result<AcpProcess> {
+        let mut new_process = self.start_process()?;
+        self.initialize_acp(&mut new_process).await?;
+        let session_id = self.create_session(&mut new_process).await?;
+        new_process.session_id = Some(session_id);
+        Ok(new_process)
+    }
+
+    async fn checkout_process_for_send(&self) -> Result<AcpProcess> {
+        let mut process_opt = {
+            let mut process_guard = self.process.lock().await;
+            process_guard.take()
+        };
+
+        let needs_restart = match process_opt.as_mut() {
+            Some(process) => !Self::process_is_running(process),
+            None => true,
+        };
+
+        if needs_restart {
+            process_opt = Some(self.initialize_fresh_process().await?);
+        }
+
+        process_opt.context("ACP process disappeared unexpectedly")
+    }
+
+    async fn restore_process(&self, process: Option<AcpProcess>) {
+        let mut process_guard = self.process.lock().await;
+        *process_guard = process;
     }
 }
 
@@ -401,6 +442,8 @@ impl Channel for AcpChannel {
     }
 
     async fn send(&self, message: &SendMessage) -> Result<()> {
+        const MAX_SEND_ATTEMPTS: usize = 2;
+
         let _send_guard = self.send_operation_lock.lock().await;
 
         // Check if user is allowed
@@ -415,60 +458,60 @@ impl Channel for AcpChannel {
         // Strip tool call tags from outgoing messages
         let content = super::strip_tool_call_tags(&message.content);
 
-        // Check if process exists, start if needed
-        {
-            let mut process_guard = self.process.lock().await;
-            if process_guard.is_none() {
-                // No process yet, start one
-                let mut new_process = self.start_process()?;
-                self.initialize_acp(&mut new_process).await?;
-                let session_id = self.create_session(&mut new_process).await?;
-                new_process.session_id = Some(session_id);
-                *process_guard = Some(new_process);
+        let mut last_error = None;
+        for attempt in 0..MAX_SEND_ATTEMPTS {
+            let mut process = self.checkout_process_for_send().await?;
+            let session_id = process
+                .session_id
+                .as_ref()
+                .context("No active ACP session")?
+                .clone();
+
+            match self.send_prompt(&mut process, &session_id, &content).await {
+                Ok(response) => {
+                    if Self::process_is_running(&mut process) {
+                        self.restore_process(Some(process)).await;
+                    } else {
+                        self.restore_process(None).await;
+                    }
+
+                    // Send response back through response_channel if set
+                    if let Some(response_channel) = &self.response_channel {
+                        let response_message =
+                            SendMessage::new(response, message.recipient.clone());
+                        if let Err(e) = response_channel.send(&response_message).await {
+                            tracing::warn!(
+                                "Failed to send ACP response through response channel: {}",
+                                e
+                            );
+                        }
+                    } else {
+                        // Log if no response channel configured
+                        tracing::info!(
+                            "ACP response ready (no response channel configured): {}",
+                            response
+                        );
+                    }
+
+                    return Ok(());
+                }
+                Err(error) => {
+                    // Drop unhealthy process on failure and retry once with a fresh process.
+                    self.restore_process(None).await;
+                    if attempt + 1 < MAX_SEND_ATTEMPTS {
+                        tracing::warn!(
+                            "ACP prompt failed (attempt {}/{}), restarting ACP process: {}",
+                            attempt + 1,
+                            MAX_SEND_ATTEMPTS,
+                            error
+                        );
+                    }
+                    last_error = Some(error);
+                }
             }
         }
 
-        // Take the process out of the mutex to avoid holding lock across await
-        let process_opt = {
-            let mut process_guard = self.process.lock().await;
-            process_guard.take()
-        };
-
-        // Now we have ownership of the process, no lock held
-        let mut process = process_opt.context("ACP process disappeared unexpectedly")?;
-        let session_id = process
-            .session_id
-            .as_ref()
-            .context("No active ACP session")?
-            .clone();
-        let response_result = self.send_prompt(&mut process, &session_id, &content).await;
-
-        // Always restore process ownership, even when prompting fails.
-        {
-            let mut process_guard = self.process.lock().await;
-            *process_guard = Some(process);
-        }
-
-        let response = response_result?;
-
-        // Send response back through response_channel if set
-        if let Some(response_channel) = &self.response_channel {
-            let response_message = SendMessage::new(response, message.recipient.clone());
-            if let Err(e) = response_channel.send(&response_message).await {
-                tracing::warn!(
-                    "Failed to send ACP response through response channel: {}",
-                    e
-                );
-            }
-        } else {
-            // Log if no response channel configured
-            tracing::info!(
-                "ACP response ready (no response channel configured): {}",
-                response
-            );
-        }
-
-        Ok(())
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("ACP send failed with unknown error")))
     }
 
     async fn listen(&self, _tx: mpsc::Sender<ChannelMessage>) -> Result<()> {
@@ -488,16 +531,14 @@ impl Channel for AcpChannel {
 
     async fn health_check(&self) -> bool {
         let mut process_guard = self.process.lock().await;
-        match process_guard.as_mut() {
-            Some(process) => {
-                // Check if process is still alive
-                match process.child.try_wait() {
-                    Ok(None) => true,              // Process is still running
-                    Ok(Some(_)) | Err(_) => false, // Process has exited or error checking status
-                }
-            }
-            None => true, // No process yet is considered healthy
+        let Some(process) = process_guard.as_mut() else {
+            return false;
+        };
+        let is_running = Self::process_is_running(process);
+        if !is_running {
+            *process_guard = None;
         }
+        is_running
     }
 }
 #[cfg(test)]
@@ -767,4 +808,94 @@ mod tests {
 
     // Note: More comprehensive tests would require mocking the OpenCode process
     // which is beyond the scope of basic unit tests.
+
+    #[cfg(unix)]
+    async fn spawn_test_process(command: &str, args: &[&str]) -> AcpProcess {
+        let mut child = Command::new(command)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("failed to spawn test ACP process");
+
+        let stdin = child.stdin.take().expect("test process stdin");
+        let stdout = BufReader::new(child.stdout.take().expect("test process stdout"));
+
+        AcpProcess {
+            child,
+            stdin,
+            stdout,
+            session_id: Some("test-session".to_string()),
+            message_id: 0,
+            pending_responses: VecDeque::new(),
+        }
+    }
+
+    #[cfg(unix)]
+    async fn cleanup_test_process(channel: &AcpChannel) {
+        let process = {
+            let mut guard = channel.process.lock().await;
+            guard.take()
+        };
+        if let Some(mut process) = process {
+            let _ = process.child.kill().await;
+            let _ = process.child.wait().await;
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn acp_health_check_false_when_no_process() {
+        let config = AcpConfig {
+            opencode_path: None,
+            workdir: None,
+            extra_args: vec![],
+            allowed_users: vec![],
+        };
+        let channel = AcpChannel::new(config);
+        assert!(!channel.health_check().await);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn acp_health_check_true_when_process_running() {
+        let config = AcpConfig {
+            opencode_path: None,
+            workdir: None,
+            extra_args: vec![],
+            allowed_users: vec![],
+        };
+        let channel = AcpChannel::new(config);
+
+        let process = spawn_test_process("sh", &["-c", "sleep 5"]).await;
+        {
+            let mut guard = channel.process.lock().await;
+            *guard = Some(process);
+        }
+
+        assert!(channel.health_check().await);
+        cleanup_test_process(&channel).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn acp_health_check_false_after_process_exit() {
+        let config = AcpConfig {
+            opencode_path: None,
+            workdir: None,
+            extra_args: vec![],
+            allowed_users: vec![],
+        };
+        let channel = AcpChannel::new(config);
+
+        let process = spawn_test_process("sh", &["-c", "true"]).await;
+        {
+            let mut guard = channel.process.lock().await;
+            *guard = Some(process);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!channel.health_check().await);
+    }
 }

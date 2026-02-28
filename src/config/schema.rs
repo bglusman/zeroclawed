@@ -6982,6 +6982,10 @@ impl Config {
     /// Called after TOML deserialization and env-override application to catch
     /// obviously invalid values early instead of failing at arbitrary runtime points.
     pub fn validate(&self) -> Result<()> {
+        if let Some(acp) = &self.channels_config.acp {
+            acp.validate()?;
+        }
+
         // Gateway
         if self.gateway.host.trim().is_empty() {
             anyhow::bail!("gateway.host must not be empty");
@@ -8439,6 +8443,28 @@ pub struct AcpConfig {
 
 fn default_acp_opencode_path() -> Option<String> {
     Some("opencode".to_string())
+}
+
+impl AcpConfig {
+    fn validate(&self) -> Result<()> {
+        if self
+            .opencode_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.opencode_path must not be empty when set");
+        }
+
+        if self
+            .workdir
+            .as_deref()
+            .is_some_and(|dir| dir.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.workdir must not be empty when set");
+        }
+
+        Ok(())
+    }
 }
 
 impl ChannelConfig for AcpConfig {
