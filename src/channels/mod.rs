@@ -10000,6 +10000,26 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[test]
+    fn assistant_memory_key_is_namespaced_from_user_key() {
+        let msg = traits::ChannelMessage {
+            id: "msg_abc123".into(),
+            sender: "U123".into(),
+            reply_target: "C456".into(),
+            content: "hello".into(),
+            channel: "slack".into(),
+            timestamp: 1,
+            thread_ts: None,
+        };
+
+        let user_key = conversation_memory_key(&msg);
+        let assistant_key = assistant_memory_key(&msg);
+
+        assert!(assistant_key.starts_with("assistant_resp_"));
+        assert!(assistant_key.ends_with(&user_key));
+        assert_ne!(assistant_key, user_key);
+    }
+
+    #[test]
     fn conversation_history_key_ignores_qq_message_id_thread() {
         let msg1 = traits::ChannelMessage {
             id: "msg_1".into(),
