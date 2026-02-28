@@ -663,11 +663,14 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     }
 
     // Wrap observer with broadcast capability for SSE
+    // Use cost-tracking observer when cost tracking is enabled
+    let base_observer = crate::observability::create_observer_with_cost_tracking(
+        &config.observability,
+        cost_tracker.clone(),
+        &config.cost,
+    );
     let broadcast_observer: Arc<dyn crate::observability::Observer> =
-        Arc::new(sse::BroadcastObserver::new(
-            crate::observability::create_observer(&config.observability),
-            event_tx.clone(),
-        ));
+        Arc::new(sse::BroadcastObserver::new(base_observer, event_tx.clone()));
 
     let state = AppState {
         config: config_state,
