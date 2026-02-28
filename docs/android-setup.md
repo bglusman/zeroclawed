@@ -170,6 +170,12 @@ scripts/android/termux_source_build_check.sh \
   --quiet
 ```
 
+JSON report highlights:
+- `status`: `ok` or `error`
+- `error_code`: stable classifier (`NONE`, `BAD_ARGUMENT`, `MISSING_DIAGNOSE_LOG`, `CARGO_CHECK_FAILED`, etc.)
+- `detection_codes`: structured diagnosis codes (`CC_RS_TOOL_NOT_FOUND`, `LINKER_RESOLUTION_FAILURE`, `MISSING_RUST_TARGET_STDLIB`, ...)
+- `suggestions`: copy-paste recovery commands
+
 ## Troubleshooting
 
 ### "Permission denied"
