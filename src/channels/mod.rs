@@ -6393,6 +6393,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: crate::config::AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -6422,9 +6429,7 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig::default(),
-            )),
+            approval_manager,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
         });
@@ -6460,6 +6465,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: crate::config::AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -6489,9 +6501,7 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig::default(),
-            )),
+            approval_manager,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
         });
@@ -6541,6 +6551,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: crate::config::AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -6568,9 +6585,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig::default(),
-            )),
+            approval_manager,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             query_classification: crate::config::QueryClassificationConfig::default(),
@@ -6621,6 +6636,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: crate::config::AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -6648,9 +6670,7 @@ BTC is currently around $65,000 based on latest tool output."#
             message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
             interrupt_on_new_message: false,
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig::default(),
-            )),
+            approval_manager,
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             query_classification: crate::config::QueryClassificationConfig::default(),
@@ -6760,6 +6780,13 @@ BTC is currently around $65,000 based on latest tool output."#
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
 
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: crate::config::AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingAliasProvider),
@@ -6791,9 +6818,7 @@ BTC is currently around $65,000 based on latest tool output."#
             non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(
-                &crate::config::AutonomyConfig::default(),
-            )),
+            approval_manager,
         });
 
         process_channel_message(

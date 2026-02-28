@@ -11,31 +11,40 @@ pub struct ChatMessage {
     pub content: String,
 }
 
+pub const ROLE_SYSTEM: &str = "system";
+pub const ROLE_USER: &str = "user";
+pub const ROLE_ASSISTANT: &str = "assistant";
+pub const ROLE_TOOL: &str = "tool";
+
+pub fn is_user_or_assistant_role(role: &str) -> bool {
+    role == ROLE_USER || role == ROLE_ASSISTANT
+}
+
 impl ChatMessage {
     pub fn system(content: impl Into<String>) -> Self {
         Self {
-            role: "system".into(),
+            role: ROLE_SYSTEM.into(),
             content: content.into(),
         }
     }
 
     pub fn user(content: impl Into<String>) -> Self {
         Self {
-            role: "user".into(),
+            role: ROLE_USER.into(),
             content: content.into(),
         }
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
-            role: "assistant".into(),
+            role: ROLE_ASSISTANT.into(),
             content: content.into(),
         }
     }
 
     pub fn tool(content: impl Into<String>) -> Self {
         Self {
-            role: "tool".into(),
+            role: ROLE_TOOL.into(),
             content: content.into(),
         }
     }
