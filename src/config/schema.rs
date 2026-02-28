@@ -26,6 +26,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.dingtalk",
     "channel.discord",
     "channel.feishu",
+    "channel.github",
     "channel.lark",
     "channel.matrix",
     "channel.mattermost",
@@ -403,6 +404,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.signal.is_some(),
             self.channels_config.whatsapp.is_some(),
             self.channels_config.linq.is_some(),
+            self.channels_config.github.is_some(),
             self.channels_config.wati.is_some(),
             self.channels_config.nextcloud_talk.is_some(),
             self.channels_config.email.is_some(),
@@ -3890,6 +3892,8 @@ pub struct ChannelsConfig {
     pub whatsapp: Option<WhatsAppConfig>,
     /// Linq Partner API channel configuration.
     pub linq: Option<LinqConfig>,
+    /// GitHub channel configuration.
+    pub github: Option<GitHubConfig>,
     /// WATI WhatsApp Business API channel configuration.
     pub wati: Option<WatiConfig>,
     /// Nextcloud Talk bot channel configuration.
@@ -3962,6 +3966,10 @@ impl ChannelsConfig {
             (
                 Box::new(ConfigWrapper::new(self.linq.as_ref())),
                 self.linq.is_some(),
+            ),
+            (
+                Box::new(ConfigWrapper::new(self.github.as_ref())),
+                self.github.is_some(),
             ),
             (
                 Box::new(ConfigWrapper::new(self.wati.as_ref())),
@@ -4040,6 +4048,7 @@ impl Default for ChannelsConfig {
             signal: None,
             whatsapp: None,
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -4493,6 +4502,35 @@ impl ChannelConfig for LinqConfig {
     }
     fn desc() -> &'static str {
         "iMessage/RCS/SMS via Linq API"
+    }
+}
+
+/// GitHub channel configuration (webhook receive + issue/PR comment send).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GitHubConfig {
+    /// GitHub token used for outbound API calls.
+    ///
+    /// Supports fine-grained PAT or installation token with `issues:write` / `pull_requests:write`.
+    pub access_token: String,
+    /// Optional webhook secret to verify `X-Hub-Signature-256`.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    /// Optional GitHub API base URL (for GHES).
+    /// Defaults to `https://api.github.com` when omitted.
+    #[serde(default)]
+    pub api_base_url: Option<String>,
+    /// Allowed repositories (`owner/repo`), `owner/*`, or `*`.
+    /// Empty list denies all repositories.
+    #[serde(default)]
+    pub allowed_repos: Vec<String>,
+}
+
+impl ChannelConfig for GitHubConfig {
+    fn name() -> &'static str {
+        "GitHub"
+    }
+    fn desc() -> &'static str {
+        "issues/PR comments via webhook + REST API"
     }
 }
 
@@ -6036,6 +6074,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.linq.signing_secret",
         )?;
     }
+    if let Some(ref mut github) = channels.github {
+        decrypt_secret(
+            store,
+            &mut github.access_token,
+            "config.channels_config.github.access_token",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut github.webhook_secret,
+            "config.channels_config.github.webhook_secret",
+        )?;
+    }
     if let Some(ref mut nextcloud) = channels.nextcloud_talk {
         decrypt_secret(
             store,
@@ -6203,6 +6253,18 @@ fn encrypt_channel_secrets(
             store,
             &mut linq.signing_secret,
             "config.channels_config.linq.signing_secret",
+        )?;
+    }
+    if let Some(ref mut github) = channels.github {
+        encrypt_secret(
+            store,
+            &mut github.access_token,
+            "config.channels_config.github.access_token",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut github.webhook_secret,
+            "config.channels_config.github.webhook_secret",
         )?;
     }
     if let Some(ref mut nextcloud) = channels.nextcloud_talk {
@@ -8712,6 +8774,7 @@ ws_url = "ws://127.0.0.1:3002"
                 signal: None,
                 whatsapp: None,
                 linq: None,
+                github: None,
                 wati: None,
                 nextcloud_talk: None,
                 email: None,
@@ -9641,6 +9704,7 @@ allowed_users = ["@ops:matrix.org"]
             signal: None,
             whatsapp: None,
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -9920,6 +9984,7 @@ channel_id = "C123"
                 allowed_numbers: vec!["+1".into()],
             }),
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
