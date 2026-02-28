@@ -683,6 +683,7 @@ fn zai_base_url(name: &str) -> Option<&'static str> {
 pub struct ProviderRuntimeOptions {
     pub auth_profile_override: Option<String>,
     pub provider_api_url: Option<String>,
+    pub provider_transport: Option<String>,
     pub zeroclaw_dir: Option<PathBuf>,
     pub secrets_encrypt: bool,
     pub reasoning_enabled: Option<bool>,
@@ -697,6 +698,7 @@ impl Default for ProviderRuntimeOptions {
         Self {
             auth_profile_override: None,
             provider_api_url: None,
+            provider_transport: None,
             zeroclaw_dir: None,
             secrets_encrypt: true,
             reasoning_enabled: None,
@@ -1512,7 +1514,15 @@ pub fn create_routed_provider_with_options(
             .then_some(api_url)
             .flatten();
 
-        let route_options = options.clone();
+        let mut route_options = options.clone();
+        if let Some(transport) = route
+            .transport
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            route_options.provider_transport = Some(transport.to_string());
+        }
 
         match create_resilient_provider_with_options(
             &route.provider,
@@ -3049,6 +3059,7 @@ mod tests {
             model: "anthropic/claude-sonnet-4.6".to_string(),
             max_tokens: Some(4096),
             api_key: None,
+            transport: None,
         }];
 
         let provider = create_routed_provider_with_options(

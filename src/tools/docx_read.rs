@@ -202,24 +202,23 @@ impl Tool for DocxReadTool {
             }
         };
 
-        let text =
-            match tokio::task::spawn_blocking(move || extract_docx_text(&bytes)).await {
-                Ok(Ok(t)) => t,
-                Ok(Err(e)) => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some(format!("DOCX extraction failed: {e}")),
-                    });
-                }
-                Err(e) => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some(format!("DOCX extraction task panicked: {e}")),
-                    });
-                }
-            };
+        let text = match tokio::task::spawn_blocking(move || extract_docx_text(&bytes)).await {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("DOCX extraction failed: {e}")),
+                });
+            }
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("DOCX extraction task panicked: {e}")),
+                });
+            }
+        };
 
         if text.trim().is_empty() {
             return Ok(ToolResult {

@@ -95,9 +95,7 @@ pub async fn handle_api_chat(
         && state.webhook_secret_hash.is_none()
         && !peer_addr.ip().is_loopback()
     {
-        tracing::warn!(
-            "/api/chat: rejected unauthenticated non-loopback request"
-        );
+        tracing::warn!("/api/chat: rejected unauthenticated non-loopback request");
         let err = serde_json::json!({
             "error": "Unauthorized — configure pairing or X-Webhook-Secret for non-local access"
         });
@@ -152,7 +150,11 @@ pub async fn handle_api_chat(
         message.to_string()
     } else {
         let recent: Vec<&String> = chat_body.context.iter().rev().take(10).rev().collect();
-        let context_block = recent.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join("\n");
+        let context_block = recent
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>()
+            .join("\n");
         format!(
             "Recent conversation context:\n{}\n\nCurrent message:\n{}",
             context_block, message
@@ -395,7 +397,9 @@ pub async fn handle_v1_chat_completions_with_tools(
             .unwrap_or("");
         let token = auth.strip_prefix("Bearer ").unwrap_or("");
         if !state.pairing.is_authenticated(token) {
-            tracing::warn!("/v1/chat/completions (compat): rejected — not paired / invalid bearer token");
+            tracing::warn!(
+                "/v1/chat/completions (compat): rejected — not paired / invalid bearer token"
+            );
             let err = serde_json::json!({
                 "error": {
                     "message": "Invalid API key. Pair first via POST /pair, then use Authorization: Bearer <token>",
@@ -481,7 +485,11 @@ pub async fn handle_v1_chat_completions_with_tools(
         .rev()
         .filter(|m| m.role == "user" || m.role == "assistant")
         .map(|m| {
-            let role_label = if m.role == "user" { "User" } else { "Assistant" };
+            let role_label = if m.role == "user" {
+                "User"
+            } else {
+                "Assistant"
+            };
             format!("{}: {}", role_label, m.content)
         })
         .collect();
@@ -495,7 +503,11 @@ pub async fn handle_v1_chat_completions_with_tools(
             .take(MAX_CONTEXT_MESSAGES)
             .rev()
             .collect();
-        let context_block = recent.iter().map(|s| s.as_str()).collect::<Vec<&str>>().join("\n");
+        let context_block = recent
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>()
+            .join("\n");
         format!(
             "Recent conversation context:\n{}\n\nCurrent message:\n{}",
             context_block, message
@@ -617,9 +629,7 @@ pub async fn handle_v1_chat_completions_with_tools(
         }
     };
 
-    let model_name = request
-        .model
-        .unwrap_or_else(|| state.model.clone());
+    let model_name = request.model.unwrap_or_else(|| state.model.clone());
 
     #[allow(clippy::cast_possible_truncation)]
     let prompt_tokens = (enriched_message.len() / 4) as u32;
@@ -844,14 +854,20 @@ mod tests {
     fn api_chat_body_rejects_missing_message() {
         let json = r#"{"session_id": "s1"}"#;
         let result: Result<ApiChatBody, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "missing `message` field should fail deserialization");
+        assert!(
+            result.is_err(),
+            "missing `message` field should fail deserialization"
+        );
     }
 
     #[test]
     fn oai_request_rejects_empty_messages() {
         let json = r#"{"messages": []}"#;
         let req: OaiChatRequest = serde_json::from_str(json).unwrap();
-        assert!(req.messages.is_empty(), "empty messages should parse but be caught by handler");
+        assert!(
+            req.messages.is_empty(),
+            "empty messages should parse but be caught by handler"
+        );
     }
 
     #[test]
@@ -892,7 +908,17 @@ mod tests {
             .skip(1)
             .rev()
             .filter(|m| m.role == "user" || m.role == "assistant")
-            .map(|m| format!("{}: {}", if m.role == "user" { "User" } else { "Assistant" }, m.content))
+            .map(|m| {
+                format!(
+                    "{}: {}",
+                    if m.role == "user" {
+                        "User"
+                    } else {
+                        "Assistant"
+                    },
+                    m.content
+                )
+            })
             .collect();
 
         assert_eq!(context_messages.len(), 2);

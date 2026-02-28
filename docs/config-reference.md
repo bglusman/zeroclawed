@@ -382,6 +382,7 @@ WASM profile templates:
 | Key | Default | Purpose |
 |---|---|---|
 | `reasoning_level` | unset (`None`) | Reasoning effort/level override for providers that support explicit levels (currently OpenAI Codex `/responses`) |
+| `transport` | unset (`None`) | Provider transport override (`auto`, `websocket`, `sse`) |
 
 Notes:
 
@@ -389,6 +390,13 @@ Notes:
 - When set, overrides `ZEROCLAW_CODEX_REASONING_EFFORT` for OpenAI Codex requests.
 - Unset falls back to `ZEROCLAW_CODEX_REASONING_EFFORT` if present, otherwise defaults to `xhigh`.
 - If both `provider.reasoning_level` and deprecated `runtime.reasoning_level` are set, provider-level value wins.
+- `provider.transport` is normalized case-insensitively (`ws` aliases to `websocket`; `http` aliases to `sse`).
+- For OpenAI Codex, default transport mode is `auto` (WebSocket-first with SSE fallback).
+- Transport override precedence for OpenAI Codex:
+  1. `[[model_routes]].transport` (route-specific)
+  2. `provider.transport`
+  3. `ZEROCLAW_CODEX_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT`
+  4. legacy `ZEROCLAW_RESPONSES_WEBSOCKET` (boolean)
 
 ## `[skills]`
 
@@ -668,6 +676,7 @@ Use route hints so integrations can keep stable names while model IDs evolve.
 | `model` | _required_ | Model to use with that provider |
 | `max_tokens` | unset | Optional per-route output token cap forwarded to provider APIs |
 | `api_key` | unset | Optional API key override for this route's provider |
+| `transport` | unset | Optional per-route transport override (`auto`, `websocket`, `sse`) |
 
 ### `[[embedding_routes]]`
 

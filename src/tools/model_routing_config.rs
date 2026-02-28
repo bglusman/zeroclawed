@@ -466,6 +466,7 @@ impl ModelRoutingConfigTool {
             model: model.clone(),
             max_tokens: None,
             api_key: None,
+            transport: None,
         });
 
         next_route.hint = hint.clone();
@@ -1160,6 +1161,9 @@ mod tests {
             .unwrap();
         assert_eq!(route["api_key_configured"], json!(true));
 
-        assert_eq!(output["agents"]["voice_helper"]["api_key_configured"], json!(true));
+        assert_eq!(
+            output["agents"]["voice_helper"]["api_key_configured"],
+            json!(true)
+        );
     }
 }
