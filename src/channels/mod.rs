@@ -3011,7 +3011,7 @@ async fn process_channel_message(
 ) {
     let sender_id = msg.sender.as_str();
     let channel_name = msg.channel.as_str();
-    tracing::warn!(sender_id, channel_name, "process_message called");
+    tracing::debug!(sender_id, channel_name, "process_message called");
     if cancellation_token.is_cancelled() {
         return;
     }
@@ -3115,37 +3115,35 @@ or tune thresholds in config.",
         };
 
         if should_seed {
-            let session_config = CHANNEL_SESSION_CONFIG.get().cloned().unwrap_or_default();
-            let session_id = resolve_session_id(
-                &session_config,
-                msg.sender.as_str(),
-                Some(msg.channel.as_str()),
-            );
-            tracing::warn!(session_id, "session_id resolved");
-            match manager.get_or_create(&session_id).await {
-                Ok(session) => match session.get_history().await {
-                    Ok(history) => {
-                        tracing::warn!(
-                            history_len = history.len(),
-                            "session history loaded"
-                        );
-                        let filtered: Vec<ChatMessage> = history
-                            .into_iter()
-                            .filter(|m| m.role != "system")
-                            .collect();
-                        let mut histories = ctx
-                            .conversation_histories
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner());
-                        histories.entry(history_key.clone()).or_insert(filtered);
-                    }
+            if let Some(session_config) = CHANNEL_SESSION_CONFIG.get().cloned() {
+                let session_id = resolve_session_id(
+                    &session_config,
+                    msg.sender.as_str(),
+                    Some(msg.channel.as_str()),
+                );
+                tracing::debug!(session_id, "session_id resolved");
+                match manager.get_or_create(&session_id).await {
+                    Ok(session) => match session.get_history().await {
+                        Ok(history) => {
+                            tracing::debug!(history_len = history.len(), "session history loaded");
+                            let filtered: Vec<ChatMessage> =
+                                history.into_iter().filter(|m| m.role != "system").collect();
+                            let mut histories = ctx
+                                .conversation_histories
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            histories.entry(history_key.clone()).or_insert(filtered);
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to load session history: {err}");
+                        }
+                    },
                     Err(err) => {
-                        tracing::warn!("Failed to load session history: {err}");
+                        tracing::warn!("Failed to open session: {err}");
                     }
-                },
-                Err(err) => {
-                    tracing::warn!("Failed to open session: {err}");
                 }
+            } else {
+                tracing::warn!("CHANNEL_SESSION_CONFIG not initialized, skipping session");
             }
         }
     }
@@ -3568,41 +3566,44 @@ or tune thresholds in config.",
                 ChatMessage::assistant(&history_response),
             );
             if let Some(manager) = ctx.session_manager.as_ref() {
-                let session_config = CHANNEL_SESSION_CONFIG.get().cloned().unwrap_or_default();
-                let session_id = resolve_session_id(
-                    &session_config,
-                    msg.sender.as_str(),
-                    Some(msg.channel.as_str()),
-                );
-                tracing::warn!(session_id, "session_id resolved");
-                match manager.get_or_create(&session_id).await {
-                    Ok(session) => {
-                        let latest = {
-                            let histories = ctx
-                                .conversation_histories
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner());
-                            histories.get(&history_key).cloned().unwrap_or_default()
-                        };
-                        let filtered: Vec<ChatMessage> = latest
-                            .into_iter()
-                            .filter(|m| {
-                                m.role != "system"
-                                    && m.role != "tool"
-                                    && m.role != "tool_use"
-                                    && m.role != "tool_result"
-                            })
-                            .collect();
-                        let saved_len = filtered.len();
-                        if let Err(err) = session.update_history(filtered).await {
-                            tracing::warn!("Failed to update session history: {err}");
-                        } else {
-                            tracing::warn!(saved_len, "session history saved");
+                if let Some(session_config) = CHANNEL_SESSION_CONFIG.get().cloned() {
+                    let session_id = resolve_session_id(
+                        &session_config,
+                        msg.sender.as_str(),
+                        Some(msg.channel.as_str()),
+                    );
+                    tracing::debug!(session_id, "session_id resolved");
+                    match manager.get_or_create(&session_id).await {
+                        Ok(session) => {
+                            let latest = {
+                                let histories = ctx
+                                    .conversation_histories
+                                    .lock()
+                                    .unwrap_or_else(|e| e.into_inner());
+                                histories.get(&history_key).cloned().unwrap_or_default()
+                            };
+                            let filtered: Vec<ChatMessage> = latest
+                                .into_iter()
+                                .filter(|m| {
+                                    m.role != "system"
+                                        && m.role != "tool"
+                                        && m.role != "tool_use"
+                                        && m.role != "tool_result"
+                                })
+                                .collect();
+                            let saved_len = filtered.len();
+                            if let Err(err) = session.update_history(filtered).await {
+                                tracing::warn!("Failed to update session history: {err}");
+                            } else {
+                                tracing::debug!(saved_len, "session history saved");
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to open session: {err}");
                         }
                     }
-                    Err(err) => {
-                        tracing::warn!("Failed to open session: {err}");
-                    }
+                } else {
+                    tracing::warn!("CHANNEL_SESSION_CONFIG not initialized, skipping session");
                 }
             }
             println!(
@@ -7070,6 +7071,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7180,6 +7182,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7285,6 +7288,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7381,6 +7385,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7527,6 +7532,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7621,6 +7627,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7766,6 +7773,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7881,6 +7889,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -7976,6 +7985,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8093,6 +8103,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8208,6 +8219,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(route_overrides)),
             api_key: None,
@@ -8284,6 +8296,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8373,6 +8386,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8518,6 +8532,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: Some("http://127.0.0.1:11434".to_string()),
@@ -8624,6 +8639,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 12,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8689,6 +8705,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 3,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8866,6 +8883,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -8951,6 +8969,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9048,6 +9067,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9127,6 +9147,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9191,6 +9212,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9712,6 +9734,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9802,6 +9825,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -9892,6 +9916,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(histories)),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -10596,6 +10621,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -10667,6 +10693,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,

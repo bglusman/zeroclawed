@@ -452,7 +452,8 @@ fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
         if let Ok(raw) = std::fs::read(&meta_path) {
             if let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&raw) {
                 if let Some(slug) = meta.get("slug").and_then(|v| v.as_str()) {
-                    let normalized = normalize_skill_name(slug.split('/').last().unwrap_or(slug));
+                    let normalized =
+                        normalize_skill_name(slug.split('/').next_back().unwrap_or(slug));
                     if !normalized.is_empty() {
                         name = normalized;
                     }
@@ -1616,7 +1617,7 @@ fn extract_zip_skill_meta(
         f.read_to_end(&mut buf).ok();
         if let Ok(meta) = serde_json::from_slice::<serde_json::Value>(&buf) {
             let slug_raw = meta.get("slug").and_then(|v| v.as_str()).unwrap_or("");
-            let base = slug_raw.split('/').last().unwrap_or(slug_raw);
+            let base = slug_raw.split('/').next_back().unwrap_or(slug_raw);
             let name = normalize_skill_name(base);
             if !name.is_empty() {
                 let version = meta

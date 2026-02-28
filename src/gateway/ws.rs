@@ -10,9 +10,7 @@
 //! ```
 
 use super::AppState;
-use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs,
-};
+use crate::agent::loop_::{build_shell_policy_instructions, build_tool_instructions_from_specs};
 use crate::approval::ApprovalManager;
 use crate::providers::ChatMessage;
 use axum::{
@@ -263,8 +261,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }));
 
         // Full agentic loop with tools (includes WASM skills, shell, memory, etc.)
-        match super::run_gateway_chat_with_tools(&state, &content, ws_sender_id.as_str(), "ws")
-            .await
+        match Box::pin(super::run_gateway_chat_with_tools(
+            &state,
+            &content,
+            ws_sender_id.as_str(),
+            "ws",
+        ))
+        .await
         {
             Ok(response) => {
                 let safe_response =

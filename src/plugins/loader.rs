@@ -13,7 +13,10 @@ use tracing::{info, warn};
 use crate::config::PluginsConfig;
 
 use super::discovery::discover_plugins;
-use super::registry::*;
+use super::registry::{
+    DiagnosticLevel, PluginDiagnostic, PluginHookRegistration, PluginOrigin, PluginRecord,
+    PluginRegistry, PluginStatus, PluginToolRegistration,
+};
 use super::traits::{Plugin, PluginApi, PluginLogger};
 
 /// Resolve whether a discovered plugin should be enabled.
@@ -306,7 +309,10 @@ mod tests {
         };
         let reg = load_plugins(&cfg, None, vec![]);
         assert_eq!(reg.active_count(), 0);
-        assert!(reg.diagnostics.iter().any(|d| d.message.contains("disabled")));
+        assert!(reg
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("disabled")));
     }
 
     #[test]

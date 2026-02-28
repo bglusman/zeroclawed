@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, Notify, oneshot};
+use tokio::sync::{oneshot, Mutex, Notify};
 use tokio::time::{timeout, Duration};
 use tokio_stream::StreamExt;
 
@@ -221,7 +221,8 @@ impl SseTransport {
             .ok_or_else(|| anyhow!("URL required for SSE transport"))?
             .clone();
 
-        let client = reqwest::Client::builder().build()
+        let client = reqwest::Client::builder()
+            .build()
             .context("failed to build HTTP client")?;
 
         Ok(Self {
@@ -288,7 +289,7 @@ impl SseTransport {
         self.reader_task = Some(tokio::spawn(async move {
             let stream = resp
                 .bytes_stream()
-                .map(|item| item.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+                .map(|item| item.map_err(std::io::Error::other));
             let reader = tokio_util::io::StreamReader::new(stream);
             let mut lines = BufReader::new(reader).lines();
 
@@ -325,16 +326,13 @@ impl SseTransport {
 
                         if let Some(rest) = line.strip_prefix("event:") {
                             cur_event = Some(rest.trim().to_string());
-                            continue;
                         }
                         if let Some(rest) = line.strip_prefix("data:") {
                             let rest = rest.strip_prefix(' ').unwrap_or(rest);
                             cur_data.push(rest.to_string());
-                            continue;
                         }
                         if let Some(rest) = line.strip_prefix("id:") {
                             cur_id = Some(rest.trim().to_string());
-                            continue;
                         }
                     }
                 }
@@ -380,7 +378,7 @@ impl SseTransport {
         Ok((derived, false))
     }
 
-    async fn maybe_try_alternate_message_url(
+    fn maybe_try_alternate_message_url(
         &self,
         current_url: &str,
         from_endpoint: bool,
@@ -467,7 +465,9 @@ async fn handle_sse_event(
         return;
     };
 
-    let Some(id_val) = resp.id.clone() else { return; };
+    let Some(id_val) = resp.id.clone() else {
+        return;
+    };
     let id = match id_val.as_u64() {
         Some(v) => v,
         None => return,
@@ -480,7 +480,11 @@ async fn handle_sse_event(
     if let Some(tx) = tx {
         let _ = tx.send(resp);
     } else {
-        tracing::debug!("MCP SSE `{}` received response for unknown id {}", server_name, id);
+        tracing::debug!(
+            "MCP SSE `{}` received response for unknown id {}",
+            server_name,
+            id
+        );
     }
 }
 
@@ -542,7 +546,7 @@ async fn read_first_jsonrpc_from_sse_response(
 ) -> Result<Option<JsonRpcResponse>> {
     let stream = resp
         .bytes_stream()
-        .map(|item| item.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+        .map(|item| item.map_err(std::io::Error::other));
     let reader = tokio_util::io::StreamReader::new(stream);
     let mut lines = BufReader::new(reader).lines();
 
@@ -563,7 +567,8 @@ async fn read_first_jsonrpc_from_sse_response(
             cur_data.clear();
 
             let event = event.unwrap_or_else(|| "message".to_string());
-            if event.eq_ignore_ascii_case("endpoint") || event.eq_ignore_ascii_case("mcp-endpoint") {
+            if event.eq_ignore_ascii_case("endpoint") || event.eq_ignore_ascii_case("mcp-endpoint")
+            {
                 continue;
             }
             if !event.eq_ignore_ascii_case("message") {
@@ -586,12 +591,10 @@ async fn read_first_jsonrpc_from_sse_response(
         }
         if let Some(rest) = line.strip_prefix("event:") {
             cur_event = Some(rest.trim().to_string());
-            continue;
         }
         if let Some(rest) = line.strip_prefix("data:") {
             let rest = rest.strip_prefix(' ').unwrap_or(rest);
             cur_data.push(rest.to_string());
-            continue;
         }
     }
 
@@ -603,10 +606,7 @@ impl McpTransportConn for SseTransport {
     async fn send_and_recv(&mut self, request: &JsonRpcRequest) -> Result<JsonRpcResponse> {
         self.ensure_connected().await?;
 
-        let id = request
-            .id
-            .as_ref()
-            .and_then(|v| v.as_u64());
+        let id = request.id.as_ref().and_then(|v| v.as_u64());
         let body = serde_json::to_string(request)?;
 
         let (mut message_url, mut from_endpoint) = self.get_message_url().await?;
@@ -654,7 +654,10 @@ impl McpTransportConn for SseTransport {
         let mut got_direct = None;
         let mut last_status = None;
 
-        for (i, url) in std::iter::once(primary_url).chain(secondary_url.into_iter()).enumerate() {
+        for (i, url) in std::iter::once(primary_url)
+            .chain(secondary_url.into_iter())
+            .enumerate()
+        {
             let mut req = self
                 .client
                 .post(&url)
@@ -664,7 +667,11 @@ impl McpTransportConn for SseTransport {
             for (key, value) in &self.headers {
                 req = req.header(key, value);
             }
-            if !self.headers.keys().any(|k| k.eq_ignore_ascii_case("Accept")) {
+            if !self
+                .headers
+                .keys()
+                .any(|k| k.eq_ignore_ascii_case("Accept"))
+            {
                 req = req.header("Accept", "application/json, text/event-stream");
             }
 
@@ -715,12 +722,11 @@ impl McpTransportConn for SseTransport {
                         }
                         Err(_) => continue,
                     }
-                } else {
-                    if let Some(resp) = read_first_jsonrpc_from_sse_response(resp).await? {
-                        got_direct = Some(resp);
-                    }
-                    break;
                 }
+                if let Some(resp) = read_first_jsonrpc_from_sse_response(resp).await? {
+                    got_direct = Some(resp);
+                }
+                break;
             }
 
             let text = if i == 0 && has_secondary {
@@ -861,7 +867,8 @@ mod tests {
 
     #[test]
     fn test_extract_json_from_sse_uses_last_event_with_data() {
-        let input = ": keep-alive\n\nid: 1\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
+        let input =
+            ": keep-alive\n\nid: 1\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"result\":{}}\n\n";
         let extracted = extract_json_from_sse_text(input);
         let _: JsonRpcResponse = serde_json::from_str(extracted.as_ref()).unwrap();
     }

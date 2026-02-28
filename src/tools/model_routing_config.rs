@@ -900,8 +900,9 @@ impl Tool for ModelRoutingConfigTool {
 mod tests {
     use super::*;
     use crate::security::{AutonomyLevel, SecurityPolicy};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
     use tempfile::TempDir;
+    use tokio::sync::Mutex;
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
@@ -945,11 +946,9 @@ mod tests {
         }
     }
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("env lock poisoned")
+        LOCK.get_or_init(|| Mutex::new(())).lock().await
     }
 
     async fn test_config(tmp: &TempDir) -> Arc<Config> {
@@ -1118,7 +1117,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_reports_env_backed_credentials_for_routes_and_agents() {
-        let _env_lock = env_lock();
+        let _env_lock = env_lock().await;
         let _provider_guard = EnvGuard::set("TELNYX_API_KEY", Some("test-telnyx-key"));
         let _generic_guard = EnvGuard::set("ZEROCLAW_API_KEY", None);
         let _api_key_guard = EnvGuard::set("API_KEY", None);
@@ -1160,6 +1159,9 @@ mod tests {
             .unwrap();
         assert_eq!(route["api_key_configured"], json!(true));
 
-        assert_eq!(output["agents"]["voice_helper"]["api_key_configured"], json!(true));
+        assert_eq!(
+            output["agents"]["voice_helper"]["api_key_configured"],
+            json!(true)
+        );
     }
 }

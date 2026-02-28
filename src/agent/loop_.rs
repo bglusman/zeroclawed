@@ -32,6 +32,7 @@ mod execution;
 mod history;
 mod parsing;
 
+use crate::agent::session::{create_session_manager, resolve_session_id, SessionManager};
 use context::{build_context, build_hardware_context};
 use execution::{
     execute_tools_parallel, execute_tools_sequential, should_execute_tools_in_parallel,
@@ -47,7 +48,6 @@ use parsing::{
     parse_perl_style_tool_calls, parse_structured_tool_calls, parse_tool_call_value,
     parse_tool_calls, parse_tool_calls_from_json_value, tool_call_signature, ParsedToolCall,
 };
-use crate::agent::session::{create_session_manager, resolve_session_id, SessionManager};
 
 /// Minimum characters per chunk when relaying LLM text to a streaming draft.
 const STREAM_CHUNK_MIN_CHARS: usize = 80;
@@ -150,8 +150,12 @@ impl Helper for SlashCommandCompleter {}
 static CHANNEL_SESSION_MANAGER: LazyLock<Mutex<HashMap<String, Arc<dyn SessionManager>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-async fn channel_session_manager(config: &Config) -> Result<Option<Arc<dyn SessionManager>>> {
-    let key = format!("{:?}:{:?}", config.workspace_dir, config.agent.session);
+fn channel_session_manager(config: &Config) -> Result<Option<Arc<dyn SessionManager>>> {
+    let key = format!(
+        "{}:{:?}",
+        config.workspace_dir.display(),
+        config.agent.session
+    );
 
     {
         let map = CHANNEL_SESSION_MANAGER.lock().unwrap();
@@ -951,7 +955,7 @@ pub(crate) async fn run_tool_call_loop(
                         Some(model),
                         Some(&turn_id),
                         Some(false),
-                        Some(&parse_issue),
+                        Some(parse_issue),
                         serde_json::json!({
                             "iteration": iteration + 1,
                             "response_excerpt": truncate_with_ellipsis(
@@ -2163,7 +2167,7 @@ pub async fn process_message(
     sender_id: &str,
     channel_name: &str,
 ) -> Result<String> {
-    tracing::warn!(sender_id, channel_name, "process_message called");
+    tracing::debug!(sender_id, channel_name, "process_message called");
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -2331,16 +2335,13 @@ pub async fn process_message(
         format!("{context}[{now}] {message}")
     };
 
-    let session_manager = channel_session_manager(&config).await?;
+    let session_manager = channel_session_manager(&config)?;
     let session_id = resolve_session_id(&config.agent.session, sender_id, Some(channel_name));
-    tracing::warn!(session_id, "session_id resolved");
+    tracing::debug!(session_id, "session_id resolved");
     if let Some(mgr) = session_manager {
         let session = mgr.get_or_create(&session_id).await?;
         let stored_history = session.get_history().await?;
-        tracing::warn!(
-            history_len = stored_history.len(),
-            "session history loaded"
-        );
+        tracing::debug!(history_len = stored_history.len(), "session history loaded");
         let filtered_history: Vec<ChatMessage> = stored_history
             .into_iter()
             .filter(|m| m.role != "system")
@@ -2377,7 +2378,7 @@ pub async fn process_message(
             .update_history(persisted)
             .await
             .context("Failed to update session history")?;
-        tracing::warn!(saved_len, "session history saved");
+        tracing::debug!(saved_len, "session history saved");
         Ok(reply)
     } else {
         let mut history = vec![

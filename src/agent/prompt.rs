@@ -115,7 +115,9 @@ impl PromptSection for IdentitySection {
             inject_workspace_file(&mut prompt, ctx.workspace_dir, "MEMORY.md");
         }
 
-        let extra_files = ctx.identity_config.map_or(&[][..], |cfg| cfg.extra_files.as_slice());
+        let extra_files = ctx
+            .identity_config
+            .map_or(&[][..], |cfg| cfg.extra_files.as_slice());
         for file in extra_files {
             if let Some(safe_relative) = normalize_openclaw_identity_extra_file(file) {
                 inject_workspace_file(&mut prompt, ctx.workspace_dir, safe_relative);

@@ -5293,7 +5293,10 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
         );
     }
 
+    #[cfg(unix)]
     sync_directory(&default_config_dir).await?;
+    #[cfg(not(unix))]
+    sync_directory(&default_config_dir)?;
     Ok(())
 }
 
@@ -7165,7 +7168,10 @@ impl Config {
                 })?;
         }
 
+        #[cfg(unix)]
         sync_directory(parent_dir).await?;
+        #[cfg(not(unix))]
+        sync_directory(parent_dir)?;
 
         if had_existing_config {
             let _ = fs::remove_file(&backup_path).await;
@@ -7175,23 +7181,21 @@ impl Config {
     }
 }
 
+#[cfg(unix)]
 async fn sync_directory(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        let dir = File::open(path)
-            .await
-            .with_context(|| format!("Failed to open directory for fsync: {}", path.display()))?;
-        dir.sync_all()
-            .await
-            .with_context(|| format!("Failed to fsync directory metadata: {}", path.display()))?;
-        Ok(())
-    }
+    let dir = File::open(path)
+        .await
+        .with_context(|| format!("Failed to open directory for fsync: {}", path.display()))?;
+    dir.sync_all()
+        .await
+        .with_context(|| format!("Failed to fsync directory metadata: {}", path.display()))?;
+    Ok(())
+}
 
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        Ok(())
-    }
+#[cfg(not(unix))]
+fn sync_directory(path: &Path) -> Result<()> {
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -7200,7 +7204,6 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
-    use tempfile::TempDir;
     use tokio::sync::{Mutex, MutexGuard};
     use tokio::test;
     use tokio_stream::wrappers::ReadDirStream;
@@ -7390,7 +7393,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     async fn save_sets_config_permissions_on_new_file() {
-        let temp = TempDir::new().expect("temp dir");
+        let temp = tempfile::TempDir::new().expect("temp dir");
         let config_path = temp.path().join("config.toml");
         let workspace_dir = temp.path().join("workspace");
 
@@ -8013,7 +8016,10 @@ tool_dispatcher = "xml"
         ));
         fs::create_dir_all(&dir).await.unwrap();
 
+        #[cfg(unix)]
         sync_directory(&dir).await.unwrap();
+        #[cfg(not(unix))]
+        sync_directory(&dir).unwrap();
 
         let _ = fs::remove_dir_all(&dir).await;
     }

@@ -1,5 +1,7 @@
 use crate::providers::ChatMessage;
-use crate::{config::AgentSessionBackend, config::AgentSessionConfig, config::AgentSessionStrategy};
+use crate::{
+    config::AgentSessionBackend, config::AgentSessionConfig, config::AgentSessionStrategy,
+};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -147,10 +149,12 @@ impl SessionManager for MemorySessionManager {
     async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
         let mut sessions = self.inner.sessions.write().await;
         let now = unix_seconds_now();
-        let entry = sessions.entry(session_id.to_string()).or_insert_with(|| MemorySessionState {
-            history: Vec::new(),
-            updated_at_unix: now,
-        });
+        let entry = sessions
+            .entry(session_id.to_string())
+            .or_insert_with(|| MemorySessionState {
+                history: Vec::new(),
+                updated_at_unix: now,
+            });
         entry.updated_at_unix = now;
         Ok(entry.history.clone())
     }
@@ -243,7 +247,7 @@ impl SqliteSessionManager {
         let conn = self.conn.clone();
         let session_id = session_id.to_string();
         let age_secs = age.as_secs() as i64;
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock();
             let new_time = unix_seconds_now() - age_secs;
@@ -252,7 +256,9 @@ impl SqliteSessionManager {
                 params![session_id, new_time],
             )?;
             Ok(())
-        }).await?
+        })
+        .await
+        .context("SQLite blocking task panicked")?
     }
 }
 
@@ -291,7 +297,9 @@ impl SessionManager for SqliteSessionManager {
                 params![session_id, now],
             )?;
             Ok(Vec::new())
-        }).await?
+        })
+        .await
+        .context("SQLite blocking task panicked")?
     }
 
     async fn set_history(&self, session_id: &str, mut history: Vec<ChatMessage>) -> Result<()> {
@@ -310,13 +318,15 @@ impl SessionManager for SqliteSessionManager {
                 params![session_id, json, now],
             )?;
             Ok(())
-        }).await?
+        })
+        .await
+        .context("SQLite blocking task panicked")?
     }
 
     async fn delete(&self, session_id: &str) -> Result<()> {
         let conn = self.conn.clone();
         let session_id = session_id.to_string();
-        
+
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock();
             conn.execute(
@@ -324,7 +334,9 @@ impl SessionManager for SqliteSessionManager {
                 params![session_id],
             )?;
             Ok(())
-        }).await?
+        })
+        .await
+        .context("SQLite blocking task panicked")?
     }
 
     async fn cleanup_expired(&self) -> Result<usize> {
@@ -333,7 +345,7 @@ impl SessionManager for SqliteSessionManager {
         }
         let conn = self.conn.clone();
         let ttl_secs = self.ttl.as_secs() as i64;
-        
+
         tokio::task::spawn_blocking(move || {
             let cutoff = unix_seconds_now() - ttl_secs;
             let conn = conn.lock();
@@ -342,7 +354,9 @@ impl SessionManager for SqliteSessionManager {
                 params![cutoff],
             )?;
             Ok(removed)
-        }).await?
+        })
+        .await
+        .context("SQLite blocking task panicked")?
     }
 }
 
@@ -472,10 +486,11 @@ mod tests {
         session
             .update_history(vec![ChatMessage::user("hi"), ChatMessage::assistant("ok")])
             .await?;
-        
+
         // Force expire by setting age to 2 seconds
-        mgr.force_expire_session("s1", Duration::from_secs(2)).await?;
-        
+        mgr.force_expire_session("s1", Duration::from_secs(2))
+            .await?;
+
         let removed = mgr.cleanup_expired().await?;
         assert!(removed >= 1);
         Ok(())
