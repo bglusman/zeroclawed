@@ -7258,6 +7258,24 @@ impl Config {
             }
         }
 
+        if let Some(default_hint) = self
+            .default_model
+            .as_deref()
+            .and_then(|model| model.strip_prefix("hint:"))
+            .map(str::trim)
+            .filter(|hint| !hint.is_empty())
+        {
+            if !self
+                .model_routes
+                .iter()
+                .any(|route| route.hint.trim() == default_hint)
+            {
+                anyhow::bail!(
+                    "default_model uses hint '{default_hint}', but no matching [[model_routes]] entry exists"
+                );
+            }
+        }
+
         if self
             .provider
             .transport
@@ -10730,6 +10748,47 @@ provider_api = "not-a-real-mode"
         assert!(err
             .to_string()
             .contains("model_routes[0].max_tokens must be greater than 0"));
+    }
+
+    #[test]
+    async fn default_model_hint_requires_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "fast".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let err = config
+            .validate()
+            .expect_err("default_model hint without matching route should fail");
+        assert!(err
+            .to_string()
+            .contains("default_model uses hint 'reasoning'"));
+    }
+
+    #[test]
+    async fn default_model_hint_accepts_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "matching default hint route should validate"
+        );
     }
 
     #[test]

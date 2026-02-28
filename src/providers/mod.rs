@@ -1511,16 +1511,39 @@ pub fn create_routed_provider_with_options(
         );
     }
 
-    // Keep a default provider for non-routed model hints.
-    let default_provider = create_resilient_provider_with_options(
+    let default_hint = default_model
+        .strip_prefix("hint:")
+        .map(str::trim)
+        .filter(|hint| !hint.is_empty());
+
+    let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
+    let mut has_primary_provider = false;
+
+    // Keep a default provider for non-routed requests. When default_model is a hint,
+    // route-specific providers can satisfy startup even if the primary fails.
+    match create_resilient_provider_with_options(
         primary_name,
         api_key,
         api_url,
         reliability,
         options,
-    )?;
-    let mut providers: Vec<(String, Box<dyn Provider>)> =
-        vec![(primary_name.to_string(), default_provider)];
+    ) {
+        Ok(default_provider) => {
+            providers.push((primary_name.to_string(), default_provider));
+            has_primary_provider = true;
+        }
+        Err(error) => {
+            if default_hint.is_some() {
+                tracing::warn!(
+                    provider = primary_name,
+                    model = default_model,
+                    "Primary provider failed during routed init; continuing with hint-based routes: {error}"
+                );
+            } else {
+                return Err(error);
+            }
+        }
+    }
 
     // Build hint routes with dedicated provider instances so per-route API keys
     // and max_tokens overrides do not bleed across routes.
@@ -1574,12 +1597,35 @@ pub fn create_routed_provider_with_options(
         }
     }
 
+    if let Some(hint) = default_hint {
+        if !routes
+            .iter()
+            .any(|(route_hint, _)| route_hint.trim() == hint)
+        {
+            anyhow::bail!(
+                "default_model uses hint '{hint}', but no matching [[model_routes]] entry initialized successfully"
+            );
+        }
+    }
+
+    if providers.is_empty() {
+        anyhow::bail!("No providers initialized for routed configuration");
+    }
+
     // Keep only successfully initialized routed providers and preserve
     // their provider-id bindings (e.g. "<provider>#<hint>").
 
     Ok(Box::new(
-        router::RouterProvider::new(providers, routes, default_model.to_string())
-            .with_vision_override(options.model_support_vision),
+        router::RouterProvider::new(
+            providers,
+            routes,
+            if has_primary_provider {
+                String::new()
+            } else {
+                default_model.to_string()
+            },
+        )
+        .with_vision_override(options.model_support_vision),
     ))
 }
 
@@ -3122,6 +3168,63 @@ mod tests {
             &ProviderRuntimeOptions::default(),
         );
         assert!(provider.is_ok());
+    }
+
+    #[test]
+    fn routed_provider_supports_hint_default_when_primary_init_fails() {
+        let reliability = crate::config::ReliabilityConfig::default();
+        let routes = vec![crate::config::ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "lmstudio".to_string(),
+            model: "qwen2.5-coder".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let provider = create_routed_provider_with_options(
+            "provider-that-does-not-exist",
+            None,
+            None,
+            &reliability,
+            &routes,
+            "hint:reasoning",
+            &ProviderRuntimeOptions::default(),
+        );
+        assert!(
+            provider.is_ok(),
+            "hint default should allow startup from route providers"
+        );
+    }
+
+    #[test]
+    fn routed_provider_rejects_unresolved_hint_default() {
+        let reliability = crate::config::ReliabilityConfig::default();
+        let routes = vec![crate::config::ModelRouteConfig {
+            hint: "fast".to_string(),
+            provider: "lmstudio".to_string(),
+            model: "qwen2.5-coder".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let err = match create_routed_provider_with_options(
+            "provider-that-does-not-exist",
+            None,
+            None,
+            &reliability,
+            &routes,
+            "hint:reasoning",
+            &ProviderRuntimeOptions::default(),
+        ) {
+            Ok(_) => panic!("missing default hint route should fail initialization"),
+            Err(err) => err,
+        };
+
+        assert!(err
+            .to_string()
+            .contains("default_model uses hint 'reasoning'"));
     }
 
     // --- parse_provider_profile ---

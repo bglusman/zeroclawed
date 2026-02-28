@@ -63,10 +63,17 @@ impl RouterProvider {
             })
             .collect();
 
+        let default_index = default_model
+            .strip_prefix("hint:")
+            .map(str::trim)
+            .filter(|hint| !hint.is_empty())
+            .and_then(|hint| resolved_routes.get(hint).map(|(idx, _)| *idx))
+            .unwrap_or(0);
+
         Self {
             routes: resolved_routes,
             providers,
-            default_index: 0,
+            default_index,
             default_model,
             vision_override: None,
         }
