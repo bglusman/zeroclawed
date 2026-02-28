@@ -140,6 +140,15 @@ scripts/android/termux_source_build_check.sh --target aarch64-linux-android --ru
 When `--run-cargo-check` fails, the script now analyzes common linker/`cc-rs` errors and prints
 copy-paste fix commands for the selected mode.
 
+You can also diagnose a previously captured cargo log directly:
+
+```bash
+scripts/android/termux_source_build_check.sh \
+  --target aarch64-linux-android \
+  --mode ndk-cross \
+  --diagnose-log /path/to/cargo-error.log
+```
+
 ## Troubleshooting
 
 ### "Permission denied"
