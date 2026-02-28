@@ -92,7 +92,11 @@ enum InteractiveOnboardingMode {
 }
 
 pub async fn run_wizard(force: bool) -> Result<Config> {
-    run_wizard_with_migration(force, OpenClawOnboardMigrationOptions::default()).await
+    Box::pin(run_wizard_with_migration(
+        force,
+        OpenClawOnboardMigrationOptions::default(),
+    ))
+    .await
 }
 
 pub async fn run_wizard_with_migration(
@@ -454,7 +458,7 @@ pub async fn run_quick_setup(
     force: bool,
     no_totp: bool,
 ) -> Result<Config> {
-    run_quick_setup_with_migration(
+    Box::pin(run_quick_setup_with_migration(
         credential_override,
         provider,
         model_override,
@@ -462,7 +466,7 @@ pub async fn run_quick_setup(
         force,
         no_totp,
         OpenClawOnboardMigrationOptions::default(),
-    )
+    ))
     .await
 }
 
