@@ -2563,16 +2563,15 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
-                        ctx.approval_manager.record_non_cli_pending_resolution(
-                            &request_id,
-                            ApprovalResponse::Yes,
-                        );
+                        ctx.approval_manager
+                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
                         let approval_message = handle_confirm_tool_approval_side_effects(
                             ctx,
                             &request_id,
                             &req.tool_name,
                             source_channel,
-                        ).await;
+                        )
+                        .await;
                         runtime_trace::record_event(
                             "approval_request_approved",
                             Some(source_channel),
@@ -5670,6 +5669,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -5723,6 +5723,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -5779,6 +5780,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -6376,6 +6378,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6452,6 +6455,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6515,6 +6519,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6592,6 +6597,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6668,6 +6674,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6736,6 +6743,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6799,6 +6807,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6871,6 +6880,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6974,6 +6984,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         assert_eq!(
             runtime_ctx
@@ -7125,6 +7136,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         assert_eq!(
             runtime_ctx
@@ -7236,6 +7248,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7342,6 +7355,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7430,6 +7444,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7520,6 +7535,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7619,6 +7635,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7766,6 +7783,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         maybe_apply_runtime_config_update(runtime_ctx.as_ref())
             .await
@@ -7859,6 +7877,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8005,6 +8024,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8121,6 +8141,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8217,6 +8238,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8332,6 +8354,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8448,6 +8471,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8523,6 +8547,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8617,6 +8642,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8772,6 +8798,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         maybe_apply_runtime_config_update(runtime_ctx.as_ref())
@@ -8886,6 +8913,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8950,6 +8978,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -9128,6 +9157,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -9214,6 +9244,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -9312,6 +9343,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -9392,6 +9424,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -9457,6 +9490,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10007,6 +10041,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10098,6 +10133,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10193,6 +10229,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10971,6 +11008,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -11043,6 +11081,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
