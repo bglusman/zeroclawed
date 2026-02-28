@@ -58,7 +58,7 @@ mod inner {
     use anyhow::bail;
     use wasmtime::{Config as WtConfig, Engine, Linker, Module, Store};
     use wasmtime_wasi::{
-        pipe::{MemoryInputPipe, MemoryOutputPipe},
+        p2::pipe::{MemoryInputPipe, MemoryOutputPipe},
         preview1::{self, WasiP1Ctx},
         WasiCtxBuilder,
     };
