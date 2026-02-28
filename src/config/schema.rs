@@ -518,6 +518,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.dingtalk.is_some(),
             self.channels_config.napcat.is_some(),
             self.channels_config.qq.is_some(),
+            self.channels_config.acp.is_some(),
             self.channels_config.nostr.is_some(),
             self.channels_config.clawdtalk.is_some(),
         ]
