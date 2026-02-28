@@ -1895,6 +1895,14 @@ pub async fn run(
         "model_routing_config",
         "Configure default model, scenario routing, and delegate agents. Use for natural-language requests like: 'set conversation to kimi and coding to gpt-5.3-codex'.",
     ));
+    tool_descs.push((
+        "web_search_config",
+        "Configure web search providers/keys/fallbacks at runtime.",
+    ));
+    tool_descs.push((
+        "web_access_config",
+        "Configure shared URL access policy (first-visit approval, allowlist/blocklist, approved domains).",
+    ));
     if !config.agents.is_empty() {
         tool_descs.push((
             "delegate",
@@ -2325,6 +2333,14 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         (
             "model_routing_config",
             "Configure default model, scenario routing, and delegate agents.",
+        ),
+        (
+            "web_search_config",
+            "Configure web search providers/keys/fallbacks.",
+        ),
+        (
+            "web_access_config",
+            "Configure shared URL access policy for network tools.",
         ),
         ("screenshot", "Capture a screenshot."),
         ("image_info", "Read image metadata."),

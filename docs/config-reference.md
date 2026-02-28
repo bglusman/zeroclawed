@@ -160,12 +160,21 @@ Notes:
 | `allow_cidrs` | `[]` | CIDR ranges allowed to bypass private-IP blocking (`100.64.0.0/10`, `198.18.0.0/15`) |
 | `allow_domains` | `[]` | Domain patterns that bypass private-IP blocking before DNS checks (`internal.example`, `*.svc.local`) |
 | `allow_loopback` | `false` | Permit loopback targets (`localhost`, `127.0.0.1`, `::1`) |
+| `require_first_visit_approval` | `false` | Require explicit human confirmation before first-time access to unseen domains |
+| `enforce_domain_allowlist` | `false` | Require all URL targets to match `domain_allowlist` (in addition to tool-level allowlists) |
+| `domain_allowlist` | `[]` | Global trusted domain allowlist shared across URL tools |
+| `domain_blocklist` | `[]` | Global domain denylist shared across URL tools (highest priority) |
+| `approved_domains` | `[]` | Persisted first-visit approvals granted by a human operator |
 
 Notes:
 
 - This policy is shared by `browser_open`, `http_request`, and `web_fetch`.
+- `browser` automation (`action = "open"`) also follows this policy.
 - Tool-level allowlists still apply. `allow_domains` / `allow_cidrs` only override private/local blocking.
+- `domain_blocklist` is evaluated before allowlists; blocked hosts are always denied.
+- With `require_first_visit_approval = true`, unseen domains are denied until added to `approved_domains` (or matched by `domain_allowlist`).
 - DNS rebinding protection remains enabled: resolved local/private IPs are denied unless explicitly allowlisted.
+- Agents can inspect/update these settings at runtime via `web_access_config` (`action=get|set|check_url`).
 
 Example:
 
@@ -175,7 +184,51 @@ block_private_ip = true
 allow_cidrs = ["100.64.0.0/10", "198.18.0.0/15"]
 allow_domains = ["internal.example", "*.svc.local"]
 allow_loopback = false
+require_first_visit_approval = true
+enforce_domain_allowlist = false
+domain_allowlist = ["docs.rs", "github.com", "*.rust-lang.org"]
+domain_blocklist = ["*.malware.test"]
+approved_domains = ["example.com"]
 ```
+
+Runtime workflow (`web_access_config`):
+
+1. Start strict-first mode (deny unknown domains until reviewed):
+
+```json
+{"action":"set","require_first_visit_approval":true,"enforce_domain_allowlist":false}
+```
+
+2. Dry-run a target URL before access:
+
+```json
+{"action":"check_url","url":"https://docs.rs"}
+```
+
+3. After human confirmation, persist approval for future runs:
+
+```json
+{"action":"set","add_approved_domains":["docs.rs"]}
+```
+
+4. Escalate to strict allowlist-only mode (recommended for production agents):
+
+```json
+{"action":"set","enforce_domain_allowlist":true,"domain_allowlist":["docs.rs","github.com","*.rust-lang.org"]}
+```
+
+5. Emergency deny of a domain across all URL tools:
+
+```json
+{"action":"set","add_domain_blocklist":["*.malware.test"]}
+```
+
+Operational guidance:
+
+- Use `approved_domains` for iterative onboarding and temporary approvals.
+- Use `domain_allowlist` for stable long-term trusted domains.
+- Use `domain_blocklist` for immediate global deny; it always overrides allow rules.
+- Keep `allow_domains` focused on private-network bypass cases only (`internal.example`, `*.svc.local`).
 
 ## `[security.syscall_anomaly]`
 
@@ -502,6 +555,10 @@ Notes:
 | `allowed_domains` | `[]` | Allowed domains for `browser_open` and `browser` (exact/subdomain match, or `"*"` for all public domains) |
 | `session_name` | unset | Browser session name (for agent-browser automation) |
 | `backend` | `agent_browser` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
+| `auto_backend_priority` | `[]` | Priority order for `backend = "auto"` (for example `["agent_browser","rust_native","computer_use"]`) |
+| `agent_browser_command` | `agent-browser` | Executable/path for agent-browser CLI |
+| `agent_browser_extra_args` | `[]` | Extra args prepended to each agent-browser command |
+| `agent_browser_timeout_ms` | `30000` | Timeout per agent-browser action command |
 | `native_headless` | `true` | Headless mode for rust-native backend |
 | `native_webdriver_url` | `http://127.0.0.1:9515` | WebDriver endpoint URL for rust-native backend |
 | `native_chrome_path` | unset | Optional Chrome/Chromium executable path for rust-native backend |
@@ -567,18 +624,81 @@ Notes:
 | Key | Default | Purpose |
 |---|---|---|
 | `enabled` | `false` | Enable `web_search_tool` |
-| `provider` | `duckduckgo` | Search backend: `duckduckgo`, `brave`, `firecrawl` |
-| `api_key` | unset | Generic provider key (used by `firecrawl`, fallback for `brave`) |
+| `provider` | `duckduckgo` | Search backend: `duckduckgo`, `brave`, `firecrawl`, `tavily`, `perplexity`, `exa`, `jina` |
+| `fallback_providers` | `[]` | Fallback providers tried in order after primary failure |
+| `retries_per_provider` | `0` | Retry count before switching to next provider |
+| `retry_backoff_ms` | `250` | Delay between retry attempts (milliseconds) |
+| `api_key` | unset | Generic provider key (used by `firecrawl`/`tavily`, fallback for dedicated provider keys) |
 | `api_url` | unset | Optional API URL override |
 | `brave_api_key` | unset | Dedicated Brave key (required for `provider = "brave"` unless `api_key` is set) |
+| `perplexity_api_key` | unset | Dedicated Perplexity key |
+| `exa_api_key` | unset | Dedicated Exa key |
+| `jina_api_key` | unset | Optional Jina key |
+| `domain_filter` | `[]` | Optional domain filter forwarded to supported providers |
+| `language_filter` | `[]` | Optional language filter forwarded to supported providers |
+| `country` | unset | Optional country hint for supported providers |
+| `recency_filter` | unset | Optional recency filter for supported providers |
+| `max_tokens` | unset | Optional token budget for providers that support it (for example Perplexity) |
+| `max_tokens_per_page` | unset | Optional per-page token budget for supported providers |
+| `exa_search_type` | `auto` | Exa search mode: `auto`, `keyword`, `neural` |
+| `exa_include_text` | `false` | Include text payloads in Exa responses |
+| `jina_site_filters` | `[]` | Optional site filters for Jina search |
 | `max_results` | `5` | Maximum search results returned (clamped to 1-10) |
 | `timeout_secs` | `15` | Request timeout in seconds |
 | `user_agent` | `ZeroClaw/1.0` | User-Agent header for search requests |
 
 Notes:
 
-- If DuckDuckGo returns `403`/`429` in your network, switch provider to `brave` or `firecrawl`.
+- If DuckDuckGo returns `403`/`429` in your network, switch provider to `brave`, `perplexity`, `exa`, or configure `fallback_providers`.
 - `web_search` finds candidate URLs; pair it with `web_fetch` for page content extraction.
+- Agents can modify these settings at runtime via the `web_search_config` tool (`action=get|set|list_providers`).
+
+Recommended resilient profile:
+
+```toml
+[web_search]
+enabled = true
+provider = "perplexity"
+fallback_providers = ["exa", "jina", "duckduckgo"]
+retries_per_provider = 1
+retry_backoff_ms = 300
+max_results = 5
+timeout_secs = 20
+```
+
+Runtime workflow (`web_search_config`):
+
+1. Inspect available providers and current config snapshot:
+
+```json
+{"action":"list_providers"}
+```
+
+```json
+{"action":"get"}
+```
+
+2. Set a primary provider with fallback chain:
+
+```json
+{"action":"set","provider":"perplexity","fallback_providers":["exa","jina","duckduckgo"]}
+```
+
+3. Tune provider-specific options:
+
+```json
+{"action":"set","exa_search_type":"neural","exa_include_text":true}
+```
+
+```json
+{"action":"set","jina_site_filters":["docs.rs","github.com"]}
+```
+
+4. Add geo/language/recency filters for region-aware queries:
+
+```json
+{"action":"set","country":"US","language_filter":["en"],"recency_filter":"week"}
+```
 
 ## `[gateway]`
 

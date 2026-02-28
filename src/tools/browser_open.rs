@@ -337,7 +337,11 @@ async fn open_in_firefox(url: &str) -> anyhow::Result<()> {
 #[cfg(target_os = "linux")]
 async fn open_in_default(url: &str) -> anyhow::Result<()> {
     // Try xdg-open first, fall back to common browsers
-    if let Ok(status) = tokio::process::Command::new("xdg-open").arg(url).status().await {
+    if let Ok(status) = tokio::process::Command::new("xdg-open")
+        .arg(url)
+        .status()
+        .await
+    {
         if status.success() {
             return Ok(());
         }
