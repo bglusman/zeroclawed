@@ -18,9 +18,9 @@ use crate::memory::{
     selectable_memory_backends, MemoryBackendKind,
 };
 use crate::providers::{
-    canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
-    is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias, is_zai_alias,
-    is_zai_cn_alias,
+    canonical_china_provider_name, is_doubao_alias, is_glm_alias, is_glm_cn_alias,
+    is_minimax_alias, is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias,
+    is_siliconflow_alias, is_zai_alias, is_zai_cn_alias,
 };
 use anyhow::{bail, Context, Result};
 use console::style;
@@ -710,6 +710,9 @@ fn canonical_provider_name(provider_name: &str) -> &str {
     }
 
     if let Some(canonical) = canonical_china_provider_name(provider_name) {
+        if canonical == "doubao" {
+            return "volcengine";
+        }
         return canonical;
     }
 
@@ -775,6 +778,8 @@ fn default_model_for_provider(provider: &str) -> String {
         "glm" | "zai" => "glm-5".into(),
         "minimax" => "MiniMax-M2.5".into(),
         "qwen" => "qwen-plus".into(),
+        "volcengine" => "doubao-1-5-pro-32k-250115".into(),
+        "siliconflow" => "Pro/zai-org/GLM-4.7".into(),
         "qwen-code" => "qwen3-coder-plus".into(),
         "ollama" => "llama3.2".into(),
         "llamacpp" => "ggml-org/gpt-oss-20b-GGUF".into(),
@@ -1089,6 +1094,31 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
                 "Qwen Turbo (fast and cost-efficient)".to_string(),
             ),
         ],
+        "volcengine" => vec![
+            (
+                "doubao-1-5-pro-32k-250115".to_string(),
+                "Doubao 1.5 Pro 32K (official sample model)".to_string(),
+            ),
+            (
+                "doubao-seed-1-6-250615".to_string(),
+                "Doubao Seed 1.6 (reasoning flagship)".to_string(),
+            ),
+            (
+                "deepseek-v3.2".to_string(),
+                "DeepSeek V3.2 (available in ARK catalog)".to_string(),
+            ),
+        ],
+        "siliconflow" => vec![
+            (
+                "Pro/zai-org/GLM-4.7".to_string(),
+                "GLM-4.7 Pro (official API example)".to_string(),
+            ),
+            (
+                "Pro/deepseek-ai/DeepSeek-V3.2".to_string(),
+                "DeepSeek V3.2 Pro".to_string(),
+            ),
+            ("Qwen/Qwen3-32B".to_string(), "Qwen3 32B".to_string()),
+        ],
         "qwen-code" => vec![
             (
                 "qwen3-coder-plus".to_string(),
@@ -1265,6 +1295,8 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
             | "glm"
             | "zai"
             | "qwen"
+            | "volcengine"
+            | "siliconflow"
             | "nvidia"
     )
 }
@@ -1277,6 +1309,9 @@ fn models_endpoint_for_provider(provider_name: &str) -> Option<&'static str> {
         "moonshot-cn" | "kimi-cn" => Some("https://api.moonshot.cn/v1/models"),
         "glm-cn" | "bigmodel" => Some("https://open.bigmodel.cn/api/paas/v4/models"),
         "zai-cn" | "z.ai-cn" => Some("https://open.bigmodel.cn/api/coding/paas/v4/models"),
+        "volcengine" | "ark" | "doubao" | "doubao-cn" => {
+            Some("https://ark.cn-beijing.volces.com/api/v3/models")
+        }
         _ => match canonical_provider_name(provider_name) {
             "openai-codex" | "openai" => Some("https://api.openai.com/v1/models"),
             "venice" => Some("https://api.venice.ai/api/v1/models"),
@@ -1292,6 +1327,7 @@ fn models_endpoint_for_provider(provider_name: &str) -> Option<&'static str> {
             "glm" => Some("https://api.z.ai/api/paas/v4/models"),
             "zai" => Some("https://api.z.ai/api/coding/paas/v4/models"),
             "qwen" => Some("https://dashscope.aliyuncs.com/compatible-mode/v1/models"),
+            "siliconflow" => Some("https://api.siliconflow.cn/v1/models"),
             "nvidia" => Some("https://integrate.api.nvidia.com/v1/models"),
             "astrai" => Some("https://as-trai.com/v1/models"),
             "llamacpp" => Some("http://localhost:8080/v1/models"),
@@ -2304,6 +2340,11 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ("qwen-us", "Qwen — DashScope US endpoint"),
             ("hunyuan", "Hunyuan — Tencent large models (T1, Turbo, Pro)"),
             ("qianfan", "Qianfan — Baidu AI models (China endpoint)"),
+            ("volcengine", "Volcengine ARK — Doubao model family"),
+            (
+                "siliconflow",
+                "SiliconFlow — OpenAI-compatible hosted models",
+            ),
             ("zai", "Z.AI — global coding endpoint"),
             ("zai-cn", "Z.AI — China coding endpoint (open.bigmodel.cn)"),
             ("synthetic", "Synthetic — Synthetic AI models"),
@@ -2698,6 +2739,10 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             "https://help.aliyun.com/zh/model-studio/developer-reference/get-api-key"
         } else if is_qianfan_alias(provider_name) {
             "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/7lm0vxo78"
+        } else if is_doubao_alias(provider_name) {
+            "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey"
+        } else if is_siliconflow_alias(provider_name) {
+            "https://cloud.siliconflow.cn/account/ak"
         } else {
             match provider_name {
                 "openrouter" => "https://openrouter.ai/keys",
@@ -3006,6 +3051,8 @@ fn provider_env_var(name: &str) -> &'static str {
         "glm" => "GLM_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
         "qwen" => "DASHSCOPE_API_KEY",
+        "volcengine" => "ARK_API_KEY",
+        "siliconflow" => "SILICONFLOW_API_KEY",
         "hunyuan" => "HUNYUAN_API_KEY",
         "qianfan" => "QIANFAN_API_KEY",
         "zai" => "ZAI_API_KEY",
@@ -7307,6 +7354,14 @@ mod tests {
         assert_eq!(default_model_for_provider("hunyuan"), "hunyuan-t1-latest");
         assert_eq!(default_model_for_provider("tencent"), "hunyuan-t1-latest");
         assert_eq!(
+            default_model_for_provider("siliconflow"),
+            "Pro/zai-org/GLM-4.7"
+        );
+        assert_eq!(
+            default_model_for_provider("volcengine"),
+            "doubao-1-5-pro-32k-250115"
+        );
+        assert_eq!(
             default_model_for_provider("nvidia"),
             "meta/llama-3.3-70b-instruct"
         );
@@ -7344,6 +7399,10 @@ mod tests {
         assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
         assert_eq!(canonical_provider_name("zai-cn"), "zai");
         assert_eq!(canonical_provider_name("z.ai-global"), "zai");
+        assert_eq!(canonical_provider_name("doubao"), "volcengine");
+        assert_eq!(canonical_provider_name("ark"), "volcengine");
+        assert_eq!(canonical_provider_name("silicon-cloud"), "siliconflow");
+        assert_eq!(canonical_provider_name("siliconcloud"), "siliconflow");
         assert_eq!(canonical_provider_name("nvidia-nim"), "nvidia");
         assert_eq!(canonical_provider_name("aws-bedrock"), "bedrock");
         assert_eq!(canonical_provider_name("build.nvidia.com"), "nvidia");
@@ -7507,6 +7566,8 @@ mod tests {
         assert!(supports_live_model_fetch("glm-cn"));
         assert!(supports_live_model_fetch("qwen-intl"));
         assert!(supports_live_model_fetch("qwen-coding-plan"));
+        assert!(supports_live_model_fetch("siliconflow"));
+        assert!(supports_live_model_fetch("volcengine"));
         assert!(!supports_live_model_fetch("minimax-cn"));
         assert!(!supports_live_model_fetch("unknown-provider"));
     }
@@ -7597,6 +7658,10 @@ mod tests {
             models_endpoint_for_provider("qwen-coding-plan"),
             Some("https://coding.dashscope.aliyuncs.com/v1/models")
         );
+        assert_eq!(
+            models_endpoint_for_provider("volcengine"),
+            Some("https://ark.cn-beijing.volces.com/api/v3/models")
+        );
     }
 
     #[test]
@@ -7616,6 +7681,10 @@ mod tests {
         assert_eq!(
             models_endpoint_for_provider("moonshot"),
             Some("https://api.moonshot.ai/v1/models")
+        );
+        assert_eq!(
+            models_endpoint_for_provider("siliconflow"),
+            Some("https://api.siliconflow.cn/v1/models")
         );
         assert_eq!(
             models_endpoint_for_provider("llamacpp"),
@@ -7915,6 +7984,10 @@ mod tests {
         assert_eq!(provider_env_var("minimax-oauth-cn"), "MINIMAX_API_KEY");
         assert_eq!(provider_env_var("moonshot-intl"), "MOONSHOT_API_KEY");
         assert_eq!(provider_env_var("zai-cn"), "ZAI_API_KEY");
+        assert_eq!(provider_env_var("doubao"), "ARK_API_KEY");
+        assert_eq!(provider_env_var("volcengine"), "ARK_API_KEY");
+        assert_eq!(provider_env_var("ark"), "ARK_API_KEY");
+        assert_eq!(provider_env_var("siliconflow"), "SILICONFLOW_API_KEY");
         assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
         assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias

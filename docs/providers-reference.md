@@ -2,7 +2,7 @@
 
 This document maps provider IDs, aliases, and credential environment variables.
 
-Last verified: **February 24, 2026**.
+Last verified: **February 28, 2026**.
 
 ## How to List Providers
 
@@ -44,6 +44,7 @@ credential is not reused for fallback providers.
 | `bedrock` | `aws-bedrock` | No | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` (optional: `AWS_REGION`) |
 | `qianfan` | `baidu` | No | `QIANFAN_API_KEY` |
 | `doubao` | `volcengine`, `ark`, `doubao-cn` | No | `ARK_API_KEY`, `DOUBAO_API_KEY` |
+| `siliconflow` | `silicon-cloud`, `siliconcloud` | No | `SILICONFLOW_API_KEY` |
 | `hunyuan` | `tencent` | No | `HUNYUAN_API_KEY` |
 | `qwen` | `dashscope`, `qwen-intl`, `dashscope-intl`, `qwen-us`, `dashscope-us`, `qwen-code`, `qwen-oauth`, `qwen_oauth` | No | `QWEN_OAUTH_TOKEN`, `DASHSCOPE_API_KEY` |
 | `groq` | — | No | `GROQ_API_KEY` |
@@ -100,6 +101,53 @@ credential is not reused for fallback providers.
 - **Limitations**:
   - OAuth free tier limited to 1 model and 1000 requests/day
   - See test report: `docs/qwen-provider-test-report.md`
+
+### Volcengine ARK (Doubao) Notes
+
+- Runtime provider ID: `doubao` (aliases: `volcengine`, `ark`, `doubao-cn`)
+- Onboarding display/canonical name: `volcengine`
+- Base API URL: `https://ark.cn-beijing.volces.com/api/v3`
+- Chat endpoint: `/chat/completions`
+- Model discovery endpoint: `/models`
+- Authentication: `ARK_API_KEY` (fallback: `DOUBAO_API_KEY`)
+- Default model preset: `doubao-1-5-pro-32k-250115`
+
+Minimal setup example:
+
+```bash
+export ARK_API_KEY="your-ark-api-key"
+zeroclaw onboard --provider volcengine --api-key "$ARK_API_KEY" --model doubao-1-5-pro-32k-250115 --force
+```
+
+Quick validation:
+
+```bash
+zeroclaw models refresh --provider volcengine
+zeroclaw agent --provider volcengine --model doubao-1-5-pro-32k-250115 -m "ping"
+```
+
+### SiliconFlow Notes
+
+- Provider ID: `siliconflow` (aliases: `silicon-cloud`, `siliconcloud`)
+- Base API URL: `https://api.siliconflow.cn/v1`
+- Chat endpoint: `/chat/completions`
+- Model discovery endpoint: `/models`
+- Authentication: `SILICONFLOW_API_KEY`
+- Default model preset: `Pro/zai-org/GLM-4.7`
+
+Minimal setup example:
+
+```bash
+export SILICONFLOW_API_KEY="your-siliconflow-api-key"
+zeroclaw onboard --provider siliconflow --api-key "$SILICONFLOW_API_KEY" --model Pro/zai-org/GLM-4.7 --force
+```
+
+Quick validation:
+
+```bash
+zeroclaw models refresh --provider siliconflow
+zeroclaw agent --provider siliconflow --model Pro/zai-org/GLM-4.7 -m "ping"
+```
 
 ### Ollama Vision Notes
 
