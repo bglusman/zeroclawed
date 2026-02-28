@@ -31,6 +31,8 @@ pub mod cron_update;
 pub mod delegate;
 pub mod delegate_coordination_status;
 pub mod docx_read;
+#[cfg(feature = "channel-lark")]
+pub mod feishu_doc;
 pub mod file_edit;
 pub mod file_read;
 pub mod file_write;
@@ -86,6 +88,8 @@ pub use cron_update::CronUpdateTool;
 pub use delegate::DelegateTool;
 pub use delegate_coordination_status::DelegateCoordinationStatusTool;
 pub use docx_read::DocxReadTool;
+#[cfg(feature = "channel-lark")]
+pub use feishu_doc::FeishuDocTool;
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
@@ -428,6 +432,7 @@ pub fn all_tools_with_runtime(
         let provider_runtime_options = crate::providers::ProviderRuntimeOptions {
             auth_profile_override: None,
             provider_api_url: root_config.api_url.clone(),
+            provider_transport: root_config.effective_provider_transport(),
             zeroclaw_dir: root_config
                 .config_path
                 .parent()
@@ -512,38 +517,41 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    // Inter-process agent communication (opt-in)
-    if root_config.agents_ipc.enabled {
-        match agents_ipc::IpcDb::open(workspace_dir, &root_config.agents_ipc) {
-            Ok(ipc_db) => {
-                let ipc_db = Arc::new(ipc_db);
-                tool_arcs.push(Arc::new(agents_ipc::AgentsListTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsSendTool::new(
-                    ipc_db.clone(),
+    // Feishu document tools (enabled when channel-lark feature is active)
+    #[cfg(feature = "channel-lark")]
+    {
+        let feishu_creds = root_config
+            .channels_config
+            .feishu
+            .as_ref()
+            .map(|fs| (fs.app_id.clone(), fs.app_secret.clone(), true))
+            .or_else(|| {
+                root_config
+                    .channels_config
+                    .lark
+                    .as_ref()
+                    .map(|lk| (lk.app_id.clone(), lk.app_secret.clone(), lk.use_feishu))
+            });
+
+        if let Some((app_id, app_secret, use_feishu)) = feishu_creds {
+            let app_id = app_id.trim().to_string();
+            let app_secret = app_secret.trim().to_string();
+            if app_id.is_empty() || app_secret.is_empty() {
+                tracing::warn!(
+                    "feishu_doc: skipped registration because app credentials are empty"
+                );
+            } else {
+                tool_arcs.push(Arc::new(FeishuDocTool::new(
+                    app_id,
+                    app_secret,
+                    use_feishu,
                     security.clone(),
                 )));
-                tool_arcs.push(Arc::new(agents_ipc::AgentsInboxTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateGetTool::new(ipc_db.clone())));
-                tool_arcs.push(Arc::new(agents_ipc::StateSetTool::new(
-                    ipc_db,
-                    security.clone(),
-                )));
-            }
-            Err(e) => {
-                tracing::warn!("agents_ipc: failed to open IPC database: {e}");
             }
         }
     }
 
-    // Load WASM plugin tools from the skills directory.
-    // Each installed skill package may ship one or more WASM tools under
-    // `<skill-dir>/tools/<tool-name>/{tool.wasm, manifest.json}`.
-    // Failures are logged and skipped — a broken plugin must not block startup.
-    let skills_dir = workspace_dir.join("skills");
-    let mut boxed = boxed_registry_from_arcs(tool_arcs);
-    let wasm_tools = wasm_tool::load_wasm_tools_from_skills(&skills_dir);
-    boxed.extend(wasm_tools);
-    boxed
+    boxed_registry_from_arcs(tool_arcs)
 }
 
 #[cfg(test)]

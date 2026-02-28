@@ -74,6 +74,7 @@ const QWEN_OAUTH_DEFAULT_CLIENT_ID: &str = "f0304373b74a44d2b584a3fb70ca9e56";
 const QWEN_OAUTH_CREDENTIAL_FILE: &str = ".qwen/oauth_creds.json";
 const ZAI_GLOBAL_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
 const ZAI_CN_BASE_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4";
+const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
 const VERCEL_AI_GATEWAY_BASE_URL: &str = "https://ai-gateway.vercel.sh/v1";
 
 pub(crate) fn is_minimax_intl_alias(name: &str) -> bool {
@@ -177,6 +178,10 @@ pub(crate) fn is_qianfan_alias(name: &str) -> bool {
 
 pub(crate) fn is_doubao_alias(name: &str) -> bool {
     matches!(name, "doubao" | "volcengine" | "ark" | "doubao-cn")
+}
+
+pub(crate) fn is_siliconflow_alias(name: &str) -> bool {
+    matches!(name, "siliconflow" | "silicon-cloud" | "siliconcloud")
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -618,6 +623,8 @@ pub(crate) fn canonical_china_provider_name(name: &str) -> Option<&'static str> 
         Some("qianfan")
     } else if is_doubao_alias(name) {
         Some("doubao")
+    } else if is_siliconflow_alias(name) {
+        Some("siliconflow")
     } else if matches!(name, "hunyuan" | "tencent") {
         Some("hunyuan")
     } else {
@@ -683,6 +690,7 @@ fn zai_base_url(name: &str) -> Option<&'static str> {
 pub struct ProviderRuntimeOptions {
     pub auth_profile_override: Option<String>,
     pub provider_api_url: Option<String>,
+    pub provider_transport: Option<String>,
     pub zeroclaw_dir: Option<PathBuf>,
     pub secrets_encrypt: bool,
     pub reasoning_enabled: Option<bool>,
@@ -697,6 +705,7 @@ impl Default for ProviderRuntimeOptions {
         Self {
             auth_profile_override: None,
             provider_api_url: None,
+            provider_transport: None,
             zeroclaw_dir: None,
             secrets_encrypt: true,
             reasoning_enabled: None,
@@ -872,6 +881,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "hunyuan" | "tencent" => vec!["HUNYUAN_API_KEY"],
         name if is_qianfan_alias(name) => vec!["QIANFAN_API_KEY"],
         name if is_doubao_alias(name) => vec!["ARK_API_KEY", "DOUBAO_API_KEY"],
+        name if is_siliconflow_alias(name) => vec!["SILICONFLOW_API_KEY"],
         name if is_qwen_alias(name) => vec!["DASHSCOPE_API_KEY"],
         name if is_zai_alias(name) => vec!["ZAI_API_KEY"],
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec!["NVIDIA_API_KEY"],
@@ -1180,6 +1190,13 @@ fn create_provider_with_url_and_options(
             "https://ark.cn-beijing.volces.com/api/v3",
             key,
             AuthStyle::Bearer,
+        ))),
+        name if is_siliconflow_alias(name) => Ok(Box::new(OpenAiCompatibleProvider::new_with_vision(
+            "SiliconFlow",
+            SILICONFLOW_BASE_URL,
+            key,
+            AuthStyle::Bearer,
+            true,
         ))),
         name if qwen_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new_with_vision(
             "Qwen",
@@ -1512,7 +1529,15 @@ pub fn create_routed_provider_with_options(
             .then_some(api_url)
             .flatten();
 
-        let route_options = options.clone();
+        let mut route_options = options.clone();
+        if let Some(transport) = route
+            .transport
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            route_options.provider_transport = Some(transport.to_string());
+        }
 
         match create_resilient_provider_with_options(
             &route.provider,
@@ -1542,19 +1567,8 @@ pub fn create_routed_provider_with_options(
         }
     }
 
-    // Build route table
-    let routes: Vec<(String, router::Route)> = model_routes
-        .iter()
-        .map(|r| {
-            (
-                r.hint.clone(),
-                router::Route {
-                    provider_name: r.provider.clone(),
-                    model: r.model.clone(),
-                },
-            )
-        })
-        .collect();
+    // Keep only successfully initialized routed providers and preserve
+    // their provider-id bindings (e.g. "<provider>#<hint>").
 
     Ok(Box::new(
         router::RouterProvider::new(providers, routes, default_model.to_string())
@@ -1710,6 +1724,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "doubao",
             display_name: "Doubao (Volcengine)",
             aliases: &["volcengine", "ark", "doubao-cn"],
+            local: false,
+        },
+        ProviderInfo {
+            name: "siliconflow",
+            display_name: "SiliconFlow",
+            aliases: &["silicon-cloud", "siliconcloud"],
             local: false,
         },
         ProviderInfo {
@@ -2069,6 +2089,9 @@ mod tests {
         assert!(is_doubao_alias("volcengine"));
         assert!(is_doubao_alias("ark"));
         assert!(is_doubao_alias("doubao-cn"));
+        assert!(is_siliconflow_alias("siliconflow"));
+        assert!(is_siliconflow_alias("silicon-cloud"));
+        assert!(is_siliconflow_alias("siliconcloud"));
 
         assert!(!is_moonshot_alias("openrouter"));
         assert!(!is_glm_alias("openai"));
@@ -2076,6 +2099,7 @@ mod tests {
         assert!(!is_zai_alias("anthropic"));
         assert!(!is_qianfan_alias("cohere"));
         assert!(!is_doubao_alias("deepseek"));
+        assert!(!is_siliconflow_alias("volcengine"));
     }
 
     #[test]
@@ -2099,6 +2123,14 @@ mod tests {
         assert_eq!(canonical_china_provider_name("baidu"), Some("qianfan"));
         assert_eq!(canonical_china_provider_name("doubao"), Some("doubao"));
         assert_eq!(canonical_china_provider_name("volcengine"), Some("doubao"));
+        assert_eq!(
+            canonical_china_provider_name("siliconflow"),
+            Some("siliconflow")
+        );
+        assert_eq!(
+            canonical_china_provider_name("silicon-cloud"),
+            Some("siliconflow")
+        );
         assert_eq!(canonical_china_provider_name("hunyuan"), Some("hunyuan"));
         assert_eq!(canonical_china_provider_name("tencent"), Some("hunyuan"));
         assert_eq!(canonical_china_provider_name("openai"), None);
@@ -2314,6 +2346,13 @@ mod tests {
         assert!(create_provider("volcengine", Some("key")).is_ok());
         assert!(create_provider("ark", Some("key")).is_ok());
         assert!(create_provider("doubao-cn", Some("key")).is_ok());
+    }
+
+    #[test]
+    fn factory_siliconflow() {
+        assert!(create_provider("siliconflow", Some("key")).is_ok());
+        assert!(create_provider("silicon-cloud", Some("key")).is_ok());
+        assert!(create_provider("siliconcloud", Some("key")).is_ok());
     }
 
     #[test]
@@ -2776,6 +2815,8 @@ mod tests {
             "bedrock",
             "qianfan",
             "doubao",
+            "volcengine",
+            "siliconflow",
             "qwen",
             "qwen-intl",
             "qwen-cn",
@@ -3049,6 +3090,7 @@ mod tests {
             model: "anthropic/claude-sonnet-4.6".to_string(),
             max_tokens: Some(4096),
             api_key: None,
+            transport: None,
         }];
 
         let provider = create_routed_provider_with_options(

@@ -999,6 +999,7 @@ fn runtime_perplexity_filter_snapshot(
             return state.perplexity_filter.clone();
         }
     }
+
     crate::config::PerplexityFilterConfig::default()
 }
 
@@ -2168,54 +2169,6 @@ async fn handle_runtime_command_if_needed(
                 )
             }
         }
-        ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
-            let request_id = raw_request_id.trim().to_string();
-            if request_id.is_empty() {
-                "Usage: `/approve-allow <request-id>`".to_string()
-            } else {
-                match ctx.approval_manager.confirm_non_cli_pending_request(
-                    &request_id,
-                    sender,
-                    source_channel,
-                    reply_target,
-                ) {
-                    Ok(req) => {
-                        ctx.approval_manager
-                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
-                        runtime_trace::record_event(
-                            "approval_request_allowed",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(true),
-                            Some("pending request allowed for current tool invocation"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "tool_name": req.tool_name,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Approved pending request `{}` for this invocation of `{}`.",
-                            req.request_id, req.tool_name
-                        )
-                    }
-                    Err(PendingApprovalError::NotFound) => {
-                        format!("Pending approval request `{request_id}` was not found.")
-                    }
-                    Err(PendingApprovalError::Expired) => {
-                        format!("Pending approval request `{request_id}` has expired.")
-                    }
-                    Err(PendingApprovalError::RequesterMismatch) => {
-                        format!(
-                            "Pending approval request `{request_id}` can only be approved by the same sender in the same chat/channel that created it."
-                        )
-                    }
-                }
-            }
-        }
         ChannelRuntimeCommand::ConfirmToolApproval(raw_request_id) => {
             let request_id = raw_request_id.trim().to_string();
             if request_id.is_empty() {
@@ -2228,8 +2181,6 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
-                        ctx.approval_manager
-                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
                         let tool_name = req.tool_name;
                         let mut approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
                             let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
@@ -2336,10 +2287,54 @@ async fn handle_runtime_command_if_needed(
                 }
             }
         }
+        ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
+            let request_id = raw_request_id.trim().to_string();
+            if request_id.is_empty() {
+                "Usage: `/approve-allow <request-id>`".to_string()
+            } else if !ctx
+                .approval_manager
+                .is_non_cli_approval_actor_allowed(source_channel, sender)
+            {
+                "You are not allowed to approve pending non-CLI tool requests.".to_string()
+            } else {
+                match ctx.approval_manager.confirm_non_cli_pending_request(
+                    &request_id,
+                    sender,
+                    source_channel,
+                    reply_target,
+                ) {
+                    Ok(req) => {
+                        ctx.approval_manager.record_non_cli_pending_resolution(
+                            &request_id,
+                            ApprovalResponse::Yes,
+                        );
+                        format!(
+                            "Approved pending request `{}` for `{}`.",
+                            request_id,
+                            approval_target_label(&req.tool_name)
+                        )
+                    }
+                    Err(PendingApprovalError::NotFound) => {
+                        format!("Pending approval request `{request_id}` was not found.")
+                    }
+                    Err(PendingApprovalError::Expired) => {
+                        format!("Pending approval request `{request_id}` has expired.")
+                    }
+                    Err(PendingApprovalError::RequesterMismatch) => format!(
+                        "Pending approval request `{request_id}` can only be approved by the same sender in the same chat/channel that created it."
+                    ),
+                }
+            }
+        }
         ChannelRuntimeCommand::DenyToolApproval(raw_request_id) => {
             let request_id = raw_request_id.trim().to_string();
             if request_id.is_empty() {
                 "Usage: `/approve-deny <request-id>`".to_string()
+            } else if !ctx
+                .approval_manager
+                .is_non_cli_approval_actor_allowed(source_channel, sender)
+            {
+                "You are not allowed to deny pending non-CLI tool requests.".to_string()
             } else {
                 match ctx.approval_manager.reject_non_cli_pending_request(
                     &request_id,
@@ -2348,81 +2343,25 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
-                        ctx.approval_manager
-                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::No);
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(true),
-                            Some("pending request denied"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "tool_name": req.tool_name,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
+                        ctx.approval_manager.record_non_cli_pending_resolution(
+                            &request_id,
+                            ApprovalResponse::No,
                         );
                         format!(
-                            "Denied pending approval request `{}` for tool `{}`.",
-                            req.request_id, req.tool_name
+                            "Denied pending request `{}` for `{}`.",
+                            request_id,
+                            approval_target_label(&req.tool_name)
                         )
                     }
                     Err(PendingApprovalError::NotFound) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request not found"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
                         format!("Pending approval request `{request_id}` was not found.")
                     }
                     Err(PendingApprovalError::Expired) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request expired"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
                         format!("Pending approval request `{request_id}` has expired.")
                     }
-                    Err(PendingApprovalError::RequesterMismatch) => {
-                        runtime_trace::record_event(
-                            "approval_request_denied",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(false),
-                            Some("pending request denier mismatch"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Pending approval request `{request_id}` can only be denied by the same sender in the same chat/channel that created it."
-                        )
-                    }
+                    Err(PendingApprovalError::RequesterMismatch) => format!(
+                        "Pending approval request `{request_id}` can only be denied by the same sender in the same chat/channel that created it."
+                    ),
                 }
             }
         }
@@ -3909,7 +3848,7 @@ async fn run_message_dispatch_loop(
                 }
             }
 
-            process_channel_message(worker_ctx, msg, cancellation_token).await;
+            Box::pin(process_channel_message(worker_ctx, msg, cancellation_token)).await;
 
             if interrupt_enabled {
                 let mut active = in_flight.lock().await;
@@ -4894,6 +4833,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
         provider_api_url: config.api_url.clone(),
+        provider_transport: config.effective_provider_transport(),
         zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
         secrets_encrypt: config.secrets.encrypt,
         reasoning_enabled: config.runtime.reasoning_enabled,
@@ -5301,6 +5241,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::large_futures)]
 mod tests {
     use super::*;
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
@@ -10409,6 +10350,25 @@ BTC is currently around $65,000 based on latest tool output."#;
         assert!(channels
             .iter()
             .any(|entry| entry.channel.name() == "mattermost"));
+    }
+
+    #[test]
+    fn collect_configured_channels_includes_dingtalk_when_configured() {
+        let mut config = Config::default();
+        config.channels_config.dingtalk = Some(crate::config::schema::DingTalkConfig {
+            client_id: "ding-app-key".to_string(),
+            client_secret: "ding-app-secret".to_string(),
+            allowed_users: vec!["*".to_string()],
+        });
+
+        let channels = collect_configured_channels(&config, "test");
+
+        assert!(channels
+            .iter()
+            .any(|entry| entry.display_name == "DingTalk"));
+        assert!(channels
+            .iter()
+            .any(|entry| entry.channel.name() == "dingtalk"));
     }
 
     struct AlwaysFailChannel {

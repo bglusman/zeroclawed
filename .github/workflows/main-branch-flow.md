@@ -1,6 +1,6 @@
 # Main Branch Delivery Flows
 
-This document explains what runs when code is proposed to `dev`, promoted to `main`, and released.
+This document explains what runs when code is proposed to `dev`/`main`, merged to `main`, and released.
 
 Use this with:
 
@@ -13,7 +13,7 @@ Use this with:
 | Event | Main workflows |
 | --- | --- |
 | PR activity (`pull_request_target`) | `pr-intake-checks.yml`, `pr-labeler.yml`, `pr-auto-response.yml` |
-| PR activity (`pull_request`) | `ci-run.yml`, `sec-audit.yml`, `main-promotion-gate.yml` (for `main` PRs), plus path-scoped workflows |
+| PR activity (`pull_request`) | `ci-run.yml`, `sec-audit.yml`, plus path-scoped workflows |
 | Push to `dev`/`main` | `ci-run.yml`, `sec-audit.yml`, plus path-scoped workflows |
 | Tag push (`v*`) | `pub-release.yml` publish mode, `pub-docker-img.yml` publish job |
 | Scheduled/manual | `pub-release.yml` verification mode, `sec-codeql.yml`, `feature-matrix.yml`, `test-fuzz.yml`, `pr-check-stale.yml`, `pr-check-status.yml`, `sync-contributors.yml`, `test-benchmarks.yml`, `test-e2e.yml` |
@@ -120,14 +120,12 @@ Notes:
    - repeated `pull_request_target` reruns from label churn causing noisy signals.
 9. After merge, normal `push` workflows on `dev` execute (scenario 4).
 
-### 3) Promotion PR `dev` -> `main`
+### 3) PR to `main` (direct or from `dev`)
 
-1. Maintainer opens PR with head `dev` and base `main`.
-2. `main-promotion-gate.yml` runs and fails unless PR author is `willsarg` or `theonlyhennygod`.
-3. `main-promotion-gate.yml` also fails if head repo/branch is not `<this-repo>:dev`.
-4. `ci-run.yml` and `sec-audit.yml` run on the promotion PR.
-5. Maintainer merges PR once checks and review policy pass.
-6. Merge emits a `push` event on `main`.
+1. Contributor or maintainer opens PR with base `main`.
+2. `ci-run.yml` and `sec-audit.yml` run on the PR, plus any path-scoped workflows.
+3. Maintainer merges PR once checks and review policy pass.
+4. Merge emits a `push` event on `main`.
 
 ### 4) Push/Merge Queue to `dev` or `main` (including after merge)
 
@@ -240,29 +238,29 @@ flowchart TD
   G --> H["push event on dev"]
 ```
 
-### Promotion and Release
+### Main Delivery and Release
 
 ```mermaid
 flowchart TD
   D0["Commit reaches dev"] --> B0["ci-run.yml"]
   D0 --> C0["sec-audit.yml"]
-  P["Promotion PR dev -> main"] --> PG["main-promotion-gate.yml"]
-  PG --> M["Merge to main"]
+  PRM["PR to main"] --> QM["ci-run.yml + sec-audit.yml (+ path-scoped)"]
+  QM --> M["Merge to main"]
   M --> A["Commit reaches main"]
   A --> B["ci-run.yml"]
   A --> C["sec-audit.yml"]
   A --> D["path-scoped workflows (if matched)"]
   T["Tag push v*"] --> R["pub-release.yml"]
   W["Manual/Scheduled release verify"] --> R
-  T --> P["pub-docker-img.yml publish job"]
+  T --> DP["pub-docker-img.yml publish job"]
   R --> R1["Artifacts + SBOM + checksums + signatures + GitHub Release"]
   W --> R2["Verification build only (no GitHub Release publish)"]
-  P --> P1["Push ghcr image tags (version + sha + latest)"]
+  DP --> P1["Push ghcr image tags (version + sha + latest)"]
 ```
 
 ## Quick Troubleshooting
 
 1. Unexpected skipped jobs: inspect `scripts/ci/detect_change_scope.sh` outputs.
-2. Workflow-change PR blocked: verify `WORKFLOW_OWNER_LOGINS` and approvals.
+2. CI/CD-change PR blocked: verify `@chumyin` approved review is present.
 3. Fork PR appears stalled: check whether Actions run approval is pending.
 4. Docker not published: confirm a `v*` tag was pushed to the intended commit.

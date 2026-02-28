@@ -94,6 +94,9 @@ Operational note for container users:
 | `max_history_messages` | `50` | Maximum conversation history messages retained per session |
 | `parallel_tools` | `false` | Enable parallel tool execution within a single iteration |
 | `tool_dispatcher` | `auto` | Tool dispatch strategy |
+| `loop_detection_no_progress_threshold` | `3` | Same tool+args producing identical output this many times triggers loop detection. `0` disables |
+| `loop_detection_ping_pong_cycles` | `2` | A→B→A→B alternating pattern cycle count threshold. `0` disables |
+| `loop_detection_failure_streak` | `3` | Same tool consecutive failure count threshold. `0` disables |
 
 Notes:
 
@@ -101,6 +104,7 @@ Notes:
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
 - In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
 - `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
+- **Loop detection** intervenes before `max_tool_iterations` is exhausted. On first detection the agent receives a self-correction prompt; if the loop persists the agent is stopped early. Detection is result-aware: repeated calls with *different* outputs (genuine progress) do not trigger. Set any threshold to `0` to disable that detector.
 
 ## `[security.otp]`
 
@@ -382,6 +386,7 @@ WASM profile templates:
 | Key | Default | Purpose |
 |---|---|---|
 | `reasoning_level` | unset (`None`) | Reasoning effort/level override for providers that support explicit levels (currently OpenAI Codex `/responses`) |
+| `transport` | unset (`None`) | Provider transport override (`auto`, `websocket`, `sse`) |
 
 Notes:
 
@@ -389,6 +394,14 @@ Notes:
 - When set, overrides `ZEROCLAW_CODEX_REASONING_EFFORT` for OpenAI Codex requests.
 - Unset falls back to `ZEROCLAW_CODEX_REASONING_EFFORT` if present, otherwise defaults to `xhigh`.
 - If both `provider.reasoning_level` and deprecated `runtime.reasoning_level` are set, provider-level value wins.
+- `provider.transport` is normalized case-insensitively (`ws` aliases to `websocket`; `http` aliases to `sse`).
+- For OpenAI Codex, default transport mode is `auto` (WebSocket-first with SSE fallback).
+- Transport override precedence for OpenAI Codex:
+  1. `[[model_routes]].transport` (route-specific)
+  2. `PROVIDER_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT` / `ZEROCLAW_CODEX_TRANSPORT`
+  3. `provider.transport`
+  4. legacy `ZEROCLAW_RESPONSES_WEBSOCKET` (boolean)
+- Environment overrides replace configured `provider.transport` when set.
 
 ## `[skills]`
 
@@ -668,6 +681,7 @@ Use route hints so integrations can keep stable names while model IDs evolve.
 | `model` | _required_ | Model to use with that provider |
 | `max_tokens` | unset | Optional per-route output token cap forwarded to provider APIs |
 | `api_key` | unset | Optional API key override for this route's provider |
+| `transport` | unset | Optional per-route transport override (`auto`, `websocket`, `sse`) |
 
 ### `[[embedding_routes]]`
 
