@@ -2531,17 +2531,10 @@ pub async fn process_message_with_session(
         format!("{context}[{now}] {message}")
     };
 
-    let session_manager = shared_session_manager(&config.agent.session, &config.workspace_dir)?;
-    let session_id = resolve_session_id(&config.agent.session, sender_id, Some(channel_name));
-    tracing::debug!(session_id, "session_id resolved");
-    if let Some(mgr) = session_manager {
-        let session = mgr.get_or_create(&session_id).await?;
-        let stored_history = session.get_history().await?;
-        tracing::debug!(history_len = stored_history.len(), "session history loaded");
-        let filtered_history: Vec<ChatMessage> = stored_history
-            .into_iter()
-            .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
-            .collect();
+    let mut history = vec![
+        ChatMessage::system(&system_prompt),
+        ChatMessage::user(&enriched),
+    ];
 
     let hb_cfg = if config.agent.safety_heartbeat_interval > 0 {
         Some(SafetyHeartbeatConfig {
