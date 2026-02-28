@@ -132,9 +132,10 @@ pub struct BlueBubblesChannel {
     /// Cache of recent `fromMe` messages keyed by message GUID.
     /// Used to inject reply context when the user replies to a bot message.
     from_me_cache: Mutex<FromMeCache>,
-    /// Background task that periodically refreshes the typing indicator.
-    /// BB typing indicators expire in ~5 s; refreshed every 4 s.
-    typing_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Per-recipient background tasks that periodically refresh typing indicators.
+    /// BB typing indicators expire in ~5 s; tasks refresh every 4 s.
+    /// Keyed by chat GUID so concurrent conversations don't cancel each other.
+    typing_handles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
 
 impl BlueBubblesChannel {
@@ -151,8 +152,17 @@ impl BlueBubblesChannel {
             ignore_senders,
             client: reqwest::Client::new(),
             from_me_cache: Mutex::new(FromMeCache::new()),
-            typing_handle: Mutex::new(None),
+            typing_handles: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Check if a sender address is in the ignore list.
+    ///
+    /// Ignored senders are silently dropped before allowlist evaluation.
+    fn is_sender_ignored(&self, sender: &str) -> bool {
+        self.ignore_senders
+            .iter()
+            .any(|s| s == "*" || s.eq_ignore_ascii_case(sender))
     }
 
     /// Check if a sender address is allowed.
@@ -457,6 +467,11 @@ impl BlueBubblesChannel {
             tracing::debug!("BlueBubbles: skipping message with no sender");
             return messages;
         };
+
+        if self.is_sender_ignored(&sender) {
+            tracing::debug!("BlueBubbles: ignoring message from ignored sender: {sender}");
+            return messages;
+        }
 
         if !self.is_sender_allowed(&sender) {
             tracing::warn!(
@@ -797,13 +812,15 @@ impl Channel for BlueBubblesChannel {
             }
         });
 
-        *self.typing_handle.lock() = Some(handle);
+        self.typing_handles
+            .lock()
+            .insert(recipient.to_string(), handle);
         Ok(())
     }
 
-    /// Stop the active typing indicator background loop.
-    async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
-        if let Some(handle) = self.typing_handle.lock().take() {
+    /// Stop the typing indicator background loop for the given recipient.
+    async fn stop_typing(&self, recipient: &str) -> anyhow::Result<()> {
+        if let Some(handle) = self.typing_handles.lock().remove(recipient) {
             handle.abort();
         }
         Ok(())
@@ -1440,5 +1457,51 @@ mod tests {
             all_text.contains("fn main()"),
             "Code content must be preserved"
         );
+    }
+
+    #[test]
+    fn bluebubbles_ignore_sender_exact() {
+        let ch = BlueBubblesChannel::new(
+            "http://localhost:1234".into(),
+            "pw".into(),
+            vec!["*".into()],
+            vec!["bot@example.com".into()],
+        );
+        assert!(ch.is_sender_ignored("bot@example.com"));
+        assert!(ch.is_sender_ignored("BOT@EXAMPLE.COM")); // case-insensitive
+        assert!(!ch.is_sender_ignored("+1234567890"));
+    }
+
+    #[test]
+    fn bluebubbles_ignore_sender_takes_precedence_over_allowlist() {
+        let ch = BlueBubblesChannel::new(
+            "http://localhost:1234".into(),
+            "pw".into(),
+            vec!["bot@example.com".into()], // explicitly allowed
+            vec!["bot@example.com".into()], // but also ignored
+        );
+        let payload = serde_json::json!({
+            "type": "new-message",
+            "data": {
+                "guid": "p:0/abc",
+                "text": "hello",
+                "isFromMe": false,
+                "handle": { "address": "bot@example.com" },
+                "chats": [{ "guid": "iMessage;-;bot@example.com", "style": 45 }],
+                "attachments": []
+            }
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert!(
+            msgs.is_empty(),
+            "ignore_senders must take precedence over allowed_senders"
+        );
+    }
+
+    #[test]
+    fn bluebubbles_ignore_sender_empty_list_ignores_nothing() {
+        let ch = make_open_channel(); // ignore_senders = []
+        assert!(!ch.is_sender_ignored("+1234567890"));
+        assert!(!ch.is_sender_ignored("anyone@example.com"));
     }
 }

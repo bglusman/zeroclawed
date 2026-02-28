@@ -6225,6 +6225,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.clawdtalk.webhook_secret",
         )?;
     }
+    if let Some(ref mut bluebubbles) = channels.bluebubbles {
+        decrypt_secret(
+            store,
+            &mut bluebubbles.password,
+            "config.channels_config.bluebubbles.password",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut bluebubbles.webhook_secret,
+            "config.channels_config.bluebubbles.webhook_secret",
+        )?;
+    }
     Ok(())
 }
 
@@ -6404,6 +6416,18 @@ fn encrypt_channel_secrets(
             store,
             &mut clawdtalk.webhook_secret,
             "config.channels_config.clawdtalk.webhook_secret",
+        )?;
+    }
+    if let Some(ref mut bluebubbles) = channels.bluebubbles {
+        encrypt_secret(
+            store,
+            &mut bluebubbles.password,
+            "config.channels_config.bluebubbles.password",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut bluebubbles.webhook_secret,
+            "config.channels_config.bluebubbles.webhook_secret",
         )?;
     }
     Ok(())
