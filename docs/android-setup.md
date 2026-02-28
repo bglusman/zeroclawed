@@ -176,6 +176,17 @@ JSON report highlights:
 - `detection_codes`: structured diagnosis codes (`CC_RS_TOOL_NOT_FOUND`, `LINKER_RESOLUTION_FAILURE`, `MISSING_RUST_TARGET_STDLIB`, ...)
 - `suggestions`: copy-paste recovery commands
 
+Enable strict gating when integrating into CI:
+
+```bash
+scripts/android/termux_source_build_check.sh \
+  --target aarch64-linux-android \
+  --mode ndk-cross \
+  --diagnose-log /path/to/cargo-error.log \
+  --json-output /tmp/zeroclaw-android-selfcheck.json \
+  --strict
+```
+
 ## Troubleshooting
 
 ### "Permission denied"
