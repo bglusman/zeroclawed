@@ -2040,6 +2040,7 @@ async fn handle_linq_webhook(
 }
 
 /// POST /github — incoming GitHub webhook (issue/PR comments)
+#[allow(clippy::large_futures)]
 async fn handle_github_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
