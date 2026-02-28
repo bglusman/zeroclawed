@@ -119,6 +119,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "provider.ollama",
     "provider.openai",
     "provider.openrouter",
+    "channel.bluebubbles",
     "channel.dingtalk",
     "channel.discord",
     "channel.feishu",
@@ -509,6 +510,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.whatsapp.is_some(),
             self.channels_config.linq.is_some(),
             self.channels_config.github.is_some(),
+            self.channels_config.bluebubbles.is_some(),
             self.channels_config.wati.is_some(),
             self.channels_config.nextcloud_talk.is_some(),
             self.channels_config.email.is_some(),
@@ -4073,6 +4075,8 @@ pub struct ChannelsConfig {
     pub linq: Option<LinqConfig>,
     /// GitHub channel configuration.
     pub github: Option<GitHubConfig>,
+    /// BlueBubbles iMessage bridge channel configuration.
+    pub bluebubbles: Option<BlueBubblesConfig>,
     /// WATI WhatsApp Business API channel configuration.
     pub wati: Option<WatiConfig>,
     /// Nextcloud Talk bot channel configuration.
@@ -4149,6 +4153,10 @@ impl ChannelsConfig {
             (
                 Box::new(ConfigWrapper::new(self.github.as_ref())),
                 self.github.is_some(),
+            ),
+            (
+                Box::new(ConfigWrapper::new(self.bluebubbles.as_ref())),
+                self.bluebubbles.is_some(),
             ),
             (
                 Box::new(ConfigWrapper::new(self.wati.as_ref())),
@@ -4233,6 +4241,7 @@ impl Default for ChannelsConfig {
             whatsapp: None,
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -4720,6 +4729,88 @@ impl ChannelConfig for GitHubConfig {
     }
     fn desc() -> &'static str {
         "issues/PR comments via webhook + REST API"
+    }
+}
+
+/// BlueBubbles iMessage bridge channel configuration.
+///
+/// BlueBubbles is a self-hosted macOS server that exposes iMessage via a
+/// REST API and webhook push notifications. See <https://bluebubbles.app>.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BlueBubblesConfig {
+    /// BlueBubbles server URL (e.g. `http://192.168.1.100:1234` or an ngrok URL).
+    pub server_url: String,
+    /// BlueBubbles server password.
+    pub password: String,
+    /// Allowed sender handles (phone numbers or Apple IDs). Use `["*"]` to allow all.
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+    /// Optional shared secret to authenticate inbound webhooks.
+    /// If set, incoming requests must include `Authorization: Bearer <secret>`.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    /// Sender handles to silently ignore (e.g. suppress echoed outbound messages).
+    #[serde(default)]
+    pub ignore_senders: Vec<String>,
+}
+
+impl std::fmt::Debug for BlueBubblesConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted_server_url = redact_url_userinfo_for_debug(&self.server_url);
+        f.debug_struct("BlueBubblesConfig")
+            .field("server_url", &redacted_server_url)
+            .field("password", &"[REDACTED]")
+            .field("allowed_senders", &self.allowed_senders)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
+fn redact_url_userinfo_for_debug(raw: &str) -> String {
+    let fallback = || {
+        let Some(at) = raw.rfind('@') else {
+            return raw.to_string();
+        };
+        let left = &raw[..at];
+        if left.contains('/') || left.contains('?') || left.contains('#') {
+            return raw.to_string();
+        }
+        format!("[REDACTED]@{}", &raw[at + 1..])
+    };
+
+    let Some(scheme_idx) = raw.find("://") else {
+        return fallback();
+    };
+
+    let auth_start = scheme_idx + 3;
+    let rest = &raw[auth_start..];
+    let auth_end_rel = rest
+        .find(|c| c == '/' || c == '?' || c == '#')
+        .unwrap_or(rest.len());
+    let authority = &rest[..auth_end_rel];
+
+    let Some(at) = authority.rfind('@') else {
+        return raw.to_string();
+    };
+
+    let host = &authority[at + 1..];
+    let mut sanitized = String::with_capacity(raw.len());
+    sanitized.push_str(&raw[..auth_start]);
+    sanitized.push_str("[REDACTED]@");
+    sanitized.push_str(host);
+    sanitized.push_str(&rest[auth_end_rel..]);
+    sanitized
+}
+
+impl ChannelConfig for BlueBubblesConfig {
+    fn name() -> &'static str {
+        "BlueBubbles"
+    }
+    fn desc() -> &'static str {
+        "iMessage via BlueBubbles self-hosted macOS server"
     }
 }
 
@@ -6364,6 +6455,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.clawdtalk.webhook_secret",
         )?;
     }
+    if let Some(ref mut bluebubbles) = channels.bluebubbles {
+        decrypt_secret(
+            store,
+            &mut bluebubbles.password,
+            "config.channels_config.bluebubbles.password",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut bluebubbles.webhook_secret,
+            "config.channels_config.bluebubbles.webhook_secret",
+        )?;
+    }
     Ok(())
 }
 
@@ -6543,6 +6646,18 @@ fn encrypt_channel_secrets(
             store,
             &mut clawdtalk.webhook_secret,
             "config.channels_config.clawdtalk.webhook_secret",
+        )?;
+    }
+    if let Some(ref mut bluebubbles) = channels.bluebubbles {
+        encrypt_secret(
+            store,
+            &mut bluebubbles.password,
+            "config.channels_config.bluebubbles.password",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut bluebubbles.webhook_secret,
+            "config.channels_config.bluebubbles.webhook_secret",
         )?;
     }
     Ok(())
@@ -8711,6 +8826,23 @@ mod tests {
     }
 
     #[test]
+    async fn bluebubbles_debug_redacts_server_url_userinfo() {
+        let cfg = BlueBubblesConfig {
+            server_url: "https://alice:super-secret@example.com:1234/api/v1".to_string(),
+            password: "channel-password".to_string(),
+            allowed_senders: vec!["*".to_string()],
+            webhook_secret: Some("hook-secret".to_string()),
+            ignore_senders: vec![],
+        };
+
+        let debug_output = format!("{cfg:?}");
+        assert!(debug_output.contains("https://[REDACTED]@example.com:1234/api/v1"));
+        assert!(!debug_output.contains("alice:super-secret"));
+        assert!(!debug_output.contains("channel-password"));
+        assert!(!debug_output.contains("hook-secret"));
+    }
+
+    #[test]
     async fn config_dir_creation_error_mentions_openrc_and_path() {
         let msg = config_dir_creation_error(Path::new("/etc/zeroclaw"));
         assert!(msg.contains("/etc/zeroclaw"));
@@ -9090,6 +9222,7 @@ ws_url = "ws://127.0.0.1:3002"
                 whatsapp: None,
                 linq: None,
                 github: None,
+                bluebubbles: None,
                 wati: None,
                 nextcloud_talk: None,
                 email: None,
@@ -10024,6 +10157,7 @@ allowed_users = ["@ops:matrix.org"]
             whatsapp: None,
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -10308,6 +10442,7 @@ channel_id = "C123"
             }),
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
