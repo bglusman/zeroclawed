@@ -19,6 +19,7 @@ pub mod agents_ipc;
 pub mod apply_patch;
 pub mod auth_profile;
 pub mod browser;
+pub mod bg_run;
 pub mod browser_open;
 pub mod cli_discovery;
 pub mod composio;
@@ -81,6 +82,7 @@ pub mod web_search_config;
 pub mod web_search_tool;
 
 pub use apply_patch::ApplyPatchTool;
+pub use bg_run::{format_bg_result_for_injection, BgJob, BgJobStatus, BgJobStore, BgRunTool, BgStatusTool};
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
@@ -184,6 +186,23 @@ impl Tool for ArcDelegatingTool {
 fn boxed_registry_from_arcs(tools: Vec<Arc<dyn Tool>>) -> Vec<Box<dyn Tool>> {
     tools.into_iter().map(ArcDelegatingTool::boxed).collect()
 }
+
+/// Add background tool execution capabilities to a tool registry
+pub fn add_bg_tools(tools: Vec<Box<dyn Tool>>) -> (Vec<Box<dyn Tool>>, BgJobStore) {
+    let bg_job_store = BgJobStore::new();
+    let tool_arcs: Vec<Arc<dyn Tool>> = tools
+        .into_iter()
+        .map(|t| Arc::from(t) as Arc<dyn Tool>)
+        .collect();
+    let tools_arc = Arc::new(tool_arcs);
+    let bg_run = BgRunTool::new(bg_job_store.clone(), Arc::clone(&tools_arc));
+    let bg_status = BgStatusTool::new(bg_job_store.clone());
+    let mut extended: Vec<Arc<dyn Tool>> = (*tools_arc).clone();
+    extended.push(Arc::new(bg_run));
+    extended.push(Arc::new(bg_status));
+    (boxed_registry_from_arcs(extended), bg_job_store)
+}
+
 
 /// Create the default tool registry
 pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
