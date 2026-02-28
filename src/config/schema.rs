@@ -3905,6 +3905,8 @@ pub struct ChannelsConfig {
     /// DingTalk channel configuration.
     pub dingtalk: Option<DingTalkConfig>,
     /// Napcat QQ protocol channel configuration.
+    /// Also accepts legacy key `[channels_config.onebot]` for OneBot v11 compatibility.
+    #[serde(alias = "onebot")]
     pub napcat: Option<NapcatConfig>,
     /// QQ Official Bot channel configuration.
     pub qq: Option<QQConfig>,
@@ -5450,6 +5452,7 @@ impl ChannelConfig for DingTalkConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NapcatConfig {
     /// Napcat WebSocket endpoint (for example `ws://127.0.0.1:3001`)
+    #[serde(alias = "ws_url")]
     pub websocket_url: String,
     /// Optional Napcat HTTP API base URL. If omitted, derived from websocket_url.
     #[serde(default)]
@@ -8581,6 +8584,47 @@ default_temperature = 0.7
         assert!(c.cli);
         assert!(c.telegram.is_none());
         assert!(c.discord.is_none());
+    }
+
+    #[test]
+    async fn channels_config_accepts_onebot_alias_with_ws_url() {
+        let toml = r#"
+cli = true
+
+[onebot]
+ws_url = "ws://127.0.0.1:3001"
+access_token = "onebot-token"
+allowed_users = ["10001"]
+"#;
+
+        let parsed: ChannelsConfig =
+            toml::from_str(toml).expect("config should accept onebot alias for napcat");
+        let napcat = parsed
+            .napcat
+            .expect("channels_config.onebot should map to napcat config");
+
+        assert_eq!(napcat.websocket_url, "ws://127.0.0.1:3001");
+        assert_eq!(napcat.access_token.as_deref(), Some("onebot-token"));
+        assert_eq!(napcat.allowed_users, vec!["10001"]);
+    }
+
+    #[test]
+    async fn channels_config_napcat_still_accepts_ws_url_alias() {
+        let toml = r#"
+cli = true
+
+[napcat]
+ws_url = "ws://127.0.0.1:3002"
+"#;
+
+        let parsed: ChannelsConfig =
+            toml::from_str(toml).expect("napcat config should accept ws_url as websocket alias");
+        let napcat = parsed
+            .napcat
+            .expect("channels_config.napcat should be present");
+
+        assert_eq!(napcat.websocket_url, "ws://127.0.0.1:3002");
+        assert!(napcat.access_token.is_none());
     }
 
     // ── Serde round-trip ─────────────────────────────────────
