@@ -18,7 +18,7 @@ use crate::providers::ChatMessage;
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        State, WebSocketUpgrade,
+        RawQuery, State, WebSocketUpgrade,
     },
     http::{header, HeaderMap},
     response::IntoResponse,
@@ -156,11 +156,13 @@ fn build_ws_system_prompt(
 pub async fn handle_ws_chat(
     State(state): State<AppState>,
     headers: HeaderMap,
+    RawQuery(query): RawQuery,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     // Auth via Authorization header or websocket protocol token.
     if state.pairing.require_pairing() {
-        let token = extract_ws_bearer_token(&headers).unwrap_or_default();
+        let query_token = extract_query_token(query.as_deref());
+        let token = extract_ws_bearer_token(&headers, query_token.as_deref()).unwrap_or_default();
         if !state.pairing.is_authenticated(&token) {
             return (
                 axum::http::StatusCode::UNAUTHORIZED,
@@ -301,7 +303,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-fn extract_ws_bearer_token(headers: &HeaderMap) -> Option<String> {
+fn extract_ws_bearer_token(headers: &HeaderMap, query_token: Option<&str>) -> Option<String> {
     if let Some(auth_header) = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -326,6 +328,24 @@ fn extract_ws_bearer_token(headers: &HeaderMap) -> Option<String> {
         }
     }
 
+    query_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn extract_query_token(raw_query: Option<&str>) -> Option<String> {
+    let query = raw_query?;
+    for kv in query.split('&') {
+        let mut parts = kv.splitn(2, '=');
+        if parts.next() != Some("token") {
+            continue;
+        }
+        let token = parts.next().unwrap_or("").trim();
+        if !token.is_empty() {
+            return Some(token.to_string());
+        }
+    }
     None
 }
 
@@ -349,7 +369,7 @@ mod tests {
         );
 
         assert_eq!(
-            extract_ws_bearer_token(&headers).as_deref(),
+            extract_ws_bearer_token(&headers, None).as_deref(),
             Some("from-auth-header")
         );
     }
@@ -363,7 +383,7 @@ mod tests {
         );
 
         assert_eq!(
-            extract_ws_bearer_token(&headers).as_deref(),
+            extract_ws_bearer_token(&headers, None).as_deref(),
             Some("protocol-token")
         );
     }
@@ -380,7 +400,39 @@ mod tests {
             HeaderValue::from_static("zeroclaw.v1, bearer."),
         );
 
-        assert!(extract_ws_bearer_token(&headers).is_none());
+        assert!(extract_ws_bearer_token(&headers, None).is_none());
+    }
+
+    #[test]
+    fn extract_ws_bearer_token_reads_query_token_fallback() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            extract_ws_bearer_token(&headers, Some("query-token")).as_deref(),
+            Some("query-token")
+        );
+    }
+
+    #[test]
+    fn extract_ws_bearer_token_prefers_protocol_over_query_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::SEC_WEBSOCKET_PROTOCOL,
+            HeaderValue::from_static("zeroclaw.v1, bearer.protocol-token"),
+        );
+
+        assert_eq!(
+            extract_ws_bearer_token(&headers, Some("query-token")).as_deref(),
+            Some("protocol-token")
+        );
+    }
+
+    #[test]
+    fn extract_query_token_reads_token_param() {
+        assert_eq!(
+            extract_query_token(Some("foo=1&token=query-token&bar=2")).as_deref(),
+            Some("query-token")
+        );
+        assert!(extract_query_token(Some("foo=1")).is_none());
     }
 
     struct MockScheduleTool;
