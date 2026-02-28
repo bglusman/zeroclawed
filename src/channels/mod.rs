@@ -27,6 +27,7 @@ pub mod linq;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
 pub mod mattermost;
+pub mod napcat;
 pub mod nextcloud_talk;
 pub mod nostr;
 pub mod qq;
@@ -55,6 +56,7 @@ pub use linq::LinqChannel;
 #[cfg(feature = "channel-matrix")]
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
+pub use napcat::NapcatChannel;
 pub use nextcloud_talk::NextcloudTalkChannel;
 pub use nostr::NostrChannel;
 pub use qq::QQChannel;
@@ -335,7 +337,7 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 fn conversation_history_key(msg: &traits::ChannelMessage) -> String {
     // QQ uses thread_ts as a passive-reply message id, not a thread identifier.
     // Using it in history keys would reset context on every incoming message.
-    if msg.channel == "qq" {
+    if msg.channel == "qq" || msg.channel == "napcat" {
         return format!("{}_{}", msg.channel, msg.sender);
     }
 
@@ -4834,6 +4836,16 @@ fn collect_configured_channels(
                     qq.environment.clone(),
                 )),
             });
+        }
+    }
+
+    if let Some(ref napcat_cfg) = config.channels_config.napcat {
+        match NapcatChannel::from_config(napcat_cfg.clone()) {
+            Ok(channel) => channels.push(ConfiguredChannel {
+                display_name: "Napcat",
+                channel: Arc::new(channel),
+            }),
+            Err(err) => tracing::warn!("Napcat channel configuration invalid: {err}"),
         }
     }
 
@@ -9948,6 +9960,34 @@ BTC is currently around $65,000 based on latest tool output."#
         };
 
         assert_eq!(conversation_history_key(&msg1), "qq_user_open_1");
+        assert_eq!(
+            conversation_history_key(&msg1),
+            conversation_history_key(&msg2)
+        );
+    }
+
+    #[test]
+    fn conversation_history_key_ignores_napcat_message_id_thread() {
+        let msg1 = traits::ChannelMessage {
+            id: "msg_1".into(),
+            sender: "user_1001".into(),
+            reply_target: "user:1001".into(),
+            content: "first".into(),
+            channel: "napcat".into(),
+            timestamp: 1,
+            thread_ts: Some("msg-a".into()),
+        };
+        let msg2 = traits::ChannelMessage {
+            id: "msg_2".into(),
+            sender: "user_1001".into(),
+            reply_target: "user:1001".into(),
+            content: "second".into(),
+            channel: "napcat".into(),
+            timestamp: 2,
+            thread_ts: Some("msg-b".into()),
+        };
+
+        assert_eq!(conversation_history_key(&msg1), "napcat_user_1001");
         assert_eq!(
             conversation_history_key(&msg1),
             conversation_history_key(&msg2)

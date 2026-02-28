@@ -30,6 +30,7 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.matrix",
     "channel.mattermost",
     "channel.nextcloud_talk",
+    "channel.napcat",
     "channel.qq",
     "channel.signal",
     "channel.slack",
@@ -409,6 +410,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.lark.is_some(),
             self.channels_config.feishu.is_some(),
             self.channels_config.dingtalk.is_some(),
+            self.channels_config.napcat.is_some(),
             self.channels_config.qq.is_some(),
             self.channels_config.nostr.is_some(),
             self.channels_config.clawdtalk.is_some(),
@@ -3902,6 +3904,8 @@ pub struct ChannelsConfig {
     pub feishu: Option<FeishuConfig>,
     /// DingTalk channel configuration.
     pub dingtalk: Option<DingTalkConfig>,
+    /// Napcat QQ protocol channel configuration.
+    pub napcat: Option<NapcatConfig>,
     /// QQ Official Bot channel configuration.
     pub qq: Option<QQConfig>,
     pub nostr: Option<NostrConfig>,
@@ -3986,6 +3990,10 @@ impl ChannelsConfig {
                 self.dingtalk.is_some(),
             ),
             (
+                Box::new(ConfigWrapper::new(self.napcat.as_ref())),
+                self.napcat.is_some(),
+            ),
+            (
                 Box::new(ConfigWrapper::new(self.qq.as_ref())),
                 self.qq
                     .as_ref()
@@ -4037,6 +4045,7 @@ impl Default for ChannelsConfig {
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,
@@ -5437,6 +5446,30 @@ impl ChannelConfig for DingTalkConfig {
     }
 }
 
+/// Napcat channel configuration (QQ via OneBot-compatible API)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NapcatConfig {
+    /// Napcat WebSocket endpoint (for example `ws://127.0.0.1:3001`)
+    pub websocket_url: String,
+    /// Optional Napcat HTTP API base URL. If omitted, derived from websocket_url.
+    #[serde(default)]
+    pub api_base_url: String,
+    /// Optional access token (Authorization Bearer token)
+    pub access_token: Option<String>,
+    /// Allowed user IDs. Empty = deny all, "*" = allow all
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+impl ChannelConfig for NapcatConfig {
+    fn name() -> &'static str {
+        "Napcat"
+    }
+    fn desc() -> &'static str {
+        "QQ via Napcat (OneBot)"
+    }
+}
+
 /// QQ Official Bot configuration (Tencent QQ Bot SDK)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -6053,6 +6086,13 @@ fn decrypt_channel_secrets(
             "config.channels_config.dingtalk.client_secret",
         )?;
     }
+    if let Some(ref mut napcat) = channels.napcat {
+        decrypt_optional_secret(
+            store,
+            &mut napcat.access_token,
+            "config.channels_config.napcat.access_token",
+        )?;
+    }
     if let Some(ref mut qq) = channels.qq {
         decrypt_secret(
             store,
@@ -6213,6 +6253,13 @@ fn encrypt_channel_secrets(
             store,
             &mut dingtalk.client_secret,
             "config.channels_config.dingtalk.client_secret",
+        )?;
+    }
+    if let Some(ref mut napcat) = channels.napcat {
+        encrypt_optional_secret(
+            store,
+            &mut napcat.access_token,
+            "config.channels_config.napcat.access_token",
         )?;
     }
     if let Some(ref mut qq) = channels.qq {
@@ -8628,6 +8675,7 @@ default_temperature = 0.7
                 lark: None,
                 feishu: None,
                 dingtalk: None,
+                napcat: None,
                 qq: None,
                 nostr: None,
                 clawdtalk: None,
@@ -9556,6 +9604,7 @@ allowed_users = ["@ops:matrix.org"]
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,
@@ -9834,6 +9883,7 @@ channel_id = "C123"
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,

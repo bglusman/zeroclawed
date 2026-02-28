@@ -3,8 +3,8 @@ use crate::channels::LarkChannel;
 #[cfg(feature = "channel-matrix")]
 use crate::channels::MatrixChannel;
 use crate::channels::{
-    Channel, DiscordChannel, EmailChannel, MattermostChannel, QQChannel, SendMessage, SlackChannel,
-    TelegramChannel, WhatsAppChannel,
+    Channel, DiscordChannel, EmailChannel, MattermostChannel, NapcatChannel, QQChannel,
+    SendMessage, SlackChannel, TelegramChannel, WhatsAppChannel,
 };
 use crate::config::Config;
 use crate::cron::{
@@ -396,6 +396,15 @@ pub(crate) async fn deliver_announcement(
                 qq.allowed_users.clone(),
                 qq.environment.clone(),
             );
+            channel.send(&SendMessage::new(output, target)).await?;
+        }
+        "napcat" => {
+            let napcat_cfg = config
+                .channels_config
+                .napcat
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("napcat channel not configured"))?;
+            let channel = NapcatChannel::from_config(napcat_cfg.clone())?;
             channel.send(&SendMessage::new(output, target)).await?;
         }
         "whatsapp_web" | "whatsapp" => {

@@ -143,6 +143,7 @@ If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.fe
 | Feishu | websocket (default) or webhook | Webhook mode only |
 | DingTalk | stream mode | No |
 | QQ | bot gateway | No |
+| Napcat | websocket receive + HTTP send (OneBot) | No (typically local/LAN) |
 | Linq | webhook (`/linq`) | Yes (public HTTPS callback) |
 | iMessage | local integration | No |
 | Nostr | relay websocket (NIP-04 / NIP-17) | No |
@@ -159,7 +160,7 @@ For channels with inbound sender allowlists:
 
 Field names differ by channel:
 
-- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Nextcloud Talk)
+- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Napcat/Nextcloud Talk)
 - `allowed_from` (Signal)
 - `allowed_numbers` (WhatsApp)
 - `allowed_senders` (Email/Linq)
@@ -472,7 +473,26 @@ Notes:
 - `X-Bot-Appid` is checked when present and must match `app_id`.
 - Set `receive_mode = "websocket"` to keep the legacy gateway WS receive path.
 
-### 4.16 Nextcloud Talk
+### 4.16 Napcat (QQ via OneBot)
+
+```toml
+[channels_config.napcat]
+websocket_url = "ws://127.0.0.1:3001"
+api_base_url = "http://127.0.0.1:3001"  # optional; auto-derived when omitted
+access_token = ""                         # optional
+allowed_users = ["*"]
+```
+
+Notes:
+
+- Inbound messages are consumed from Napcat's WebSocket stream.
+- Outbound sends use OneBot-compatible HTTP endpoints (`send_private_msg` / `send_group_msg`).
+- Recipients:
+  - `user:<qq_user_id>` for private messages
+  - `group:<qq_group_id>` for group messages
+- Outbound reply chaining uses incoming message ids via CQ reply tags.
+
+### 4.17 Nextcloud Talk
 
 ```toml
 [channels_config.nextcloud_talk]
@@ -490,7 +510,7 @@ Notes:
 - `ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides config secret.
 - See [nextcloud-talk-setup.md](./nextcloud-talk-setup.md) for a full runbook.
 
-### 4.16 Linq
+### 4.18 Linq
 
 ```toml
 [channels_config.linq]
@@ -509,7 +529,7 @@ Notes:
 - `ZEROCLAW_LINQ_SIGNING_SECRET` overrides config secret.
 - `allowed_senders` uses E.164 phone number format (e.g. `+1234567890`).
 
-### 4.17 iMessage
+### 4.19 iMessage
 
 ```toml
 [channels_config.imessage]
