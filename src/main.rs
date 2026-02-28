@@ -1197,15 +1197,15 @@ async fn main() -> Result<()> {
 
         Commands::Config { config_command } => match config_command {
             ConfigCommands::Show => {
-                let mut json = serde_json::to_value(&config)
-                    .context("Failed to serialize config")?;
+                let mut json =
+                    serde_json::to_value(&config).context("Failed to serialize config")?;
                 redact_config_secrets(&mut json);
                 println!("{}", serde_json::to_string_pretty(&json)?);
                 Ok(())
             }
             ConfigCommands::Get { key } => {
-                let mut json = serde_json::to_value(&config)
-                    .context("Failed to serialize config")?;
+                let mut json =
+                    serde_json::to_value(&config).context("Failed to serialize config")?;
                 redact_config_secrets(&mut json);
 
                 let mut current = &json;
@@ -1225,8 +1225,8 @@ async fn main() -> Result<()> {
                 Ok(())
             }
             ConfigCommands::Set { key, value } => {
-                let mut json = serde_json::to_value(&config)
-                    .context("Failed to serialize config")?;
+                let mut json =
+                    serde_json::to_value(&config).context("Failed to serialize config")?;
 
                 // Parse the new value: try bool, then integer, then float, then JSON, then string
                 let new_value = if value == "true" {
@@ -2323,5 +2323,81 @@ mod tests {
             } => assert_eq!(domains, vec!["*.chase.com".to_string()]),
             other => panic!("expected estop resume command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn config_help_mentions_show_get_set_examples() {
+        let cmd = Cli::command();
+        let config_cmd = cmd
+            .get_subcommands()
+            .find(|subcommand| subcommand.get_name() == "config")
+            .expect("config subcommand must exist");
+
+        let mut output = Vec::new();
+        config_cmd
+            .clone()
+            .write_long_help(&mut output)
+            .expect("help generation should succeed");
+        let help = String::from_utf8(output).expect("help output should be utf-8");
+        assert!(help.contains("zeroclaw config show"));
+        assert!(help.contains("zeroclaw config get gateway.port"));
+        assert!(help.contains("zeroclaw config set gateway.port 8080"));
+    }
+
+    #[test]
+    fn config_cli_parses_show_get_set_subcommands() {
+        let show =
+            Cli::try_parse_from(["zeroclaw", "config", "show"]).expect("config show should parse");
+        match show.command {
+            Commands::Config {
+                config_command: ConfigCommands::Show,
+            } => {}
+            other => panic!("expected config show, got {other:?}"),
+        }
+
+        let get = Cli::try_parse_from(["zeroclaw", "config", "get", "gateway.port"])
+            .expect("config get should parse");
+        match get.command {
+            Commands::Config {
+                config_command: ConfigCommands::Get { key },
+            } => assert_eq!(key, "gateway.port"),
+            other => panic!("expected config get, got {other:?}"),
+        }
+
+        let set = Cli::try_parse_from(["zeroclaw", "config", "set", "gateway.port", "8080"])
+            .expect("config set should parse");
+        match set.command {
+            Commands::Config {
+                config_command: ConfigCommands::Set { key, value },
+            } => {
+                assert_eq!(key, "gateway.port");
+                assert_eq!(value, "8080");
+            }
+            other => panic!("expected config set, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn redact_config_secrets_masks_nested_sensitive_values() {
+        let mut payload = serde_json::json!({
+            "api_key": "sk-test",
+            "nested": {
+                "bot_token": "token",
+                "paired_tokens": ["abc", "def"],
+                "non_secret": "ok"
+            }
+        });
+        redact_config_secrets(&mut payload);
+
+        assert_eq!(payload["api_key"], serde_json::json!("***REDACTED***"));
+        assert_eq!(
+            payload["nested"]["bot_token"],
+            serde_json::json!("***REDACTED***")
+        );
+        assert_eq!(
+            payload["nested"]["paired_tokens"],
+            serde_json::json!(["***REDACTED***"])
+        );
+        assert_eq!(payload["nested"]["non_secret"], serde_json::json!("ok"));
     }
 }
