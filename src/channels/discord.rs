@@ -132,10 +132,11 @@ fn normalize_group_reply_allowed_sender_ids(sender_ids: Vec<String>) -> Vec<Stri
 /// Process Discord message attachments and return a string to append to the
 /// agent message context.
 ///
-/// `image/*` attachments are passed through as `[IMAGE:<url>]` markers so the
-/// downstream model/tooling can reason about visual inputs.
-/// `text/*` attachments are fetched and inlined.
-/// All other types are silently skipped. Fetch errors are logged as warnings.
+/// `image/*` attachments are forwarded as `[IMAGE:<url>]` markers. For
+/// `application/octet-stream` or missing MIME types, image-like filename/url
+/// extensions are also treated as images.
+/// `text/*` MIME types are fetched and inlined. Other types are skipped.
+/// Fetch errors are logged as warnings.
 async fn process_attachments(
     attachments: &[serde_json::Value],
     client: &reqwest::Client,
@@ -1646,6 +1647,7 @@ mod tests {
         );
     }
 
+    #[tokio::test]
     async fn process_attachments_emits_image_marker_from_filename_without_content_type() {
         let client = reqwest::Client::new();
         let attachments = vec![serde_json::json!({
