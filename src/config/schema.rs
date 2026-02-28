@@ -4441,7 +4441,12 @@ pub struct SlackConfig {
     pub app_token: Option<String>,
     /// Optional channel ID to restrict the bot to a single channel.
     /// Omit (or set `"*"`) to listen across all accessible channels.
+    /// Ignored when `channel_ids` is non-empty.
     pub channel_id: Option<String>,
+    /// Explicit list of channel/DM IDs to listen on simultaneously.
+    /// Takes precedence over `channel_id`. Empty = fall back to `channel_id`.
+    #[serde(default)]
+    pub channel_ids: Vec<String>,
     /// Allowed Slack user IDs. Empty = deny all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
@@ -10067,6 +10072,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn slack_config_deserializes_without_allowed_users() {
         let json = r#"{"bot_token":"xoxb-tok"}"#;
         let parsed: SlackConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(
             parsed.effective_group_reply_mode(),
@@ -10078,6 +10084,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn slack_config_deserializes_with_allowed_users() {
         let json = r#"{"bot_token":"xoxb-tok","allowed_users":["U111"]}"#;
         let parsed: SlackConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert_eq!(parsed.allowed_users, vec!["U111"]);
     }
 
@@ -10099,6 +10106,7 @@ bot_token = "xoxb-tok"
 channel_id = "C123"
 "#;
         let parsed: SlackConfig = toml::from_str(toml_str).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(parsed.channel_id.as_deref(), Some("C123"));
         assert_eq!(
