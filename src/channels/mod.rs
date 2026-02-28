@@ -10047,8 +10047,12 @@ BTC is currently around $65,000 based on latest tool output."#;
 
         let channels = collect_configured_channels(&config, "test");
 
-        assert!(channels.iter().any(|entry| entry.display_name == "DingTalk"));
-        assert!(channels.iter().any(|entry| entry.channel.name() == "dingtalk"));
+        assert!(channels
+            .iter()
+            .any(|entry| entry.display_name == "DingTalk"));
+        assert!(channels
+            .iter()
+            .any(|entry| entry.channel.name() == "dingtalk"));
     }
 
     struct AlwaysFailChannel {
