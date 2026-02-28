@@ -18,8 +18,8 @@
 pub mod agents_ipc;
 pub mod apply_patch;
 pub mod auth_profile;
-pub mod browser;
 pub mod bg_run;
+pub mod browser;
 pub mod browser_open;
 pub mod cli_discovery;
 pub mod composio;
@@ -82,7 +82,9 @@ pub mod web_search_config;
 pub mod web_search_tool;
 
 pub use apply_patch::ApplyPatchTool;
-pub use bg_run::{format_bg_result_for_injection, BgJob, BgJobStatus, BgJobStore, BgRunTool, BgStatusTool};
+pub use bg_run::{
+    format_bg_result_for_injection, BgJob, BgJobStatus, BgJobStore, BgRunTool, BgStatusTool,
+};
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
@@ -202,7 +204,6 @@ pub fn add_bg_tools(tools: Vec<Box<dyn Tool>>) -> (Vec<Box<dyn Tool>>, BgJobStor
     extended.push(Arc::new(bg_status));
     (boxed_registry_from_arcs(extended), bg_job_store)
 }
-
 
 /// Create the default tool registry
 pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
@@ -609,7 +610,12 @@ pub fn all_tools_with_runtime(
         }
     }
 
-    boxed_registry_from_arcs(tool_arcs)
+    // Attach background execution wrappers to the finalized registry.
+    // This ensures `bg_run` / `bg_status` are available anywhere the
+    // runtime tool graph is used.
+    let built_tools = boxed_registry_from_arcs(tool_arcs);
+    let (extended_tools, _bg_job_store) = add_bg_tools(built_tools);
+    extended_tools
 }
 
 #[cfg(test)]
@@ -826,6 +832,42 @@ mod tests {
         assert!(!names.contains(&"file_read"));
         assert!(!names.contains(&"file_write"));
         assert!(!names.contains(&"file_edit"));
+    }
+
+    #[test]
+    fn all_tools_with_runtime_includes_background_tools() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+        let runtime: Arc<dyn RuntimeAdapter> = Arc::new(NativeRuntime::new());
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools_with_runtime(
+            Arc::new(Config::default()),
+            &security,
+            runtime,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            &crate::config::WebFetchConfig::default(),
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"bg_run"));
+        assert!(names.contains(&"bg_status"));
     }
 
     #[test]
