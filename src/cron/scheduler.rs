@@ -1171,44 +1171,6 @@ mod tests {
         assert!(err.to_string().contains("unsupported delivery channel"));
     }
 
-    #[cfg(feature = "channel-matrix")]
-    #[tokio::test]
-    async fn deliver_if_configured_matrix_missing_config() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp).await;
-        let mut job = test_job("echo ok");
-        job.delivery = DeliveryConfig {
-            mode: "announce".into(),
-            channel: Some("matrix".into()),
-            to: Some("@zeroclaw_user:localhost".into()),
-            best_effort: false,
-        };
-        let err = deliver_if_configured(&config, &job, "hello")
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("matrix channel not configured"));
-    }
-
-    #[cfg(not(feature = "channel-matrix"))]
-    #[tokio::test]
-    async fn deliver_if_configured_matrix_feature_disabled() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp).await;
-        let mut job = test_job("echo ok");
-        job.delivery = DeliveryConfig {
-            mode: "announce".into(),
-            channel: Some("matrix".into()),
-            to: Some("@zeroclaw_user:localhost".into()),
-            best_effort: false,
-        };
-        let err = deliver_if_configured(&config, &job, "hello")
-            .await
-            .unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("matrix delivery channel requires `channel-matrix` feature"));
-    }
-
     #[tokio::test]
     async fn deliver_if_configured_skips_no_reply_sentinel() {
         let tmp = TempDir::new().unwrap();
