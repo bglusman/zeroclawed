@@ -17,6 +17,7 @@
 
 pub mod agents_ipc;
 pub mod apply_patch;
+pub mod auth_profile;
 pub mod browser;
 pub mod browser_open;
 pub mod cli_discovery;
@@ -51,13 +52,16 @@ pub mod mcp_protocol;
 pub mod mcp_tool;
 pub mod mcp_transport;
 pub mod memory_forget;
+pub mod memory_observe;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod model_routing_config;
 pub mod pdf_read;
+pub mod pptx_read;
 pub mod process;
 pub mod proxy_config;
 pub mod pushover;
+pub mod quota_tools;
 pub mod schedule;
 pub mod schema;
 pub mod screenshot;
@@ -108,10 +112,12 @@ pub use image_info::ImageInfoTool;
 pub use mcp_client::McpRegistry;
 pub use mcp_tool::McpToolWrapper;
 pub use memory_forget::MemoryForgetTool;
+pub use memory_observe::MemoryObserveTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
 pub use model_routing_config::ModelRoutingConfigTool;
 pub use pdf_read::PdfReadTool;
+pub use pptx_read::PptxReadTool;
 pub use process::ProcessTool;
 pub use proxy_config::ProxyConfigTool;
 pub use pushover::PushoverTool;
@@ -133,6 +139,9 @@ pub use web_access_config::WebAccessConfigTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search_config::WebSearchConfigTool;
 pub use web_search_tool::WebSearchTool;
+
+pub use auth_profile::ManageAuthProfileTool;
+pub use quota_tools::{CheckProviderQuotaTool, EstimateQuotaCostTool, SwitchProviderTool};
 
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
@@ -279,6 +288,7 @@ pub fn all_tools_with_runtime(
         Arc::new(CronRunTool::new(config.clone(), security.clone())),
         Arc::new(CronRunsTool::new(config.clone())),
         Arc::new(MemoryStoreTool::new(memory.clone(), security.clone())),
+        Arc::new(MemoryObserveTool::new(memory.clone(), security.clone())),
         Arc::new(MemoryRecallTool::new(memory.clone())),
         Arc::new(MemoryForgetTool::new(memory, security.clone())),
         Arc::new(ScheduleTool::new(security.clone(), root_config.clone())),
@@ -290,6 +300,10 @@ pub fn all_tools_with_runtime(
         Arc::new(ProxyConfigTool::new(config.clone(), security.clone())),
         Arc::new(WebAccessConfigTool::new(config.clone(), security.clone())),
         Arc::new(WebSearchConfigTool::new(config.clone(), security.clone())),
+        Arc::new(ManageAuthProfileTool::new(config.clone())),
+        Arc::new(CheckProviderQuotaTool::new(config.clone())),
+        Arc::new(SwitchProviderTool::new(config.clone())),
+        Arc::new(EstimateQuotaCostTool),
         Arc::new(PushoverTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
@@ -373,6 +387,7 @@ pub fn all_tools_with_runtime(
             http_config.max_response_size,
             http_config.timeout_secs,
             http_config.user_agent.clone(),
+            http_config.credential_profiles.clone(),
         )));
     }
 
@@ -425,6 +440,9 @@ pub fn all_tools_with_runtime(
 
     // DOCX text extraction
     tool_arcs.push(Arc::new(DocxReadTool::new(security.clone())));
+
+    // PPTX text extraction
+    tool_arcs.push(Arc::new(PptxReadTool::new(security.clone())));
 
     // Vision tools are always available
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
@@ -710,6 +728,43 @@ mod tests {
         assert!(names.contains(&"proxy_config"));
         assert!(names.contains(&"web_access_config"));
         assert!(names.contains(&"web_search_config"));
+    }
+
+    #[test]
+    fn all_tools_includes_docx_read_tool() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig {
+            enabled: false,
+            ..BrowserConfig::default()
+        };
+        let http = crate::config::HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            &crate::config::WebFetchConfig::default(),
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"docx_read"));
+        assert!(names.contains(&"pdf_read"));
     }
 
     #[test]

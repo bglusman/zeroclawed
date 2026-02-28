@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 /// Generic rules (password=, secret=, token=) only fire when `sensitivity` exceeds
 /// this threshold, reducing false positives on technical content.
 const GENERIC_SECRET_SENSITIVITY_THRESHOLD: f64 = 0.5;
-const ENTROPY_TOKEN_MIN_LEN: usize = 20;
+const ENTROPY_TOKEN_MIN_LEN: usize = 24;
 const HIGH_ENTROPY_BASELINE: f64 = 4.2;
 
 /// Result of leak detection.
@@ -307,6 +307,12 @@ impl LeakDetector {
         patterns: &mut Vec<String>,
         redacted: &mut String,
     ) {
+        // Keep low-sensitivity mode conservative: structural patterns still
+        // run at any sensitivity, but entropy heuristics should not trigger.
+        if self.sensitivity <= GENERIC_SECRET_SENSITIVITY_THRESHOLD {
+            return;
+        }
+
         let threshold = (HIGH_ENTROPY_BASELINE + (self.sensitivity - 0.5) * 0.6).clamp(3.9, 4.8);
         let mut flagged = false;
 
@@ -455,7 +461,9 @@ MIIEowIBAAKCAQEA0ZPr5JeyVDonXsKhfq...
     #[test]
     fn low_sensitivity_skips_generic() {
         let detector = LeakDetector::with_sensitivity(0.3);
-        let content = "secret=mygenericvalue123456";
+        // Use low entropy so this test only exercises the generic rule gate and
+        // does not trip the independent high-entropy detector.
+        let content = "secret=aaaaaaaaaaaaaaaa";
         let result = detector.scan(content);
         // Low sensitivity should not flag generic secrets
         assert!(matches!(result, LeakResult::Clean));

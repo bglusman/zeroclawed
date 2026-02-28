@@ -62,7 +62,7 @@ urlencoding = "2.1"
 nanohtml2text = "0.2"
 
 # Zip archive extraction
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+zip = { version = "8.1", default-features = false, features = ["deflate"] }
 
 # XML parsing (DOCX text extraction)
 quick-xml = "0.37"
@@ -205,6 +205,8 @@ landlock = { version = "0.4", optional = true }
 libc = "0.2"
 
 [features]
+# Default enables wasm-tools where platform runtime dependencies are available.
+# Unsupported targets (for example Android/Termux) use a stub implementation.
 default = ["wasm-tools"]
 hardware = ["nusb", "tokio-serial"]
 channel-matrix = ["dep:matrix-sdk"]
@@ -228,12 +230,14 @@ probe = ["dep:probe-rs"]
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
 # wasm-tools = WASM plugin engine for dynamically-loaded tool packages (WASI stdio protocol)
+# Runtime implementation is active on Linux/macOS/Windows; unsupported targets use stubs.
 wasm-tools = ["dep:wasmtime", "dep:wasmtime-wasi"]
 # whatsapp-web = Native WhatsApp Web client with custom rusqlite storage backend
 whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-proto", "dep:wa-rs-ureq-http", "dep:wa-rs-tokio-transport", "dep:serde-big-array", "dep:prost", "dep:qrcode"]
+# Optional provider feature flags used by cfg(feature = "...") guards.
+# Keep disabled by default to preserve current runtime behavior.
 firecrawl = []
 web-fetch-html2md = []
-web-fetch-plaintext = []
 
 [profile.release]
 opt-level = "z"      # Optimize for size

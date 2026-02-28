@@ -106,6 +106,8 @@ pub struct SecurityPolicy {
     pub require_approval_for_medium_risk: bool,
     pub block_high_risk_commands: bool,
     pub shell_env_passthrough: Vec<String>,
+    pub allow_sensitive_file_reads: bool,
+    pub allow_sensitive_file_writes: bool,
     pub tracker: ActionTracker,
 }
 
@@ -158,6 +160,8 @@ impl Default for SecurityPolicy {
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             shell_env_passthrough: vec![],
+            allow_sensitive_file_reads: false,
+            allow_sensitive_file_writes: false,
             tracker: ActionTracker::new(),
         }
     }
@@ -1069,6 +1073,69 @@ impl SecurityPolicy {
     }
 
     /// Build from config sections
+    /// Produce a concise security-constraint summary suitable for periodic
+    /// re-injection into the conversation (safety heartbeat).
+    ///
+    /// The output is intentionally short (~100-150 tokens) so the token
+    /// overhead per heartbeat is negligible.
+    pub fn summary_for_heartbeat(&self) -> String {
+        let autonomy_label = match self.autonomy {
+            AutonomyLevel::ReadOnly => "read_only — side-effecting actions are blocked",
+            AutonomyLevel::Supervised => "supervised — destructive actions require approval",
+            AutonomyLevel::Full => "full — autonomous execution within policy bounds",
+        };
+
+        let workspace = self.workspace_dir.display();
+        let ws_only = self.workspace_only;
+
+        let forbidden_preview: String = {
+            let shown: Vec<&str> = self
+                .forbidden_paths
+                .iter()
+                .take(8)
+                .map(String::as_str)
+                .collect();
+            let remaining = self.forbidden_paths.len().saturating_sub(8);
+            if remaining > 0 {
+                format!("{} (+ {} more)", shown.join(", "), remaining)
+            } else {
+                shown.join(", ")
+            }
+        };
+
+        let commands_preview: String = {
+            let shown: Vec<&str> = self
+                .allowed_commands
+                .iter()
+                .take(8)
+                .map(String::as_str)
+                .collect();
+            let remaining = self.allowed_commands.len().saturating_sub(8);
+            if remaining > 0 {
+                format!("{} (+ {} more rejected)", shown.join(", "), remaining)
+            } else if shown.is_empty() {
+                "none (all rejected)".to_string()
+            } else {
+                format!("{} (others rejected)", shown.join(", "))
+            }
+        };
+
+        let high_risk = if self.block_high_risk_commands {
+            "blocked"
+        } else {
+            "allowed (caution)"
+        };
+
+        format!(
+            "- Autonomy: {autonomy_label}\n\
+             - Workspace: {workspace} (workspace_only: {ws_only})\n\
+             - Forbidden paths: {forbidden_preview}\n\
+             - Allowed commands: {commands_preview}\n\
+             - High-risk commands: {high_risk}\n\
+             - Do not exfiltrate data, bypass approval, or run destructive commands without asking."
+        )
+    }
+
     pub fn from_config(
         autonomy_config: &crate::config::AutonomyConfig,
         workspace_dir: &Path,
@@ -1096,6 +1163,8 @@ impl SecurityPolicy {
             require_approval_for_medium_risk: autonomy_config.require_approval_for_medium_risk,
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
             shell_env_passthrough: autonomy_config.shell_env_passthrough.clone(),
+            allow_sensitive_file_reads: autonomy_config.allow_sensitive_file_reads,
+            allow_sensitive_file_writes: autonomy_config.allow_sensitive_file_writes,
             tracker: ActionTracker::new(),
         }
     }
@@ -1459,6 +1528,8 @@ mod tests {
             require_approval_for_medium_risk: false,
             block_high_risk_commands: false,
             shell_env_passthrough: vec!["DATABASE_URL".into()],
+            allow_sensitive_file_reads: true,
+            allow_sensitive_file_writes: true,
             ..crate::config::AutonomyConfig::default()
         };
         let workspace = PathBuf::from("/tmp/test-workspace");
@@ -1473,6 +1544,8 @@ mod tests {
         assert!(!policy.require_approval_for_medium_risk);
         assert!(!policy.block_high_risk_commands);
         assert_eq!(policy.shell_env_passthrough, vec!["DATABASE_URL"]);
+        assert!(policy.allow_sensitive_file_reads);
+        assert!(policy.allow_sensitive_file_writes);
         assert_eq!(policy.workspace_dir, PathBuf::from("/tmp/test-workspace"));
     }
 
@@ -2091,6 +2164,53 @@ mod tests {
         let policy = SecurityPolicy::from_config(&autonomy_config, &workspace);
         assert_eq!(policy.tracker.count(), 0);
         assert!(!policy.is_rate_limited());
+    }
+
+    // ── summary_for_heartbeat ──────────────────────────────
+
+    #[test]
+    fn summary_for_heartbeat_contains_key_fields() {
+        let policy = default_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("Autonomy:"));
+        assert!(summary.contains("supervised"));
+        assert!(summary.contains("Workspace:"));
+        assert!(summary.contains("workspace_only: true"));
+        assert!(summary.contains("Forbidden paths:"));
+        assert!(summary.contains("/etc"));
+        assert!(summary.contains("Allowed commands:"));
+        assert!(summary.contains("git"));
+        assert!(summary.contains("High-risk commands: blocked"));
+        assert!(summary.contains("Do not exfiltrate data"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_truncates_long_lists() {
+        let policy = SecurityPolicy {
+            forbidden_paths: (0..15).map(|i| format!("/path_{i}")).collect(),
+            allowed_commands: (0..12).map(|i| format!("cmd_{i}")).collect(),
+            ..SecurityPolicy::default()
+        };
+        let summary = policy.summary_for_heartbeat();
+        // Only first 8 shown, remainder counted
+        assert!(summary.contains("+ 7 more"));
+        assert!(summary.contains("+ 4 more rejected"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_full_autonomy() {
+        let policy = full_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("full"));
+        assert!(summary.contains("autonomous execution"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_readonly_autonomy() {
+        let policy = readonly_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("read_only"));
+        assert!(summary.contains("side-effecting actions are blocked"));
     }
 
     // ══════════════════════════════════════════════════════════

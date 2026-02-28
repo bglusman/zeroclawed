@@ -81,6 +81,45 @@ Use this board for important notices (breaking changes, security advisories, mai
 - **Fully swappable:** core systems are traits (providers, channels, tools, memory, tunnels).
 - **No lock-in:** OpenAI-compatible provider support + pluggable custom endpoints.
 
+## Quick Start
+
+### Option 1: Homebrew (macOS/Linuxbrew)
+
+```bash
+brew install zeroclaw
+```
+
+### Option 2: Clone + Bootstrap
+
+```bash
+git clone https://github.com/zeroclaw-labs/zeroclaw.git
+cd zeroclaw
+./bootstrap.sh
+```
+
+> **Note:** Source builds require ~2GB RAM and ~6GB disk. For resource-constrained systems, use `./bootstrap.sh --prefer-prebuilt` to download a pre-built binary instead.
+
+### Option 3: Cargo Install
+
+```bash
+cargo install zeroclaw
+```
+
+### First Run
+
+```bash
+# Start the gateway daemon
+zeroclaw gateway start
+
+# Open the web UI
+zeroclaw dashboard
+
+# Or chat directly
+zeroclaw chat "Hello!"
+```
+
+For detailed setup options, see [docs/one-click-bootstrap.md](docs/one-click-bootstrap.md).
+
 ## Benchmark Snapshot (ZeroClaw vs OpenClaw, Reproducible)
 
 Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge hardware.

@@ -1,5 +1,7 @@
 use crate::config::traits::ChannelConfig;
-use crate::providers::{is_glm_alias, is_zai_alias};
+use crate::providers::{
+    canonical_china_provider_name, is_glm_alias, is_qwen_oauth_alias, is_zai_alias,
+};
 use crate::security::{AutonomyLevel, DomainMatcher};
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -14,6 +16,100 @@ use tokio::fs::File;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
 
+/// Default fallback model when none is configured. Uses a format compatible with
+/// OpenRouter and other multi-provider gateways. For Anthropic direct API, this
+/// model ID will be normalized by the provider layer.
+pub const DEFAULT_MODEL_FALLBACK: &str = "anthropic/claude-sonnet-4.6";
+
+fn canonical_provider_for_model_defaults(provider_name: &str) -> String {
+    if let Some(canonical) = canonical_china_provider_name(provider_name) {
+        return if canonical == "doubao" {
+            "volcengine".to_string()
+        } else {
+            canonical.to_string()
+        };
+    }
+
+    match provider_name {
+        "grok" => "xai".to_string(),
+        "together" => "together-ai".to_string(),
+        "google" | "google-gemini" => "gemini".to_string(),
+        "github-copilot" => "copilot".to_string(),
+        "openai_codex" | "codex" => "openai-codex".to_string(),
+        "kimi_coding" | "kimi_for_coding" => "kimi-code".to_string(),
+        "nvidia-nim" | "build.nvidia.com" => "nvidia".to_string(),
+        "aws-bedrock" => "bedrock".to_string(),
+        "llama.cpp" => "llamacpp".to_string(),
+        _ => provider_name.to_string(),
+    }
+}
+
+/// Returns a provider-aware fallback model ID when `default_model` is missing.
+pub fn default_model_fallback_for_provider(provider_name: Option<&str>) -> &'static str {
+    let normalized_provider = provider_name
+        .unwrap_or("openrouter")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+
+    if normalized_provider == "qwen-coding-plan" {
+        return "qwen3-coder-plus";
+    }
+
+    let canonical_provider = if is_qwen_oauth_alias(&normalized_provider) {
+        "qwen-code".to_string()
+    } else {
+        canonical_provider_for_model_defaults(&normalized_provider)
+    };
+
+    match canonical_provider.as_str() {
+        "anthropic" => "claude-sonnet-4-5-20250929",
+        "openai" => "gpt-5.2",
+        "openai-codex" => "gpt-5-codex",
+        "venice" => "zai-org-glm-5",
+        "groq" => "llama-3.3-70b-versatile",
+        "mistral" => "mistral-large-latest",
+        "deepseek" => "deepseek-chat",
+        "xai" => "grok-4-1-fast-reasoning",
+        "perplexity" => "sonar-pro",
+        "fireworks" => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "novita" => "minimax/minimax-m2.5",
+        "together-ai" => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "cohere" => "command-a-03-2025",
+        "moonshot" => "kimi-k2.5",
+        "hunyuan" => "hunyuan-t1-latest",
+        "glm" | "zai" => "glm-5",
+        "minimax" => "MiniMax-M2.5",
+        "qwen" => "qwen-plus",
+        "volcengine" => "doubao-1-5-pro-32k-250115",
+        "siliconflow" => "Pro/zai-org/GLM-4.7",
+        "qwen-code" => "qwen3-coder-plus",
+        "ollama" => "llama3.2",
+        "llamacpp" => "ggml-org/gpt-oss-20b-GGUF",
+        "sglang" | "vllm" | "osaurus" | "copilot" => "default",
+        "gemini" => "gemini-2.5-pro",
+        "kimi-code" => "kimi-for-coding",
+        "bedrock" => "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "nvidia" => "meta/llama-3.3-70b-instruct",
+        _ => DEFAULT_MODEL_FALLBACK,
+    }
+}
+
+/// Resolves the model ID used by runtime components.
+/// Preference order:
+/// 1) Explicit configured model (if non-empty)
+/// 2) Provider-aware fallback
+pub fn resolve_default_model_id(
+    default_model: Option<&str>,
+    provider_name: Option<&str>,
+) -> String {
+    if let Some(model) = default_model.map(str::trim).filter(|m| !m.is_empty()) {
+        return model.to_string();
+    }
+
+    default_model_fallback_for_provider(provider_name).to_string()
+}
+
 const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "provider.anthropic",
     "provider.compatible",
@@ -26,10 +122,12 @@ const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "channel.dingtalk",
     "channel.discord",
     "channel.feishu",
+    "channel.github",
     "channel.lark",
     "channel.matrix",
     "channel.mattermost",
     "channel.nextcloud_talk",
+    "channel.napcat",
     "channel.qq",
     "channel.signal",
     "channel.slack",
@@ -57,6 +155,8 @@ const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
 static RUNTIME_PROXY_CONFIG: OnceLock<RwLock<ProxyConfig>> = OnceLock::new();
 static RUNTIME_PROXY_CLIENT_CACHE: OnceLock<RwLock<HashMap<String, reqwest::Client>>> =
     OnceLock::new();
+const DEFAULT_PROVIDER_NAME: &str = "openrouter";
+const DEFAULT_MODEL_NAME: &str = "anthropic/claude-sonnet-4.6";
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -302,6 +402,12 @@ pub struct ModelProviderConfig {
     /// Provider protocol variant ("responses" or "chat_completions").
     #[serde(default)]
     pub wire_api: Option<String>,
+    /// Optional profile-scoped default model.
+    #[serde(default, alias = "model")]
+    pub default_model: Option<String>,
+    /// Optional profile-scoped API key.
+    #[serde(default)]
+    pub api_key: Option<String>,
     /// If true, load OpenAI auth material (OPENAI_API_KEY or ~/.codex/auth.json).
     #[serde(default)]
     pub requires_openai_auth: bool,
@@ -402,6 +508,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.signal.is_some(),
             self.channels_config.whatsapp.is_some(),
             self.channels_config.linq.is_some(),
+            self.channels_config.github.is_some(),
             self.channels_config.wati.is_some(),
             self.channels_config.nextcloud_talk.is_some(),
             self.channels_config.email.is_some(),
@@ -409,6 +516,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.lark.is_some(),
             self.channels_config.feishu.is_some(),
             self.channels_config.dingtalk.is_some(),
+            self.channels_config.napcat.is_some(),
             self.channels_config.qq.is_some(),
             self.channels_config.nostr.is_some(),
             self.channels_config.clawdtalk.is_some(),
@@ -750,6 +858,20 @@ pub struct AgentConfig {
     /// Set to `0` to disable. Default: `3`.
     #[serde(default = "default_loop_detection_failure_streak")]
     pub loop_detection_failure_streak: usize,
+    /// Safety heartbeat injection interval inside `run_tool_call_loop`.
+    /// Injects a security-constraint reminder every N tool iterations.
+    /// Set to `0` to disable. Default: `5`.
+    /// Compatibility/rollback: omit/remove this key to use default (`5`), or set
+    /// to `0` for explicit disable.
+    #[serde(default = "default_safety_heartbeat_interval")]
+    pub safety_heartbeat_interval: usize,
+    /// Safety heartbeat injection interval for interactive sessions.
+    /// Injects a security-constraint reminder every N conversation turns.
+    /// Set to `0` to disable. Default: `10`.
+    /// Compatibility/rollback: omit/remove this key to use default (`10`), or
+    /// set to `0` for explicit disable.
+    #[serde(default = "default_safety_heartbeat_turn_interval")]
+    pub safety_heartbeat_turn_interval: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -833,6 +955,14 @@ fn default_loop_detection_failure_streak() -> usize {
     3
 }
 
+fn default_safety_heartbeat_interval() -> usize {
+    5
+}
+
+fn default_safety_heartbeat_turn_interval() -> usize {
+    10
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -845,6 +975,8 @@ impl Default for AgentConfig {
             loop_detection_no_progress_threshold: default_loop_detection_no_progress_threshold(),
             loop_detection_ping_pong_cycles: default_loop_detection_ping_pong_cycles(),
             loop_detection_failure_streak: default_loop_detection_failure_streak(),
+            safety_heartbeat_interval: default_safety_heartbeat_interval(),
+            safety_heartbeat_turn_interval: default_safety_heartbeat_turn_interval(),
         }
     }
 }
@@ -1620,6 +1752,40 @@ impl Default for BrowserConfig {
 ///
 /// Deny-by-default: if `allowed_domains` is empty, all HTTP requests are rejected.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct HttpRequestCredentialProfile {
+    /// Header name to inject (for example `Authorization` or `X-API-Key`)
+    #[serde(default = "default_http_request_credential_header_name")]
+    pub header_name: String,
+    /// Environment variable containing the secret/token value
+    #[serde(default)]
+    pub env_var: String,
+    /// Optional prefix prepended to the secret (for example `Bearer `)
+    #[serde(default)]
+    pub value_prefix: String,
+}
+
+impl Default for HttpRequestCredentialProfile {
+    fn default() -> Self {
+        Self {
+            header_name: default_http_request_credential_header_name(),
+            env_var: String::new(),
+            value_prefix: default_http_request_credential_value_prefix(),
+        }
+    }
+}
+
+fn default_http_request_credential_header_name() -> String {
+    "Authorization".into()
+}
+
+fn default_http_request_credential_value_prefix() -> String {
+    "Bearer ".into()
+}
+
+/// HTTP request tool configuration (`[http_request]` section).
+///
+/// Deny-by-default: if `allowed_domains` is empty, all HTTP requests are rejected.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HttpRequestConfig {
     /// Enable `http_request` tool for API interactions
     #[serde(default)]
@@ -1636,6 +1802,15 @@ pub struct HttpRequestConfig {
     /// User-Agent string sent with HTTP requests (env: ZEROCLAW_HTTP_REQUEST_USER_AGENT)
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
+    /// Optional named credential profiles for env-backed auth injection.
+    ///
+    /// Example:
+    /// `[http_request.credential_profiles.github]`
+    /// `env_var = "GITHUB_TOKEN"`
+    /// `header_name = "Authorization"`
+    /// `value_prefix = "Bearer "`
+    #[serde(default)]
+    pub credential_profiles: HashMap<String, HttpRequestCredentialProfile>,
 }
 
 impl Default for HttpRequestConfig {
@@ -1646,6 +1821,7 @@ impl Default for HttpRequestConfig {
             max_response_size: default_http_max_response_size(),
             timeout_secs: default_http_timeout_secs(),
             user_agent: default_user_agent(),
+            credential_profiles: HashMap::new(),
         }
     }
 }
@@ -2603,11 +2779,33 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
 
+    /// SQLite journal mode: "wal" (default) or "delete".
+    ///
+    /// WAL (Write-Ahead Logging) provides better concurrency and is the
+    /// recommended default. However, WAL requires shared-memory support
+    /// (mmap/shm) which is **not available** on many network and virtual
+    /// shared filesystems (NFS, SMB/CIFS, UTM/VirtioFS, VirtualBox shared
+    /// folders, etc.), causing `xShmMap` I/O errors at startup.
+    ///
+    /// Set to `"delete"` when your workspace lives on such a filesystem.
+    ///
+    /// Example:
+    /// ```toml
+    /// [memory]
+    /// sqlite_journal_mode = "delete"
+    /// ```
+    #[serde(default = "default_sqlite_journal_mode")]
+    pub sqlite_journal_mode: String,
+
     // ── Qdrant backend options ─────────────────────────────────
     /// Configuration for Qdrant vector database backend.
     /// Used when `backend = "qdrant"` or `backend = "sqlite_qdrant_hybrid"`.
     #[serde(default)]
     pub qdrant: QdrantConfig,
+}
+
+fn default_sqlite_journal_mode() -> String {
+    "wal".into()
 }
 
 fn default_embedding_provider() -> String {
@@ -2677,6 +2875,7 @@ impl Default for MemoryConfig {
             snapshot_on_hygiene: false,
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
+            sqlite_journal_mode: default_sqlite_journal_mode(),
             qdrant: QdrantConfig::default(),
         }
     }
@@ -2901,6 +3100,20 @@ pub struct AutonomyConfig {
     #[serde(default)]
     pub shell_env_passthrough: Vec<String>,
 
+    /// Allow `file_read` to access sensitive workspace secrets such as `.env`,
+    /// key material, and credential files.
+    ///
+    /// Default is `false` to reduce accidental secret exposure via tool output.
+    #[serde(default)]
+    pub allow_sensitive_file_reads: bool,
+
+    /// Allow `file_write` / `file_edit` to modify sensitive workspace secrets
+    /// such as `.env`, key material, and credential files.
+    ///
+    /// Default is `false` to reduce accidental secret corruption/exfiltration.
+    #[serde(default)]
+    pub allow_sensitive_file_writes: bool,
+
     /// Tools that never require approval (e.g. read-only tools).
     #[serde(default = "default_auto_approve")]
     pub auto_approve: Vec<String>,
@@ -3051,6 +3264,8 @@ impl Default for AutonomyConfig {
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             shell_env_passthrough: vec![],
+            allow_sensitive_file_reads: false,
+            allow_sensitive_file_writes: false,
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
             allowed_roots: Vec::new(),
@@ -3852,6 +4067,8 @@ pub struct ChannelsConfig {
     pub whatsapp: Option<WhatsAppConfig>,
     /// Linq Partner API channel configuration.
     pub linq: Option<LinqConfig>,
+    /// GitHub channel configuration.
+    pub github: Option<GitHubConfig>,
     /// WATI WhatsApp Business API channel configuration.
     pub wati: Option<WatiConfig>,
     /// Nextcloud Talk bot channel configuration.
@@ -3866,6 +4083,10 @@ pub struct ChannelsConfig {
     pub feishu: Option<FeishuConfig>,
     /// DingTalk channel configuration.
     pub dingtalk: Option<DingTalkConfig>,
+    /// Napcat QQ protocol channel configuration.
+    /// Also accepts legacy key `[channels_config.onebot]` for OneBot v11 compatibility.
+    #[serde(alias = "onebot")]
+    pub napcat: Option<NapcatConfig>,
     /// QQ Official Bot channel configuration.
     pub qq: Option<QQConfig>,
     pub nostr: Option<NostrConfig>,
@@ -3922,6 +4143,10 @@ impl ChannelsConfig {
                 self.linq.is_some(),
             ),
             (
+                Box::new(ConfigWrapper::new(self.github.as_ref())),
+                self.github.is_some(),
+            ),
+            (
                 Box::new(ConfigWrapper::new(self.wati.as_ref())),
                 self.wati.is_some(),
             ),
@@ -3948,6 +4173,10 @@ impl ChannelsConfig {
             (
                 Box::new(ConfigWrapper::new(self.dingtalk.as_ref())),
                 self.dingtalk.is_some(),
+            ),
+            (
+                Box::new(ConfigWrapper::new(self.napcat.as_ref())),
+                self.napcat.is_some(),
             ),
             (
                 Box::new(ConfigWrapper::new(self.qq.as_ref())),
@@ -3994,6 +4223,7 @@ impl Default for ChannelsConfig {
             signal: None,
             whatsapp: None,
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -4001,6 +4231,7 @@ impl Default for ChannelsConfig {
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,
@@ -4022,6 +4253,10 @@ pub enum StreamMode {
 
 fn default_draft_update_interval_ms() -> u64 {
     1000
+}
+
+fn default_ack_enabled() -> bool {
+    true
 }
 
 /// Group-chat reply trigger mode for channels that support mention gating.
@@ -4110,6 +4345,10 @@ pub struct TelegramConfig {
     /// Example for Bale messenger: "https://tapi.bale.ai"
     #[serde(default)]
     pub base_url: Option<String>,
+    /// When true, send emoji reaction acknowledgments (⚡️, 👌, 👀, 🔥, 👍) to incoming messages.
+    /// When false, no reaction is sent. Default is true.
+    #[serde(default = "default_ack_enabled")]
+    pub ack_enabled: bool,
 }
 
 impl ChannelConfig for TelegramConfig {
@@ -4441,6 +4680,35 @@ impl ChannelConfig for LinqConfig {
     }
 }
 
+/// GitHub channel configuration (webhook receive + issue/PR comment send).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GitHubConfig {
+    /// GitHub token used for outbound API calls.
+    ///
+    /// Supports fine-grained PAT or installation token with `issues:write` / `pull_requests:write`.
+    pub access_token: String,
+    /// Optional webhook secret to verify `X-Hub-Signature-256`.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    /// Optional GitHub API base URL (for GHES).
+    /// Defaults to `https://api.github.com` when omitted.
+    #[serde(default)]
+    pub api_base_url: Option<String>,
+    /// Allowed repositories (`owner/repo`), `owner/*`, or `*`.
+    /// Empty list denies all repositories.
+    #[serde(default)]
+    pub allowed_repos: Vec<String>,
+}
+
+impl ChannelConfig for GitHubConfig {
+    fn name() -> &'static str {
+        "GitHub"
+    }
+    fn desc() -> &'static str {
+        "issues/PR comments via webhook + REST API"
+    }
+}
+
 /// WATI WhatsApp Business API channel configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WatiConfig {
@@ -4748,9 +5016,55 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub perplexity_filter: PerplexityFilterConfig,
 
+    /// Outbound credential leak guard for channel replies.
+    #[serde(default)]
+    pub outbound_leak_guard: OutboundLeakGuardConfig,
+
     /// Shared URL access policy for network-enabled tools.
     #[serde(default)]
     pub url_access: UrlAccessConfig,
+}
+
+/// Outbound leak handling mode for channel responses.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OutboundLeakGuardAction {
+    /// Redact suspicious credentials and continue delivery.
+    #[default]
+    Redact,
+    /// Block delivery when suspicious credentials are detected.
+    Block,
+}
+
+/// Outbound credential leak guard configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutboundLeakGuardConfig {
+    /// Enable outbound credential leak scanning for channel responses.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Action to take when potential credentials are detected.
+    #[serde(default)]
+    pub action: OutboundLeakGuardAction,
+
+    /// Detection sensitivity (0.0-1.0, higher = more aggressive).
+    #[serde(default = "default_outbound_leak_guard_sensitivity")]
+    pub sensitivity: f64,
+}
+
+fn default_outbound_leak_guard_sensitivity() -> f64 {
+    0.7
+}
+
+impl Default for OutboundLeakGuardConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            action: OutboundLeakGuardAction::Redact,
+            sensitivity: default_outbound_leak_guard_sensitivity(),
+        }
+    }
 }
 
 /// Lightweight perplexity-style filter configuration.
@@ -5347,6 +5661,31 @@ impl ChannelConfig for DingTalkConfig {
     }
 }
 
+/// Napcat channel configuration (QQ via OneBot-compatible API)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct NapcatConfig {
+    /// Napcat WebSocket endpoint (for example `ws://127.0.0.1:3001`)
+    #[serde(alias = "ws_url")]
+    pub websocket_url: String,
+    /// Optional Napcat HTTP API base URL. If omitted, derived from websocket_url.
+    #[serde(default)]
+    pub api_base_url: String,
+    /// Optional access token (Authorization Bearer token)
+    pub access_token: Option<String>,
+    /// Allowed user IDs. Empty = deny all, "*" = allow all
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+impl ChannelConfig for NapcatConfig {
+    fn name() -> &'static str {
+        "Napcat"
+    }
+    fn desc() -> &'static str {
+        "QQ via Napcat (OneBot)"
+    }
+}
+
 /// QQ Official Bot configuration (Tencent QQ Bot SDK)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -5436,9 +5775,9 @@ impl Default for Config {
             config_path: zeroclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
+            default_provider: Some(DEFAULT_PROVIDER_NAME.to_string()),
             provider_api: None,
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
             model_providers: HashMap::new(),
             provider: ProviderConfig::default(),
             default_temperature: 0.7,
@@ -5913,6 +6252,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.linq.signing_secret",
         )?;
     }
+    if let Some(ref mut github) = channels.github {
+        decrypt_secret(
+            store,
+            &mut github.access_token,
+            "config.channels_config.github.access_token",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut github.webhook_secret,
+            "config.channels_config.github.webhook_secret",
+        )?;
+    }
     if let Some(ref mut nextcloud) = channels.nextcloud_talk {
         decrypt_secret(
             store,
@@ -5964,6 +6315,13 @@ fn decrypt_channel_secrets(
             store,
             &mut dingtalk.client_secret,
             "config.channels_config.dingtalk.client_secret",
+        )?;
+    }
+    if let Some(ref mut napcat) = channels.napcat {
+        decrypt_optional_secret(
+            store,
+            &mut napcat.access_token,
+            "config.channels_config.napcat.access_token",
         )?;
     }
     if let Some(ref mut qq) = channels.qq {
@@ -6075,6 +6433,18 @@ fn encrypt_channel_secrets(
             "config.channels_config.linq.signing_secret",
         )?;
     }
+    if let Some(ref mut github) = channels.github {
+        encrypt_secret(
+            store,
+            &mut github.access_token,
+            "config.channels_config.github.access_token",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut github.webhook_secret,
+            "config.channels_config.github.webhook_secret",
+        )?;
+    }
     if let Some(ref mut nextcloud) = channels.nextcloud_talk {
         encrypt_secret(
             store,
@@ -6126,6 +6496,13 @@ fn encrypt_channel_secrets(
             store,
             &mut dingtalk.client_secret,
             "config.channels_config.dingtalk.client_secret",
+        )?;
+    }
+    if let Some(ref mut napcat) = channels.napcat {
+        encrypt_optional_secret(
+            store,
+            &mut napcat.access_token,
+            "config.channels_config.napcat.access_token",
         )?;
     }
     if let Some(ref mut qq) = channels.qq {
@@ -6337,6 +6714,10 @@ impl Config {
             config.workspace_dir = workspace_dir;
             let store = crate::security::SecretStore::new(&zeroclaw_dir, config.secrets.encrypt);
             decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
+            for (profile_name, profile) in config.model_providers.iter_mut() {
+                let secret_path = format!("config.model_providers.{profile_name}.api_key");
+                decrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+            }
             decrypt_optional_secret(
                 &store,
                 &mut config.transcription.api_key,
@@ -6573,6 +6954,18 @@ impl Config {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string);
+        let profile_default_model = profile
+            .default_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let profile_api_key = profile
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
         if self
             .api_url
@@ -6582,6 +6975,30 @@ impl Config {
         {
             if let Some(base_url) = base_url.as_ref() {
                 self.api_url = Some(base_url.clone());
+            }
+        }
+
+        if self
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty())
+        {
+            if let Some(profile_api_key) = profile_api_key {
+                self.api_key = Some(profile_api_key);
+            }
+        }
+
+        if let Some(profile_default_model) = profile_default_model {
+            let can_apply_profile_model =
+                self.default_model
+                    .as_deref()
+                    .map(str::trim)
+                    .is_none_or(|value| {
+                        value.is_empty() || value.eq_ignore_ascii_case(DEFAULT_MODEL_NAME)
+                    });
+            if can_apply_profile_model {
+                self.default_model = Some(profile_default_model);
             }
         }
 
@@ -6761,6 +7178,46 @@ impl Config {
                 "security.url_access.enforce_domain_allowlist=true requires non-empty security.url_access.domain_allowlist"
             );
         }
+        let mut seen_http_credential_profiles = std::collections::HashSet::new();
+        for (profile_name, profile) in &self.http_request.credential_profiles {
+            let normalized_name = profile_name.trim();
+            if normalized_name.is_empty() {
+                anyhow::bail!("http_request.credential_profiles keys must not be empty");
+            }
+            if !normalized_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                anyhow::bail!(
+                    "http_request.credential_profiles.{profile_name} contains invalid characters"
+                );
+            }
+            let canonical_name = normalized_name.to_ascii_lowercase();
+            if !seen_http_credential_profiles.insert(canonical_name) {
+                anyhow::bail!(
+                    "http_request.credential_profiles contains duplicate profile name: {normalized_name}"
+                );
+            }
+
+            let header_name = profile.header_name.trim();
+            if header_name.is_empty() {
+                anyhow::bail!(
+                    "http_request.credential_profiles.{profile_name}.header_name must not be empty"
+                );
+            }
+            if let Err(e) = reqwest::header::HeaderName::from_bytes(header_name.as_bytes()) {
+                anyhow::bail!(
+                    "http_request.credential_profiles.{profile_name}.header_name is invalid: {e}"
+                );
+            }
+
+            let env_var = profile.env_var.trim();
+            if !is_valid_env_var_name(env_var) {
+                anyhow::bail!(
+                    "http_request.credential_profiles.{profile_name}.env_var is invalid ({env_var}); expected [A-Za-z_][A-Za-z0-9_]*"
+                );
+            }
+        }
         let built_in_roles = ["owner", "admin", "operator", "viewer", "guest"];
         let mut custom_role_names = std::collections::HashSet::new();
         for (i, role) in self.security.roles.iter().enumerate() {
@@ -6922,6 +7379,9 @@ impl Config {
                 "security.perplexity_filter.symbol_ratio_threshold must be between 0.0 and 1.0"
             );
         }
+        if !(0.0..=1.0).contains(&self.security.outbound_leak_guard.sensitivity) {
+            anyhow::bail!("security.outbound_leak_guard.sensitivity must be between 0.0 and 1.0");
+        }
 
         // Browser
         if normalize_browser_open_choice(&self.browser.browser_open).is_none() {
@@ -7013,6 +7473,24 @@ impl Config {
                 .is_none()
             {
                 anyhow::bail!("model_routes[{i}].transport must be one of: auto, websocket, sse");
+            }
+        }
+
+        if let Some(default_hint) = self
+            .default_model
+            .as_deref()
+            .and_then(|model| model.strip_prefix("hint:"))
+            .map(str::trim)
+            .filter(|hint| !hint.is_empty())
+        {
+            if !self
+                .model_routes
+                .iter()
+                .any(|route| route.hint.trim() == default_hint)
+            {
+                anyhow::bail!(
+                    "default_model uses hint '{default_hint}', but no matching [[model_routes]] entry exists"
+                );
             }
         }
 
@@ -7221,7 +7699,9 @@ impl Config {
         } else if let Ok(provider) = std::env::var("PROVIDER") {
             let should_apply_legacy_provider =
                 self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
+                    configured
+                        .trim()
+                        .eq_ignore_ascii_case(DEFAULT_PROVIDER_NAME)
                 });
             if should_apply_legacy_provider && !provider.is_empty() {
                 self.default_provider = Some(provider);
@@ -7805,6 +8285,10 @@ impl Config {
         let store = crate::security::SecretStore::new(zeroclaw_dir, self.secrets.encrypt);
 
         encrypt_optional_secret(&store, &mut config_to_save.api_key, "config.api_key")?;
+        for (profile_name, profile) in config_to_save.model_providers.iter_mut() {
+            let secret_path = format!("config.model_providers.{profile_name}.api_key");
+            encrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+        }
         encrypt_optional_secret(
             &store,
             &mut config_to_save.transcription.api_key,
@@ -8021,6 +8505,7 @@ mod tests {
         assert_eq!(cfg.max_response_size, 1_000_000);
         assert!(!cfg.enabled);
         assert!(cfg.allowed_domains.is_empty());
+        assert!(cfg.credential_profiles.is_empty());
     }
 
     #[test]
@@ -8109,6 +8594,7 @@ mod tests {
             draft_update_interval_ms: 1000,
             interrupt_on_new_message: false,
             mention_only: false,
+            ack_enabled: true,
             group_reply: None,
             base_url: None,
         });
@@ -8236,6 +8722,8 @@ mod tests {
         assert!(a.require_approval_for_medium_risk);
         assert!(a.block_high_risk_commands);
         assert!(a.shell_env_passthrough.is_empty());
+        assert!(!a.allow_sensitive_file_reads);
+        assert!(!a.allow_sensitive_file_writes);
         assert!(a.non_cli_excluded_tools.contains(&"shell".to_string()));
         assert!(a.non_cli_excluded_tools.contains(&"delegate".to_string()));
     }
@@ -8257,6 +8745,14 @@ always_ask = []
 allowed_roots = []
 "#;
         let parsed: AutonomyConfig = toml::from_str(raw).unwrap();
+        assert!(
+            !parsed.allow_sensitive_file_reads,
+            "Missing allow_sensitive_file_reads must default to false"
+        );
+        assert!(
+            !parsed.allow_sensitive_file_writes,
+            "Missing allow_sensitive_file_writes must default to false"
+        );
         assert!(parsed.non_cli_excluded_tools.contains(&"shell".to_string()));
         assert!(parsed
             .non_cli_excluded_tools
@@ -8394,6 +8890,47 @@ default_temperature = 0.7
         assert!(c.discord.is_none());
     }
 
+    #[test]
+    async fn channels_config_accepts_onebot_alias_with_ws_url() {
+        let toml = r#"
+cli = true
+
+[onebot]
+ws_url = "ws://127.0.0.1:3001"
+access_token = "onebot-token"
+allowed_users = ["10001"]
+"#;
+
+        let parsed: ChannelsConfig =
+            toml::from_str(toml).expect("config should accept onebot alias for napcat");
+        let napcat = parsed
+            .napcat
+            .expect("channels_config.onebot should map to napcat config");
+
+        assert_eq!(napcat.websocket_url, "ws://127.0.0.1:3001");
+        assert_eq!(napcat.access_token.as_deref(), Some("onebot-token"));
+        assert_eq!(napcat.allowed_users, vec!["10001"]);
+    }
+
+    #[test]
+    async fn channels_config_napcat_still_accepts_ws_url_alias() {
+        let toml = r#"
+cli = true
+
+[napcat]
+ws_url = "ws://127.0.0.1:3002"
+"#;
+
+        let parsed: ChannelsConfig =
+            toml::from_str(toml).expect("napcat config should accept ws_url as websocket alias");
+        let napcat = parsed
+            .napcat
+            .expect("channels_config.napcat should be present");
+
+        assert_eq!(napcat.websocket_url, "ws://127.0.0.1:3002");
+        assert!(napcat.access_token.is_none());
+    }
+
     // ── Serde round-trip ─────────────────────────────────────
 
     #[test]
@@ -8423,6 +8960,8 @@ default_temperature = 0.7
                 require_approval_for_medium_risk: false,
                 block_high_risk_commands: true,
                 shell_env_passthrough: vec!["DATABASE_URL".into()],
+                allow_sensitive_file_reads: false,
+                allow_sensitive_file_writes: false,
                 auto_approve: vec!["file_read".into()],
                 always_ask: vec![],
                 allowed_roots: vec![],
@@ -8464,6 +9003,7 @@ default_temperature = 0.7
                     draft_update_interval_ms: default_draft_update_interval_ms(),
                     interrupt_on_new_message: false,
                     mention_only: false,
+                    ack_enabled: true,
                     group_reply: None,
                     base_url: None,
                 }),
@@ -8476,6 +9016,7 @@ default_temperature = 0.7
                 signal: None,
                 whatsapp: None,
                 linq: None,
+                github: None,
                 wati: None,
                 nextcloud_talk: None,
                 email: None,
@@ -8483,6 +9024,7 @@ default_temperature = 0.7
                 lark: None,
                 feishu: None,
                 dingtalk: None,
+                napcat: None,
                 qq: None,
                 nostr: None,
                 clawdtalk: None,
@@ -8940,6 +9482,7 @@ tool_dispatcher = "xml"
             draft_update_interval_ms: 1000,
             interrupt_on_new_message: false,
             mention_only: false,
+            ack_enabled: true,
             group_reply: None,
             base_url: None,
         });
@@ -9123,6 +9666,7 @@ tool_dispatcher = "xml"
             draft_update_interval_ms: 500,
             interrupt_on_new_message: true,
             mention_only: false,
+            ack_enabled: true,
             group_reply: None,
             base_url: None,
         };
@@ -9405,6 +9949,7 @@ allowed_users = ["@ops:matrix.org"]
             signal: None,
             whatsapp: None,
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -9412,6 +9957,7 @@ allowed_users = ["@ops:matrix.org"]
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,
@@ -9683,6 +10229,7 @@ channel_id = "C123"
                 allowed_numbers: vec!["+1".into()],
             }),
             linq: None,
+            github: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -9690,6 +10237,7 @@ channel_id = "C123"
             lark: None,
             feishu: None,
             dingtalk: None,
+            napcat: None,
             qq: None,
             nostr: None,
             clawdtalk: None,
@@ -10258,6 +10806,8 @@ model = "gpt-5.3-codex"
 name = "sub2api"
 base_url = "https://api.tonsof.blue/v1"
 wire_api = "responses"
+model = "gpt-5.3-codex"
+api_key = "profile-key"
 requires_openai_auth = true
 "#;
 
@@ -10269,6 +10819,8 @@ requires_openai_auth = true
             .get("sub2api")
             .expect("profile should exist");
         assert_eq!(profile.wire_api.as_deref(), Some("responses"));
+        assert_eq!(profile.default_model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(profile.api_key.as_deref(), Some("profile-key"));
         assert!(profile.requires_openai_auth);
     }
 
@@ -10430,6 +10982,67 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
+    async fn default_model_hint_requires_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "fast".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let err = config
+            .validate()
+            .expect_err("default_model hint without matching route should fail");
+        assert!(err
+            .to_string()
+            .contains("default_model uses hint 'reasoning'"));
+    }
+
+    #[test]
+    async fn default_model_hint_accepts_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "matching default hint route should validate"
+        );
+    }
+
+    #[test]
+    async fn default_model_hint_accepts_matching_model_route_with_whitespace() {
+        let mut config = Config::default();
+        config.default_model = Some("hint: reasoning ".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: " reasoning ".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "trimmed default hint should match trimmed route hint"
+        );
+    }
+
+    #[test]
     async fn provider_transport_normalizes_aliases() {
         let mut config = Config::default();
         config.provider.transport = Some("WS".to_string());
@@ -10514,6 +11127,31 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
+    async fn resolve_default_model_id_prefers_configured_model() {
+        let resolved =
+            resolve_default_model_id(Some("  anthropic/claude-opus-4.6  "), Some("openrouter"));
+        assert_eq!(resolved, "anthropic/claude-opus-4.6");
+    }
+
+    #[test]
+    async fn resolve_default_model_id_uses_provider_specific_fallback() {
+        let openai = resolve_default_model_id(None, Some("openai"));
+        assert_eq!(openai, "gpt-5.2");
+
+        let bedrock = resolve_default_model_id(None, Some("aws-bedrock"));
+        assert_eq!(bedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0");
+    }
+
+    #[test]
+    async fn resolve_default_model_id_handles_special_provider_aliases() {
+        let qwen_coding_plan = resolve_default_model_id(None, Some("qwen-coding-plan"));
+        assert_eq!(qwen_coding_plan, "qwen3-coder-plus");
+
+        let google_alias = resolve_default_model_id(None, Some("google-gemini"));
+        assert_eq!(google_alias, "gemini-2.5-pro");
+    }
+
+    #[test]
     async fn model_provider_profile_maps_to_custom_endpoint() {
         let _env_guard = env_override_lock().await;
         let mut config = Config {
@@ -10524,6 +11162,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: None,
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -10552,6 +11192,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue".to_string()),
                     wire_api: Some("responses".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: true,
                 },
             )]),
@@ -10614,6 +11256,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: Some("ws".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -10624,6 +11268,54 @@ provider_api = "not-a-real-mode"
         assert!(error
             .to_string()
             .contains("wire_api must be one of: responses, chat_completions"));
+    }
+
+    #[test]
+    async fn model_provider_profile_uses_profile_api_key_when_global_is_missing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            api_key: None,
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: None,
+                    api_key: Some("profile-api-key".to_string()),
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.api_key.as_deref(), Some("profile-api-key"));
+    }
+
+    #[test]
+    async fn model_provider_profile_can_override_default_model_when_openrouter_default_is_set() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: Some("qwen-max".to_string()),
+                    api_key: None,
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.default_model.as_deref(), Some("qwen-max"));
     }
 
     #[test]
@@ -11982,6 +12674,12 @@ default_temperature = 0.7
         assert!(parsed.security.url_access.domain_blocklist.is_empty());
         assert!(parsed.security.url_access.approved_domains.is_empty());
         assert!(!parsed.security.perplexity_filter.enable_perplexity_filter);
+        assert!(parsed.security.outbound_leak_guard.enabled);
+        assert_eq!(
+            parsed.security.outbound_leak_guard.action,
+            OutboundLeakGuardAction::Redact
+        );
+        assert_eq!(parsed.security.outbound_leak_guard.sensitivity, 0.7);
     }
 
     #[test]
@@ -12036,6 +12734,11 @@ perplexity_threshold = 16.5
 suffix_window_chars = 72
 min_prompt_chars = 40
 symbol_ratio_threshold = 0.25
+
+[security.outbound_leak_guard]
+enabled = true
+action = "block"
+sensitivity = 0.9
 "#,
         )
         .unwrap();
@@ -12062,6 +12765,12 @@ symbol_ratio_threshold = 0.25
             parsed.security.perplexity_filter.symbol_ratio_threshold,
             0.25
         );
+        assert!(parsed.security.outbound_leak_guard.enabled);
+        assert_eq!(
+            parsed.security.outbound_leak_guard.action,
+            OutboundLeakGuardAction::Block
+        );
+        assert_eq!(parsed.security.outbound_leak_guard.sensitivity, 0.9);
         assert_eq!(parsed.security.otp.gated_actions.len(), 2);
         assert_eq!(parsed.security.otp.gated_domains.len(), 2);
         assert_eq!(
@@ -12150,6 +12859,45 @@ symbol_ratio_threshold = 0.25
         assert!(err
             .to_string()
             .contains("security.url_access.enforce_domain_allowlist"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_invalid_http_credential_profile_env_var() {
+        let mut config = Config::default();
+        config.http_request.credential_profiles.insert(
+            "github".to_string(),
+            HttpRequestCredentialProfile {
+                env_var: "NOT VALID".to_string(),
+                ..HttpRequestCredentialProfile::default()
+            },
+        );
+
+        let err = config
+            .validate()
+            .expect_err("expected invalid http credential env var");
+        assert!(err
+            .to_string()
+            .contains("http_request.credential_profiles.github.env_var"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_empty_http_credential_profile_header_name() {
+        let mut config = Config::default();
+        config.http_request.credential_profiles.insert(
+            "linear".to_string(),
+            HttpRequestCredentialProfile {
+                header_name: "   ".to_string(),
+                env_var: "LINEAR_API_KEY".to_string(),
+                ..HttpRequestCredentialProfile::default()
+            },
+        );
+
+        let err = config
+            .validate()
+            .expect_err("expected empty header_name validation failure");
+        assert!(err
+            .to_string()
+            .contains("http_request.credential_profiles.linear.header_name"));
     }
 
     #[test]
@@ -12310,6 +13058,19 @@ symbol_ratio_threshold = 0.25
             .validate()
             .expect_err("expected perplexity symbol ratio validation failure");
         assert!(err.to_string().contains("symbol_ratio_threshold"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_invalid_outbound_leak_guard_sensitivity() {
+        let mut config = Config::default();
+        config.security.outbound_leak_guard.sensitivity = 1.2;
+
+        let err = config
+            .validate()
+            .expect_err("expected outbound leak guard sensitivity validation failure");
+        assert!(err
+            .to_string()
+            .contains("security.outbound_leak_guard.sensitivity"));
     }
 
     #[test]

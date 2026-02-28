@@ -684,7 +684,7 @@ impl TaskClassifier {
                     occ.hourly_wage,
                     occ.category,
                     confidence,
-                    format!("Matched {:.0} keywords", best_score),
+                    format!("Matched {} keywords", best_score as i32),
                 )
             } else {
                 // Fallback
