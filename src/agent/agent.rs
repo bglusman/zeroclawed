@@ -18,6 +18,8 @@ use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
 
+const AUTOSAVE_MIN_MESSAGE_CHARS: usize = 20;
+
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: Vec<Box<dyn Tool>>,
@@ -595,6 +597,17 @@ impl Agent {
                     .push(ConversationMessage::Chat(ChatMessage::assistant(
                         final_text.clone(),
                     )));
+                if self.auto_save && final_text.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+                    let _ = self
+                        .memory
+                        .store(
+                            "assistant_resp",
+                            &final_text,
+                            MemoryCategory::Conversation,
+                            None,
+                        )
+                        .await;
+                }
                 self.trim_history();
 
                 return Ok(final_text);

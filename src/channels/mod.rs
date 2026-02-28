@@ -336,6 +336,10 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
     }
 }
 
+fn assistant_memory_key(msg: &traits::ChannelMessage) -> String {
+    format!("assistant_resp_{}", conversation_memory_key(msg))
+}
+
 fn conversation_history_key(msg: &traits::ChannelMessage) -> String {
     // QQ uses thread_ts as a passive-reply message id, not a thread identifier.
     // Using it in history keys would reset context on every incoming message.
@@ -3640,6 +3644,20 @@ or tune thresholds in config.",
                 &history_key,
                 ChatMessage::assistant(&history_response),
             );
+            if ctx.auto_save_memory
+                && delivered_response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+            {
+                let assistant_key = assistant_memory_key(&msg);
+                let _ = ctx
+                    .memory
+                    .store(
+                        &assistant_key,
+                        &delivered_response,
+                        crate::memory::MemoryCategory::Conversation,
+                        None,
+                    )
+                    .await;
+            }
             println!(
                 "  🤖 Reply ({}ms): {}",
                 started_at.elapsed().as_millis(),

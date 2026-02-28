@@ -2103,6 +2103,17 @@ pub async fn run(
             )
             .await?;
         final_output = response.clone();
+        if config.memory.auto_save && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+            let assistant_key = autosave_memory_key("assistant_resp");
+            let _ = mem
+                .store(
+                    &assistant_key,
+                    &response,
+                    MemoryCategory::Conversation,
+                    None,
+                )
+                .await;
+        }
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
     } else {
@@ -2295,6 +2306,17 @@ pub async fn run(
                 }
             };
             final_output = response.clone();
+            if config.memory.auto_save && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+                let assistant_key = autosave_memory_key("assistant_resp");
+                let _ = mem
+                    .store(
+                        &assistant_key,
+                        &response,
+                        MemoryCategory::Conversation,
+                        None,
+                    )
+                    .await;
+            }
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
                 &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
