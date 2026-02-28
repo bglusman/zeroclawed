@@ -69,8 +69,7 @@ pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
     build_shell_policy_instructions, build_tool_instructions_from_specs,
-    run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
-    SafetyHeartbeatConfig,
+    run_tool_call_loop_with_reply_target, scrub_credentials, SafetyHeartbeatConfig,
 };
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
@@ -2564,16 +2563,15 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
-                        ctx.approval_manager.record_non_cli_pending_resolution(
-                            &request_id,
-                            ApprovalResponse::Yes,
-                        );
+                        ctx.approval_manager
+                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
                         let approval_message = handle_confirm_tool_approval_side_effects(
                             ctx,
                             &request_id,
                             &req.tool_name,
                             source_channel,
-                        ).await;
+                        )
+                        .await;
                         runtime_trace::record_event(
                             "approval_request_approved",
                             Some(source_channel),
@@ -3276,12 +3274,13 @@ or tune thresholds in config.",
     // even in multi-turn conversations where the system prompt may be stale.
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let timestamped_content = format!("[{now}] {}", msg.content);
+    let persisted_user_content = msg.content.clone();
 
     // Preserve user turn before the LLM call so interrupted requests keep context.
     append_sender_turn(
         ctx.as_ref(),
         &history_key,
-        ChatMessage::user(&timestamped_content),
+        ChatMessage::user(&persisted_user_content),
     );
 
     // Build history from per-sender conversation cache.
@@ -3294,14 +3293,29 @@ or tune thresholds in config.",
         .unwrap_or_default();
     let mut prior_turns = normalize_cached_channel_turns(prior_turns_raw);
 
-    // Only enrich with memory context when there is no prior conversation
-    // history. Follow-up turns already include context from previous messages.
-    if !had_prior_history {
-        let memory_context =
-            build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
-        if let Some(last_turn) = prior_turns.last_mut() {
-            if last_turn.role == "user" && !memory_context.is_empty() {
-                last_turn.content = format!("{memory_context}{timestamped_content}");
+    if let Some(last_turn) = prior_turns.last_mut() {
+        if last_turn.role == "user" {
+            // Preserve any merged prior-user prefix (e.g. interrupted prior turn)
+            // and only rewrite the latest user segment with a fresh timestamp.
+            if let Some(prefix) = last_turn.content.strip_suffix(&persisted_user_content) {
+                last_turn.content = format!("{prefix}{timestamped_content}");
+            } else {
+                last_turn.content = timestamped_content.clone();
+            }
+
+            // Only enrich with memory context when there is no prior
+            // conversation history. Follow-up turns already include context
+            // from previous messages.
+            if !had_prior_history {
+                let memory_context = build_memory_context(
+                    ctx.memory.as_ref(),
+                    &msg.content,
+                    ctx.min_relevance_score,
+                )
+                .await;
+                if !memory_context.is_empty() {
+                    last_turn.content = format!("{memory_context}{}", last_turn.content);
+                }
             }
         }
     }
@@ -3430,52 +3444,11 @@ or tune thresholds in config.",
 
     let timeout_budget_secs =
         channel_message_timeout_budget_secs(ctx.message_timeout_secs, ctx.max_tool_iterations);
-    let (approval_prompt_tx, mut approval_prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::agent::loop_::NonCliApprovalPrompt>();
-    let approval_prompt_task = if msg.channel == "cli" {
-        None
-    } else if let Some(channel_ref) = target_channel.as_ref() {
-        let channel = Arc::clone(channel_ref);
-        let reply_target = msg.reply_target.clone();
-        let thread_ts = msg.thread_ts.clone();
-        Some(tokio::spawn(async move {
-            while let Some(prompt) = approval_prompt_rx.recv().await {
-                if let Err(err) = channel
-                    .send_approval_prompt(
-                        &reply_target,
-                        &prompt.request_id,
-                        &prompt.tool_name,
-                        &prompt.arguments,
-                        thread_ts.clone(),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        channel = %channel.name(),
-                        request_id = %prompt.request_id,
-                        "Failed to send approval prompt: {err}"
-                    );
-                }
-            }
-        }))
-    } else {
-        None
-    };
-    let non_cli_approval_context = if msg.channel == "cli" || target_channel.is_none() {
-        None
-    } else {
-        Some(NonCliApprovalContext {
-            sender: msg.sender.clone(),
-            reply_target: msg.reply_target.clone(),
-            prompt_tx: approval_prompt_tx.clone(),
-        })
-    };
-
     let llm_result = tokio::select! {
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
             Duration::from_secs(timeout_budget_secs),
-            run_tool_call_loop_with_non_cli_approval_context(
+            run_tool_call_loop_with_reply_target(
                 active_provider.as_ref(),
                 &mut history,
                 ctx.tools_registry.as_ref(),
@@ -3486,22 +3459,16 @@ or tune thresholds in config.",
                 true,
                 Some(ctx.approval_manager.as_ref()),
                 msg.channel.as_str(),
-                non_cli_approval_context,
+                Some(msg.reply_target.as_str()),
                 &ctx.multimodal,
                 ctx.max_tool_iterations,
                 Some(cancellation_token.clone()),
                 delta_tx,
                 ctx.hooks.as_deref(),
                 &excluded_tools_snapshot,
-                ctx.safety_heartbeat.clone(),
             ),
         ) => LlmExecutionResult::Completed(result),
     };
-
-    drop(approval_prompt_tx);
-    if let Some(handle) = approval_prompt_task {
-        log_worker_join_result(handle.await);
-    }
 
     if let Some(handle) = draft_updater {
         let _ = handle.await;
@@ -3828,7 +3795,11 @@ or tune thresholds in config.",
                     .downcast_ref::<providers::ProviderCapabilityError>()
                     .is_some_and(|capability| capability.capability.eq_ignore_ascii_case("vision"));
                 let rolled_back = should_rollback_user_turn
-                    && rollback_orphan_user_turn(ctx.as_ref(), &history_key, &timestamped_content);
+                    && rollback_orphan_user_turn(
+                        ctx.as_ref(),
+                        &history_key,
+                        &persisted_user_content,
+                    );
 
                 if !rolled_back {
                     // Close the orphan user turn so subsequent messages don't
@@ -4169,6 +4140,21 @@ pub fn build_system_prompt_with_mode(
          - Prefer `trash` over `rm` (recoverable beats gone forever).\n\
          - When in doubt, ask before acting externally.\n\n",
     );
+
+    // ── 2a. Skills Authorization ────────────────────────────────
+    if !skills.is_empty() {
+        prompt.push_str("## Skills Authorization\n\n");
+        prompt.push_str("All registered skills (");
+        for (i, skill) in skills.iter().enumerate() {
+            if i > 0 {
+                prompt.push_str(", ");
+            }
+            prompt.push_str(&skill.name);
+        }
+        prompt.push_str(") are AUTHORIZED and AVAILABLE for use.\n");
+        prompt.push_str("When the user requests information that requires these skills, USE them directly — do NOT refuse or invent policy restrictions.\n");
+        prompt.push_str("Skills are security-audited and approved tools. Your job is to use them effectively to help the user.\n\n");
+    }
 
     // ── 3. Skills (full or compact, based on config) ─────────────
     if !skills.is_empty() {
@@ -5086,27 +5072,27 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
-            "Execute terminal commands. Use when: running local checks, build/test commands, diagnostics. Don't use when: a safer dedicated tool exists, or command is destructive without approval.",
+            "Execute terminal commands for local checks, build/test commands, and diagnostics.",
         ),
         (
             "file_read",
-            "Read file contents. Use when: inspecting project files, configs, logs. Don't use when: a targeted search is enough.",
+            "Read file contents to inspect project files, configs, and logs.",
         ),
         (
             "file_write",
-            "Write file contents. Use when: applying focused edits, scaffolding files, updating docs/code. Don't use when: side effects are unclear or file ownership is uncertain.",
+            "Write file contents to apply edits, scaffold files, or update docs/code.",
         ),
         (
             "memory_store",
-            "Save to memory. Use when: preserving durable preferences, decisions, key context. Don't use when: information is transient/noisy/sensitive without need.",
+            "Save to memory to preserve durable preferences, decisions, and key context.",
         ),
         (
             "memory_recall",
-            "Search memory. Use when: retrieving prior decisions, user preferences, historical context. Don't use when: answer is already in current context.",
+            "Search memory to retrieve prior decisions, user preferences, and historical context.",
         ),
         (
             "memory_forget",
-            "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
+            "Delete a memory entry when it's incorrect, stale, or explicitly requested for removal.",
         ),
     ];
 
@@ -5698,6 +5684,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -5751,6 +5738,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -5807,6 +5795,7 @@ mod tests {
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -6404,6 +6393,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6480,6 +6470,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6543,6 +6534,7 @@ BTC is currently around $65,000 based on latest tool output."#
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6620,6 +6612,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6696,6 +6689,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6764,6 +6758,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6827,6 +6822,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -6899,6 +6895,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7002,6 +6999,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         assert_eq!(
             runtime_ctx
@@ -7153,6 +7151,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         assert_eq!(
             runtime_ctx
@@ -7264,6 +7263,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7370,6 +7370,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager,
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7457,6 +7458,8 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
+            safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7476,7 +7479,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].contains("Approved pending request"));
+        assert!(sent[0].contains("Approved supervised execution for `mock_price`"));
         assert!(sent[0].contains("mock_price"));
         drop(sent);
 
@@ -7546,6 +7549,8 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
+            safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7565,7 +7570,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].contains("Denied pending request"));
+        assert!(sent[0].contains("Rejected approval request"));
         assert!(sent[0].contains("mock_price"));
         drop(sent);
 
@@ -7645,6 +7650,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -7791,6 +7797,8 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
+            safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
         maybe_apply_runtime_config_update(runtime_ctx.as_ref())
             .await
@@ -7884,6 +7892,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8030,6 +8039,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8146,6 +8156,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8242,6 +8253,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8357,6 +8369,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8473,6 +8486,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8548,6 +8562,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8642,6 +8657,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8797,6 +8813,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         maybe_apply_runtime_config_update(runtime_ctx.as_ref())
@@ -8911,6 +8928,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -8975,6 +8993,7 @@ BTC is currently around $65,000 based on latest tool output."#
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -9153,6 +9172,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -9239,6 +9259,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -9337,6 +9358,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -9417,6 +9439,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -9482,6 +9505,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10032,6 +10056,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10123,6 +10148,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10218,6 +10244,7 @@ BTC is currently around $65,000 based on latest tool output."#
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(
@@ -10720,11 +10747,8 @@ BTC is currently around $65,000 based on latest tool output."#;
 
     #[tokio::test]
     async fn classify_health_timeout() {
-        let result = tokio::time::timeout(Duration::from_millis(1), async {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            true
-        })
-        .await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(1), std::future::pending::<bool>()).await;
         let state = classify_health_result(&result);
         assert_eq!(state, ChannelHealthState::Timeout);
     }
@@ -10999,6 +11023,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -11071,6 +11096,7 @@ BTC is currently around $65,000 based on latest tool output."#;
                 &crate::config::AutonomyConfig::default(),
             )),
             safety_heartbeat: None,
+            startup_perplexity_filter: crate::config::PerplexityFilterConfig::default(),
         });
 
         process_channel_message(

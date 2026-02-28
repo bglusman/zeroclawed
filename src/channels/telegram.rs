@@ -3584,7 +3584,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("getMe"),
             "https://api.telegram.org/bot123:ABC/getMe"
@@ -3593,7 +3593,7 @@ mod tests {
 
     #[test]
     fn telegram_custom_base_url() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false)
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true)
             .with_api_base("https://tapi.bale.ai".to_string());
         assert_eq!(ch.api_url("getMe"), "https://tapi.bale.ai/bot123:ABC/getMe");
         assert_eq!(
@@ -3651,32 +3651,32 @@ mod tests {
 
     #[test]
     fn telegram_user_allowed_wildcard() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         assert!(ch.is_user_allowed("anyone"));
     }
 
     #[test]
     fn telegram_user_allowed_specific() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into(), "bob".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["alice".into(), "bob".into()], false, true);
         assert!(ch.is_user_allowed("alice"));
         assert!(!ch.is_user_allowed("eve"));
     }
 
     #[test]
     fn telegram_user_allowed_with_at_prefix_in_config() {
-        let ch = TelegramChannel::new("t".into(), vec!["@alice".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["@alice".into()], false, true);
         assert!(ch.is_user_allowed("alice"));
     }
 
     #[test]
     fn telegram_user_denied_empty() {
-        let ch = TelegramChannel::new("t".into(), vec![], false);
+        let ch = TelegramChannel::new("t".into(), vec![], false, true);
         assert!(!ch.is_user_allowed("anyone"));
     }
 
     #[test]
     fn telegram_user_exact_match_not_substring() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false, true);
         assert!(!ch.is_user_allowed("alice_bot"));
         assert!(!ch.is_user_allowed("alic"));
         assert!(!ch.is_user_allowed("malice"));
@@ -3684,13 +3684,13 @@ mod tests {
 
     #[test]
     fn telegram_user_empty_string_denied() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false, true);
         assert!(!ch.is_user_allowed(""));
     }
 
     #[test]
     fn telegram_user_case_sensitive() {
-        let ch = TelegramChannel::new("t".into(), vec!["Alice".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["Alice".into()], false, true);
         assert!(ch.is_user_allowed("Alice"));
         assert!(!ch.is_user_allowed("alice"));
         assert!(!ch.is_user_allowed("ALICE"));
@@ -3698,7 +3698,7 @@ mod tests {
 
     #[test]
     fn telegram_wildcard_with_specific_users() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into(), "*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["alice".into(), "*".into()], false, true);
         assert!(ch.is_user_allowed("alice"));
         assert!(ch.is_user_allowed("bob"));
         assert!(ch.is_user_allowed("anyone"));
@@ -3706,25 +3706,30 @@ mod tests {
 
     #[test]
     fn telegram_user_allowed_by_numeric_id_identity() {
-        let ch = TelegramChannel::new("t".into(), vec!["123456789".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["123456789".into()], false, true);
         assert!(ch.is_any_user_allowed(["unknown", "123456789"]));
     }
 
     #[test]
     fn telegram_user_denied_when_none_of_identities_match() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into(), "987654321".into()], false);
+        let ch = TelegramChannel::new(
+            "t".into(),
+            vec!["alice".into(), "987654321".into()],
+            false,
+            true,
+        );
         assert!(!ch.is_any_user_allowed(["unknown", "123456789"]));
     }
 
     #[test]
     fn telegram_pairing_enabled_with_empty_allowlist() {
-        let ch = TelegramChannel::new("t".into(), vec![], false);
+        let ch = TelegramChannel::new("t".into(), vec![], false, true);
         assert!(ch.pairing_code_active());
     }
 
     #[test]
     fn telegram_pairing_disabled_with_nonempty_allowlist() {
-        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["alice".into()], false, true);
         assert!(!ch.pairing_code_active());
     }
 
@@ -3910,7 +3915,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_uses_chat_id_as_reply_target() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true);
         let update = serde_json::json!({
             "update_id": 1,
             "message": {
@@ -3938,7 +3943,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_allows_numeric_id_without_username() {
-        let ch = TelegramChannel::new("token".into(), vec!["555".into()], false);
+        let ch = TelegramChannel::new("token".into(), vec!["555".into()], false, true);
         let update = serde_json::json!({
             "update_id": 2,
             "message": {
@@ -3963,7 +3968,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_extracts_thread_id_for_forum_topic() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true);
         let update = serde_json::json!({
             "update_id": 3,
             "message": {
@@ -4059,7 +4064,7 @@ mod tests {
 
     #[tokio::test]
     async fn try_parse_approval_callback_query_builds_runtime_command_message() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true);
         let update = serde_json::json!({
             "update_id": 7,
             "callback_query": {
@@ -4091,7 +4096,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url_send_document() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("sendDocument"),
             "https://api.telegram.org/bot123:ABC/sendDocument"
@@ -4100,7 +4105,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url_send_photo() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("sendPhoto"),
             "https://api.telegram.org/bot123:ABC/sendPhoto"
@@ -4109,7 +4114,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url_send_video() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("sendVideo"),
             "https://api.telegram.org/bot123:ABC/sendVideo"
@@ -4118,7 +4123,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url_send_audio() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("sendAudio"),
             "https://api.telegram.org/bot123:ABC/sendAudio"
@@ -4127,7 +4132,7 @@ mod tests {
 
     #[test]
     fn telegram_api_url_send_voice() {
-        let ch = TelegramChannel::new("123:ABC".into(), vec![], false);
+        let ch = TelegramChannel::new("123:ABC".into(), vec![], false, true);
         assert_eq!(
             ch.api_url("sendVoice"),
             "https://api.telegram.org/bot123:ABC/sendVoice"
@@ -4641,7 +4646,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_mention_only_group_requires_exact_mention() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4668,7 +4673,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_mention_only_group_strips_mention_and_drops_empty() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4716,7 +4721,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_mention_only_group_allows_configured_sender_without_mention() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true)
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true)
             .with_group_reply_allowed_senders(vec!["555".into()]);
         {
             let mut cache = ch.bot_username.lock();
@@ -4747,7 +4752,7 @@ mod tests {
 
     #[test]
     fn passes_mention_only_gate_allows_configured_sender_for_non_text_messages() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true)
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true)
             .with_group_reply_allowed_senders(vec!["555".into()]);
         {
             let mut cache = ch.bot_username.lock();
@@ -4770,7 +4775,7 @@ mod tests {
 
     #[test]
     fn passes_mention_only_gate_rejects_non_mentioned_non_bypassed_non_text_messages() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4814,16 +4819,16 @@ mod tests {
 
     #[test]
     fn telegram_mention_only_enabled_by_config() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         assert!(ch.mention_only);
 
-        let ch_disabled = TelegramChannel::new("token".into(), vec!["*".into()], false);
+        let ch_disabled = TelegramChannel::new("token".into(), vec!["*".into()], false, true);
         assert!(!ch_disabled.mention_only);
     }
 
     #[test]
     fn should_skip_unauthorized_prompt_for_non_mentioned_group_message() {
-        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4838,7 +4843,7 @@ mod tests {
 
     #[test]
     fn should_not_skip_unauthorized_prompt_for_mentioned_group_message() {
-        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4853,7 +4858,7 @@ mod tests {
 
     #[test]
     fn should_not_skip_unauthorized_prompt_outside_group_mention_only() {
-        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4867,7 +4872,8 @@ mod tests {
         let group_message = serde_json::json!({
             "chat": { "type": "group" }
         });
-        let mention_disabled = TelegramChannel::new("token".into(), vec!["alice".into()], false);
+        let mention_disabled =
+            TelegramChannel::new("token".into(), vec!["alice".into()], false, true);
         assert!(!mention_disabled.should_skip_unauthorized_prompt(
             &group_message,
             "hello",
@@ -4877,7 +4883,7 @@ mod tests {
 
     #[test]
     fn should_not_skip_unauthorized_prompt_for_group_sender_trigger_override() {
-        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true)
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], true, true)
             .with_group_reply_allowed_senders(vec!["999".into()]);
         {
             let mut cache = ch.bot_username.lock();
@@ -4892,7 +4898,7 @@ mod tests {
 
     #[test]
     fn telegram_mention_only_group_photo_without_caption_is_ignored() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4925,7 +4931,7 @@ mod tests {
 
     #[test]
     fn telegram_mention_only_group_photo_with_caption_without_mention_is_ignored() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -4958,7 +4964,7 @@ mod tests {
     #[test]
     fn telegram_mention_only_private_chat_photo_still_works() {
         // Private chats should still work regardless of mention_only setting
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());
@@ -5213,7 +5219,7 @@ mod tests {
 
     #[test]
     fn extract_reply_context_text_message() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         let msg = serde_json::json!({
             "reply_to_message": {
                 "from": { "username": "alice" },
@@ -5226,7 +5232,7 @@ mod tests {
 
     #[test]
     fn extract_reply_context_voice_message() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         let msg = serde_json::json!({
             "reply_to_message": {
                 "from": { "username": "bob" },
@@ -5239,7 +5245,7 @@ mod tests {
 
     #[test]
     fn extract_reply_context_no_reply() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         let msg = serde_json::json!({
             "text": "just a regular message"
         });
@@ -5248,7 +5254,7 @@ mod tests {
 
     #[test]
     fn extract_reply_context_no_username_uses_first_name() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         let msg = serde_json::json!({
             "reply_to_message": {
                 "from": { "id": 999, "first_name": "Charlie" },
@@ -5261,7 +5267,7 @@ mod tests {
 
     #[test]
     fn extract_reply_context_voice_with_cached_transcription() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         // Pre-populate transcription cache
         ch.voice_transcriptions
             .lock()
@@ -5280,7 +5286,7 @@ mod tests {
 
     #[test]
     fn parse_update_message_includes_reply_context() {
-        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("t".into(), vec!["*".into()], false, true);
         let update = serde_json::json!({
             "message": {
                 "message_id": 10,
@@ -5314,22 +5320,22 @@ mod tests {
         let mut tc = crate::config::TranscriptionConfig::default();
         tc.enabled = true;
 
-        let ch =
-            TelegramChannel::new("token".into(), vec!["*".into()], false).with_transcription(tc);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true)
+            .with_transcription(tc);
         assert!(ch.transcription.is_some());
     }
 
     #[test]
     fn with_transcription_skips_when_disabled() {
         let tc = crate::config::TranscriptionConfig::default(); // enabled = false
-        let ch =
-            TelegramChannel::new("token".into(), vec!["*".into()], false).with_transcription(tc);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true)
+            .with_transcription(tc);
         assert!(ch.transcription.is_none());
     }
 
     #[tokio::test]
     async fn try_parse_voice_message_returns_none_when_transcription_disabled() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true);
         let update = serde_json::json!({
             "message": {
                 "message_id": 1,
@@ -5349,8 +5355,8 @@ mod tests {
         tc.enabled = true;
         tc.max_duration_secs = 5;
 
-        let ch =
-            TelegramChannel::new("token".into(), vec!["*".into()], false).with_transcription(tc);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], false, true)
+            .with_transcription(tc);
         let update = serde_json::json!({
             "message": {
                 "message_id": 2,
@@ -5370,7 +5376,7 @@ mod tests {
         tc.enabled = true;
         tc.max_duration_secs = 120;
 
-        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], false)
+        let ch = TelegramChannel::new("token".into(), vec!["alice".into()], false, true)
             .with_transcription(tc);
         let update = serde_json::json!({
             "message": {
@@ -5435,7 +5441,7 @@ mod tests {
         );
 
         // 4. Create TelegramChannel, insert transcription into voice_transcriptions cache
-        let ch = TelegramChannel::new("test_token".into(), vec!["*".into()], false);
+        let ch = TelegramChannel::new("test_token".into(), vec!["*".into()], false, true);
         let chat_id: i64 = 12345;
         let message_id: i64 = 67;
         let cache_key = format!("{chat_id}:{message_id}");

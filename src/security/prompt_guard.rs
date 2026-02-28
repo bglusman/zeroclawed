@@ -414,9 +414,9 @@ mod tests {
             result,
             GuardResult::Suspicious(_, _) | GuardResult::Blocked(_)
         ));
-        // Keep a generous absolute bound to avoid CI flakiness under load while
-        // still catching pathological regressions.
-        assert!(larger_elapsed < Duration::from_secs(8));
+        // Keep this as a regression guard for pathological slow paths, but
+        // allow headroom for heavily loaded shared CI runners.
+        assert!(larger_elapsed < Duration::from_secs(10));
     }
 
     #[test]

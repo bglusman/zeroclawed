@@ -19,6 +19,7 @@ Last verified: **February 28, 2026**.
 | `cron` | Manage scheduled tasks |
 | `models` | Refresh provider model catalogs |
 | `providers` | List provider IDs, aliases, and active provider |
+| `providers-quota` | Check provider quota usage, rate limits, and health |
 | `channel` | Manage channels and channel health checks |
 | `integrations` | Inspect integration details |
 | `skills` | List/install/remove skills |
@@ -120,6 +121,24 @@ Notes:
 - `zeroclaw models refresh --force`
 
 `models refresh` currently supports live catalog refresh for provider IDs: `openrouter`, `openai`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `together-ai`, `gemini`, `ollama`, `llamacpp`, `sglang`, `vllm`, `astrai`, `venice`, `fireworks`, `cohere`, `moonshot`, `glm`, `zai`, `qwen`, `volcengine` (`doubao`/`ark` aliases), `siliconflow`, and `nvidia`.
+
+#### Live model availability test
+
+```bash
+./dev/test_models.sh              # test all Gemini models + profile rotation
+./dev/test_models.sh models       # test model availability only
+./dev/test_models.sh profiles     # test profile rotation only
+```
+
+Runs a Rust integration test (`tests/gemini_model_availability.rs`) that verifies each model against the OAuth endpoint (cloudcode-pa). Requires valid Gemini OAuth credentials in `auth-profiles.json`.
+
+### `providers-quota`
+
+- `zeroclaw providers-quota` — show quota status for all configured providers
+- `zeroclaw providers-quota --provider gemini` — show quota for a specific provider
+- `zeroclaw providers-quota --format json` — JSON output for scripting
+
+Displays provider quota usage, rate limits, circuit breaker state, and OAuth profile health.
 
 ### `doctor`
 

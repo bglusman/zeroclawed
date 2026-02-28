@@ -41,6 +41,12 @@ use std::io::Write;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
+#[derive(Debug, Clone, ValueEnum)]
+enum QuotaFormat {
+    Text,
+    Json,
+}
+
 fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     let t: f64 = s.parse().map_err(|e| format!("{e}"))?;
     if !(0.0..=2.0).contains(&t) {
@@ -387,6 +393,30 @@ Examples:
     /// List supported AI providers
     Providers,
 
+    /// Show provider quota and rate limit status
+    #[command(
+        name = "providers-quota",
+        long_about = "\
+Show provider quota and rate limit status.
+
+Displays quota remaining, rate limit resets, circuit breaker state, \
+and per-profile breakdown for all configured providers. Helps diagnose \
+quota exhaustion and rate limiting issues.
+
+Examples:
+  zeroclaw providers-quota                    # text output, all providers
+  zeroclaw providers-quota --format json      # JSON output
+  zeroclaw providers-quota --provider gemini  # filter by provider"
+    )]
+    ProvidersQuota {
+        /// Filter by provider name (optional, shows all if omitted)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Output format (text or json)
+        #[arg(long, value_enum, default_value_t = QuotaFormat::Text)]
+        format: QuotaFormat,
+    },
     /// Manage channels (telegram, discord, slack)
     #[command(long_about = "\
 Manage communication channels.
@@ -1051,6 +1081,14 @@ async fn main() -> Result<()> {
             ModelCommands::Set { model } => onboard::run_models_set(&config, &model).await,
             ModelCommands::Status => onboard::run_models_status(&config).await,
         },
+
+        Commands::ProvidersQuota { provider, format } => {
+            let format_str = match format {
+                QuotaFormat::Text => "text",
+                QuotaFormat::Json => "json",
+            };
+            providers::quota_cli::run(&config, provider.as_deref(), format_str).await
+        }
 
         Commands::Providers => {
             let providers = providers::list_providers();

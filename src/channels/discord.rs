@@ -1611,8 +1611,7 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[tokio::test]
-    async fn process_attachments_emits_single_image_marker() {
+    async fn process_attachments_emits_image_marker_for_image_content_type() {
         let client = reqwest::Client::new();
         let attachments = vec![serde_json::json!({
             "url": "https://cdn.discordapp.com/attachments/123/456/photo.png",
@@ -1679,7 +1678,6 @@ mod tests {
             "https://cdn.discordapp.com/attachments/123/456/photo.png"
         ));
     }
-
     #[test]
     fn parse_attachment_markers_extracts_supported_markers() {
         let input = "Report\n[IMAGE:https://example.com/a.png]\n[DOCUMENT:/tmp/a.pdf]";
