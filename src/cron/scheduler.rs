@@ -188,7 +188,7 @@ async fn run_agent_job(
                 vec![],
                 false,
                 None,
-            )
+            ))
             .await
         }
     };
