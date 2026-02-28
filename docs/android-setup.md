@@ -149,6 +149,16 @@ scripts/android/termux_source_build_check.sh \
   --diagnose-log /path/to/cargo-error.log
 ```
 
+For CI automation, emit a machine-readable report:
+
+```bash
+scripts/android/termux_source_build_check.sh \
+  --target aarch64-linux-android \
+  --mode ndk-cross \
+  --diagnose-log /path/to/cargo-error.log \
+  --json-output /tmp/zeroclaw-android-selfcheck.json
+```
+
 ## Troubleshooting
 
 ### "Permission denied"
