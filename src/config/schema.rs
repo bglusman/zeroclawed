@@ -59,6 +59,8 @@ const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
 static RUNTIME_PROXY_CONFIG: OnceLock<RwLock<ProxyConfig>> = OnceLock::new();
 static RUNTIME_PROXY_CLIENT_CACHE: OnceLock<RwLock<HashMap<String, reqwest::Client>>> =
     OnceLock::new();
+const DEFAULT_PROVIDER_NAME: &str = "openrouter";
+const DEFAULT_MODEL_NAME: &str = "anthropic/claude-sonnet-4.6";
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -304,6 +306,12 @@ pub struct ModelProviderConfig {
     /// Provider protocol variant ("responses" or "chat_completions").
     #[serde(default)]
     pub wire_api: Option<String>,
+    /// Optional profile-scoped default model.
+    #[serde(default, alias = "model")]
+    pub default_model: Option<String>,
+    /// Optional profile-scoped API key.
+    #[serde(default)]
+    pub api_key: Option<String>,
     /// If true, load OpenAI auth material (OPENAI_API_KEY or ~/.codex/auth.json).
     #[serde(default)]
     pub requires_openai_auth: bool,
@@ -5600,9 +5608,9 @@ impl Default for Config {
             config_path: zeroclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
+            default_provider: Some(DEFAULT_PROVIDER_NAME.to_string()),
             provider_api: None,
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
             model_providers: HashMap::new(),
             provider: ProviderConfig::default(),
             default_temperature: 0.7,
@@ -6536,6 +6544,10 @@ impl Config {
             config.workspace_dir = workspace_dir;
             let store = crate::security::SecretStore::new(&zeroclaw_dir, config.secrets.encrypt);
             decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
+            for (profile_name, profile) in config.model_providers.iter_mut() {
+                let secret_path = format!("config.model_providers.{profile_name}.api_key");
+                decrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+            }
             decrypt_optional_secret(
                 &store,
                 &mut config.transcription.api_key,
@@ -6772,6 +6784,18 @@ impl Config {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string);
+        let profile_default_model = profile
+            .default_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let profile_api_key = profile
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
         if self
             .api_url
@@ -6781,6 +6805,30 @@ impl Config {
         {
             if let Some(base_url) = base_url.as_ref() {
                 self.api_url = Some(base_url.clone());
+            }
+        }
+
+        if self
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty())
+        {
+            if let Some(profile_api_key) = profile_api_key {
+                self.api_key = Some(profile_api_key);
+            }
+        }
+
+        if let Some(profile_default_model) = profile_default_model {
+            let can_apply_profile_model =
+                self.default_model
+                    .as_deref()
+                    .map(str::trim)
+                    .is_none_or(|value| {
+                        value.is_empty() || value.eq_ignore_ascii_case(DEFAULT_MODEL_NAME)
+                    });
+            if can_apply_profile_model {
+                self.default_model = Some(profile_default_model);
             }
         }
 
@@ -7481,7 +7529,9 @@ impl Config {
         } else if let Ok(provider) = std::env::var("PROVIDER") {
             let should_apply_legacy_provider =
                 self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
+                    configured
+                        .trim()
+                        .eq_ignore_ascii_case(DEFAULT_PROVIDER_NAME)
                 });
             if should_apply_legacy_provider && !provider.is_empty() {
                 self.default_provider = Some(provider);
@@ -8065,6 +8115,10 @@ impl Config {
         let store = crate::security::SecretStore::new(zeroclaw_dir, self.secrets.encrypt);
 
         encrypt_optional_secret(&store, &mut config_to_save.api_key, "config.api_key")?;
+        for (profile_name, profile) in config_to_save.model_providers.iter_mut() {
+            let secret_path = format!("config.model_providers.{profile_name}.api_key");
+            encrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+        }
         encrypt_optional_secret(
             &store,
             &mut config_to_save.transcription.api_key,
@@ -10579,6 +10633,8 @@ model = "gpt-5.3-codex"
 name = "sub2api"
 base_url = "https://api.tonsof.blue/v1"
 wire_api = "responses"
+model = "gpt-5.3-codex"
+api_key = "profile-key"
 requires_openai_auth = true
 "#;
 
@@ -10590,6 +10646,8 @@ requires_openai_auth = true
             .get("sub2api")
             .expect("profile should exist");
         assert_eq!(profile.wire_api.as_deref(), Some("responses"));
+        assert_eq!(profile.default_model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(profile.api_key.as_deref(), Some("profile-key"));
         assert!(profile.requires_openai_auth);
     }
 
@@ -10906,6 +10964,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: None,
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -10934,6 +10994,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue".to_string()),
                     wire_api: Some("responses".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: true,
                 },
             )]),
@@ -10996,6 +11058,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: Some("ws".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -11006,6 +11070,54 @@ provider_api = "not-a-real-mode"
         assert!(error
             .to_string()
             .contains("wire_api must be one of: responses, chat_completions"));
+    }
+
+    #[test]
+    async fn model_provider_profile_uses_profile_api_key_when_global_is_missing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            api_key: None,
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: None,
+                    api_key: Some("profile-api-key".to_string()),
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.api_key.as_deref(), Some("profile-api-key"));
+    }
+
+    #[test]
+    async fn model_provider_profile_can_override_default_model_when_openrouter_default_is_set() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: Some("qwen-max".to_string()),
+                    api_key: None,
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.default_model.as_deref(), Some("qwen-max"));
     }
 
     #[test]

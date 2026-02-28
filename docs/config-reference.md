@@ -38,6 +38,38 @@ Notes:
 - Unset keeps the provider's built-in default.
 - Environment override: `ZEROCLAW_MODEL_SUPPORT_VISION` or `MODEL_SUPPORT_VISION` (values: `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`).
 
+## `[model_providers.<profile>]`
+
+Use named profiles to map a logical provider id to a provider name/base URL and optional profile-scoped credentials.
+
+| Key | Default | Notes |
+|---|---|---|
+| `name` | unset | Optional provider id override (for example `openai`, `openai-codex`) |
+| `base_url` | unset | Optional OpenAI-compatible endpoint URL |
+| `wire_api` | unset | Optional protocol mode: `responses` or `chat_completions` |
+| `model` | unset | Optional profile-scoped default model |
+| `api_key` | unset | Optional profile-scoped API key (used when top-level `api_key` is empty) |
+| `requires_openai_auth` | `false` | Load OpenAI auth material (`OPENAI_API_KEY` / Codex auth file) |
+
+Notes:
+
+- If both top-level `api_key` and profile `api_key` are present, top-level `api_key` wins.
+- If top-level `default_model` is still the global OpenRouter default, profile `model` is used as an automatic compatibility override.
+- Secrets encryption applies to profile API keys when `secrets.encrypt = true`.
+
+Example:
+
+```toml
+default_provider = "sub2api"
+
+[model_providers.sub2api]
+name = "sub2api"
+base_url = "https://api.example.com/v1"
+wire_api = "chat_completions"
+model = "qwen-max"
+api_key = "sk-profile-key"
+```
+
 ## `[observability]`
 
 | Key | Default | Purpose |

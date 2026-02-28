@@ -218,6 +218,8 @@ const LARK_DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(7200);
 const LARK_INVALID_ACCESS_TOKEN_CODE: i64 = 99_991_663;
 /// Retention window for seen event/message dedupe keys.
 const LARK_EVENT_DEDUP_TTL: Duration = Duration::from_secs(30 * 60);
+/// Periodic cleanup interval for the dedupe cache.
+const LARK_EVENT_DEDUP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 const LARK_IMAGE_DOWNLOAD_FALLBACK_TEXT: &str =
     "[Image message received but could not be downloaded]";
 
@@ -370,6 +372,8 @@ pub struct LarkChannel {
     tenant_token: Arc<RwLock<Option<CachedTenantToken>>>,
     /// Dedup set for recently seen event/message keys across WS + webhook paths.
     recent_event_keys: Arc<RwLock<HashMap<String, Instant>>>,
+    /// Last time we ran TTL cleanup over the dedupe cache.
+    recent_event_cleanup_at: Arc<RwLock<Instant>>,
 }
 
 impl LarkChannel {
@@ -414,6 +418,7 @@ impl LarkChannel {
             receive_mode: crate::config::schema::LarkReceiveMode::default(),
             tenant_token: Arc::new(RwLock::new(None)),
             recent_event_keys: Arc::new(RwLock::new(HashMap::new())),
+            recent_event_cleanup_at: Arc::new(RwLock::new(Instant::now())),
         }
     }
 
@@ -533,11 +538,24 @@ impl LarkChannel {
 
     async fn try_mark_event_key_seen(&self, dedupe_key: &str) -> bool {
         let now = Instant::now();
-        let mut seen = self.recent_event_keys.write().await;
-        seen.retain(|_, t| now.duration_since(*t) < LARK_EVENT_DEDUP_TTL);
+        if self.recent_event_keys.read().await.contains_key(dedupe_key) {
+            return false;
+        }
 
+        let should_cleanup = {
+            let last_cleanup = self.recent_event_cleanup_at.read().await;
+            now.duration_since(*last_cleanup) >= LARK_EVENT_DEDUP_CLEANUP_INTERVAL
+        };
+
+        let mut seen = self.recent_event_keys.write().await;
         if seen.contains_key(dedupe_key) {
             return false;
+        }
+
+        if should_cleanup {
+            seen.retain(|_, t| now.duration_since(*t) < LARK_EVENT_DEDUP_TTL);
+            let mut last_cleanup = self.recent_event_cleanup_at.write().await;
+            *last_cleanup = now;
         }
 
         seen.insert(dedupe_key.to_string(), now);
@@ -2416,6 +2434,37 @@ mod tests {
         let second = ch.parse_event_payload_async(&payload).await;
         assert_eq!(first.len(), 1);
         assert!(second.is_empty());
+    }
+
+    #[tokio::test]
+    async fn try_mark_event_key_seen_cleans_up_expired_keys_periodically() {
+        let ch = LarkChannel::new(
+            "id".into(),
+            "secret".into(),
+            "token".into(),
+            None,
+            vec!["*".into()],
+            true,
+        );
+
+        {
+            let mut seen = ch.recent_event_keys.write().await;
+            seen.insert(
+                "event:stale".to_string(),
+                Instant::now() - LARK_EVENT_DEDUP_TTL - Duration::from_secs(5),
+            );
+        }
+
+        {
+            let mut cleanup_at = ch.recent_event_cleanup_at.write().await;
+            *cleanup_at =
+                Instant::now() - LARK_EVENT_DEDUP_CLEANUP_INTERVAL - Duration::from_secs(1);
+        }
+
+        assert!(ch.try_mark_event_key_seen("event:fresh").await);
+        let seen = ch.recent_event_keys.read().await;
+        assert!(!seen.contains_key("event:stale"));
+        assert!(seen.contains_key("event:fresh"));
     }
 
     #[test]
