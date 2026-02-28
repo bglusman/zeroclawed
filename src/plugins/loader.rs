@@ -306,7 +306,10 @@ mod tests {
         };
         let reg = load_plugins(&cfg, None, vec![]);
         assert_eq!(reg.active_count(), 0);
-        assert!(reg.diagnostics.iter().any(|d| d.message.contains("disabled")));
+        assert!(reg
+            .diagnostics
+            .iter()
+            .any(|d| d.message.contains("disabled")));
     }
 
     #[test]

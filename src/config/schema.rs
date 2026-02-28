@@ -309,6 +309,20 @@ pub struct ProviderConfig {
     /// (e.g. OpenAI Codex `/responses` reasoning effort).
     #[serde(default)]
     pub reasoning_level: Option<String>,
+    /// Optional transport override for providers that support multiple transports.
+    /// Supported values: "auto", "websocket", "sse".
+    ///
+    /// Resolution order:
+    /// 1) `model_routes[].transport` (route-specific)
+    /// 2) env overrides (`PROVIDER_TRANSPORT`, `ZEROCLAW_PROVIDER_TRANSPORT`, `ZEROCLAW_CODEX_TRANSPORT`)
+    /// 3) `provider.transport`
+    /// 4) runtime default (`auto`, WebSocket-first with SSE fallback for OpenAI Codex)
+    ///
+    /// Note: env overrides replace configured `provider.transport` when set.
+    ///
+    /// Existing configs that omit `provider.transport` remain valid and fall back to defaults.
+    #[serde(default)]
+    pub transport: Option<String>,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -3195,6 +3209,14 @@ pub struct ModelRouteConfig {
     /// Optional API key override for this route's provider
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Optional route-specific transport override for this route.
+    /// Supported values: "auto", "websocket", "sse".
+    ///
+    /// When `model_routes[].transport` is unset, the route inherits `provider.transport`.
+    /// If both are unset, runtime defaults are used (`auto` for OpenAI Codex).
+    /// Existing configs without this field remain valid.
+    #[serde(default)]
+    pub transport: Option<String>,
 }
 
 // ── Embedding routing ───────────────────────────────────────────
@@ -6041,6 +6063,28 @@ impl Config {
         }
     }
 
+    fn normalize_provider_transport(raw: Option<&str>, source: &str) -> Option<String> {
+        let value = raw?.trim();
+        if value.is_empty() {
+            return None;
+        }
+
+        let normalized = value.to_ascii_lowercase().replace(['-', '_'], "");
+        match normalized.as_str() {
+            "auto" => Some("auto".to_string()),
+            "websocket" | "ws" => Some("websocket".to_string()),
+            "sse" | "http" => Some("sse".to_string()),
+            _ => {
+                tracing::warn!(
+                    transport = %value,
+                    source,
+                    "Ignoring invalid provider transport override"
+                );
+                None
+            }
+        }
+    }
+
     /// Resolve provider reasoning level with backward-compatible runtime alias.
     ///
     /// Priority:
@@ -6082,6 +6126,16 @@ impl Config {
             }
             (None, None) => None,
         }
+    }
+
+    /// Resolve provider transport mode (`provider.transport`).
+    ///
+    /// Supported values:
+    /// - `auto`
+    /// - `websocket`
+    /// - `sse`
+    pub fn effective_provider_transport(&self) -> Option<String> {
+        Self::normalize_provider_transport(self.provider.transport.as_deref(), "provider.transport")
     }
 
     fn lookup_model_provider_profile(
@@ -6447,6 +6501,32 @@ impl Config {
             if route.max_tokens == Some(0) {
                 anyhow::bail!("model_routes[{i}].max_tokens must be greater than 0");
             }
+            if route
+                .transport
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty())
+                && Self::normalize_provider_transport(
+                    route.transport.as_deref(),
+                    "model_routes[].transport",
+                )
+                .is_none()
+            {
+                anyhow::bail!("model_routes[{i}].transport must be one of: auto, websocket, sse");
+            }
+        }
+
+        if self
+            .provider
+            .transport
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            && Self::normalize_provider_transport(
+                self.provider.transport.as_deref(),
+                "provider.transport",
+            )
+            .is_none()
+        {
+            anyhow::bail!("provider.transport must be one of: auto, websocket, sse");
         }
 
         if self.provider_api.is_some()
@@ -6775,6 +6855,17 @@ impl Config {
                     "{env_name} is deprecated; prefer provider.reasoning_level in config"
                 );
                 self.runtime.reasoning_level = Some(normalized);
+            }
+        }
+
+        // Provider transport override: ZEROCLAW_PROVIDER_TRANSPORT or PROVIDER_TRANSPORT
+        if let Ok(transport) = std::env::var("ZEROCLAW_PROVIDER_TRANSPORT")
+            .or_else(|_| std::env::var("PROVIDER_TRANSPORT"))
+        {
+            if let Some(normalized) =
+                Self::normalize_provider_transport(Some(&transport), "env:provider_transport")
+            {
+                self.provider.transport = Some(normalized);
             }
         }
 
@@ -9376,6 +9467,7 @@ provider_api = "not-a-real-mode"
             model: "anthropic/claude-sonnet-4.6".to_string(),
             max_tokens: Some(0),
             api_key: None,
+            transport: None,
         }];
 
         let err = config
@@ -9384,6 +9476,48 @@ provider_api = "not-a-real-mode"
         assert!(err
             .to_string()
             .contains("model_routes[0].max_tokens must be greater than 0"));
+    }
+
+    #[test]
+    async fn provider_transport_normalizes_aliases() {
+        let mut config = Config::default();
+        config.provider.transport = Some("WS".to_string());
+        assert_eq!(
+            config.effective_provider_transport().as_deref(),
+            Some("websocket")
+        );
+    }
+
+    #[test]
+    async fn provider_transport_invalid_is_rejected() {
+        let mut config = Config::default();
+        config.provider.transport = Some("udp".to_string());
+        let err = config
+            .validate()
+            .expect_err("provider.transport should reject invalid values");
+        assert!(err
+            .to_string()
+            .contains("provider.transport must be one of: auto, websocket, sse"));
+    }
+
+    #[test]
+    async fn model_route_transport_invalid_is_rejected() {
+        let mut config = Config::default();
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "anthropic/claude-sonnet-4.6".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: Some("udp".to_string()),
+        }];
+
+        let err = config
+            .validate()
+            .expect_err("model_routes[].transport should reject invalid values");
+        assert!(err
+            .to_string()
+            .contains("model_routes[0].transport must be one of: auto, websocket, sse"));
     }
 
     #[test]
@@ -10024,6 +10158,60 @@ default_model = "legacy-model"
         assert_eq!(config.runtime.reasoning_level.as_deref(), Some("medium"));
 
         std::env::remove_var("ZEROCLAW_REASONING_LEVEL");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_normalizes_zeroclaw_alias() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+        std::env::set_var("ZEROCLAW_PROVIDER_TRANSPORT", "WS");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("websocket"));
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_normalizes_legacy_alias() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+        std::env::set_var("PROVIDER_TRANSPORT", "HTTP");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("sse"));
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_invalid_zeroclaw_does_not_override_existing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.provider.transport = Some("sse".to_string());
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+        std::env::set_var("ZEROCLAW_PROVIDER_TRANSPORT", "udp");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("sse"));
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_invalid_legacy_does_not_override_existing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.provider.transport = Some("auto".to_string());
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+        std::env::set_var("PROVIDER_TRANSPORT", "udp");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("auto"));
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
     }
 
     #[test]

@@ -706,7 +706,10 @@ fn restore_masked_sensitive_fields(
     restore_optional_secret(&mut incoming.proxy.http_proxy, &current.proxy.http_proxy);
     restore_optional_secret(&mut incoming.proxy.https_proxy, &current.proxy.https_proxy);
     restore_optional_secret(&mut incoming.proxy.all_proxy, &current.proxy.all_proxy);
-    restore_optional_secret(&mut incoming.transcription.api_key, &current.transcription.api_key);
+    restore_optional_secret(
+        &mut incoming.transcription.api_key,
+        &current.transcription.api_key,
+    );
     restore_optional_secret(
         &mut incoming.browser.computer_use.api_key,
         &current.browser.computer_use.api_key,
@@ -932,7 +935,10 @@ mod tests {
         assert_eq!(hydrated.config_path, current.config_path);
         assert_eq!(hydrated.workspace_dir, current.workspace_dir);
         assert_eq!(hydrated.api_key, current.api_key);
-        assert_eq!(hydrated.transcription.api_key, current.transcription.api_key);
+        assert_eq!(
+            hydrated.transcription.api_key,
+            current.transcription.api_key
+        );
         assert_eq!(hydrated.default_model.as_deref(), Some("gpt-4.1-mini"));
         assert_eq!(
             hydrated.reliability.api_keys,
