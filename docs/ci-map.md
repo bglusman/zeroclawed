@@ -25,8 +25,6 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Recommended for workflow-changing PRs
 - `.github/workflows/pr-intake-checks.yml` (`PR Intake Checks`)
     - Purpose: safe pre-CI PR checks (template completeness, added-line tabs/trailing-whitespace/conflict markers) with immediate sticky feedback comment
-- `.github/workflows/main-promotion-gate.yml` (`Main Promotion Gate`)
-    - Purpose: enforce stable-branch policy by allowing only `dev` -> `main` PR promotion authored by `willsarg` or `theonlyhennygod`
 
 ### Non-Blocking but Important
 
@@ -65,8 +63,6 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
     - Purpose: build release artifacts in verification mode (manual/scheduled) and publish GitHub releases on tag push or manual publish mode
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
     - Purpose: validate shared contributor-tier policy in `.github/label-policy.json` and ensure label workflows consume that policy
-- `.github/workflows/test-rust-build.yml` (`Rust Reusable Job`)
-    - Purpose: reusable Rust setup/cache + command runner for workflow-call consumers
 
 ### Optional Repository Automation
 
@@ -105,8 +101,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `Security Audit`: push to `dev` and `main`, PRs to `dev` and `main`, weekly schedule
 - `Sec Vorpal Reviewdog`: manual dispatch only
 - `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
-- `Main Promotion Gate`: PRs to `main` only; requires PR author `willsarg`/`theonlyhennygod` and head branch `dev` in the same repository
-- `Dependabot`: all update PRs target `dev` (not `main`)
+- `Dependabot`: all update PRs target `main` (not `dev`)
 - `PR Intake Checks`: `pull_request_target` on opened/reopened/synchronize/ready_for_review
 - `Label Policy Sanity`: PR/push when `.github/label-policy.json`, `.github/workflows/pr-labeler.yml`, or `.github/workflows/pr-auto-response.yml` changes
 - `PR Labeler`: `pull_request_target` on opened/reopened/synchronize/ready_for_review
