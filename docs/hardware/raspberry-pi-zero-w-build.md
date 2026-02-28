@@ -205,12 +205,22 @@ For faster builds, cross-compile from a more powerful machine (Linux, macOS, or 
 On your build host (Linux x86_64 example):
 
 ```bash
-# Install musl cross-compilation toolchain (recommended)
+# Install ARM cross-compilation toolchain
+# Note: We use gcc-arm-linux-gnueabihf as the linker tool,
+# but Rust's target configuration produces a static musl binary
 sudo apt install -y musl-tools musl-dev gcc-arm-linux-gnueabihf
 
 # Verify cross-compiler is available
 arm-linux-gnueabihf-gcc --version
 ```
+
+**Why gnueabihf for musl builds?**
+
+Pure `arm-linux-musleabihf-gcc` cross-compilers are not available in standard Ubuntu/Debian repositories. The workaround:
+1. Use `gcc-arm-linux-gnueabihf` as the linker tool (available in repos)
+2. Rust's target spec (`armv6l-unknown-linux-musleabihf.json`) sets `env: "musl"`
+3. Static linking (`-C link-arg=-static`) eliminates glibc dependency
+4. Result: a portable static musl binary that works on any ARMv6 Linux
 
 **macOS:** Install via Homebrew:
 ```bash
