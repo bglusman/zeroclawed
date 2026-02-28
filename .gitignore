@@ -29,6 +29,7 @@ venv/
 
 # Secret keys and credentials
 .secret_key
+otp-secret
 *.key
 *.pem
 credentials.json
