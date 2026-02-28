@@ -21,6 +21,7 @@ pub mod backoff;
 pub mod bedrock;
 pub mod compatible;
 pub mod copilot;
+pub mod cursor;
 pub mod gemini;
 pub mod health;
 pub mod ollama;
@@ -1237,6 +1238,7 @@ fn create_provider_with_url_and_options(
             "Cohere", "https://api.cohere.com/compatibility", key, AuthStyle::Bearer,
         ))),
         "copilot" | "github-copilot" => Ok(Box::new(copilot::CopilotProvider::new(key))),
+        "cursor" => Ok(Box::new(cursor::CursorProvider::new())),
         "lmstudio" | "lm-studio" => {
             let lm_studio_key = key
                 .map(str::trim)
@@ -1806,6 +1808,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             display_name: "GitHub Copilot",
             aliases: &["github-copilot"],
             local: false,
+        },
+        ProviderInfo {
+            name: "cursor",
+            display_name: "Cursor (headless CLI)",
+            aliases: &[],
+            local: true,
         },
         ProviderInfo {
             name: "lmstudio",
@@ -2510,6 +2518,11 @@ mod tests {
     }
 
     #[test]
+    fn factory_cursor() {
+        assert!(create_provider("cursor", None).is_ok());
+    }
+
+    #[test]
     fn factory_nvidia() {
         assert!(create_provider("nvidia", Some("nvapi-test")).is_ok());
         assert!(create_provider("nvidia-nim", Some("nvapi-test")).is_ok());
@@ -2843,6 +2856,7 @@ mod tests {
             "perplexity",
             "cohere",
             "copilot",
+            "cursor",
             "nvidia",
             "astrai",
             "ovhcloud",
