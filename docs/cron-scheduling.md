@@ -194,7 +194,8 @@ The cron system is also available as agent tools:
 | `cron_run` | Force-run a job immediately |
 | `cron_runs` | Show recent run history |
 
-**Example: Agent creating a reminder**
+### Example: Agent creating a reminder
+
 ```
 User: Remind me to call mom in 2 hours
 Agent: [uses cron_add with kind="at" and delay="2h"]
