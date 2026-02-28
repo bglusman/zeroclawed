@@ -125,6 +125,42 @@ impl ModelRoutingConfigTool {
         Ok(output)
     }
 
+    fn normalize_transport_value(raw: &str, field: &str) -> anyhow::Result<String> {
+        let normalized = raw.trim().to_ascii_lowercase().replace(['-', '_'], "");
+        match normalized.as_str() {
+            "auto" => Ok("auto".to_string()),
+            "websocket" | "ws" => Ok("websocket".to_string()),
+            "sse" | "http" => Ok("sse".to_string()),
+            _ => anyhow::bail!("'{field}' must be one of: auto, websocket, sse"),
+        }
+    }
+
+    fn parse_optional_transport_update(
+        args: &Value,
+        field: &str,
+    ) -> anyhow::Result<MaybeSet<String>> {
+        let Some(raw) = args.get(field) else {
+            return Ok(MaybeSet::Unset);
+        };
+
+        if raw.is_null() {
+            return Ok(MaybeSet::Null);
+        }
+
+        let value = raw
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("'{field}' must be a string or null"))?
+            .trim();
+
+        if value.is_empty() {
+            return Ok(MaybeSet::Null);
+        }
+
+        Ok(MaybeSet::Set(Self::normalize_transport_value(
+            value, field,
+        )?))
+    }
+
     fn parse_optional_f64_update(args: &Value, field: &str) -> anyhow::Result<MaybeSet<f64>> {
         let Some(raw) = args.get(field) else {
             return Ok(MaybeSet::Unset);
@@ -430,7 +466,7 @@ impl ModelRoutingConfigTool {
         let provider = Self::parse_non_empty_string(args, "provider")?;
         let model = Self::parse_non_empty_string(args, "model")?;
         let api_key_update = Self::parse_optional_string_update(args, "api_key")?;
-        let transport_update = Self::parse_optional_string_update(args, "transport")?;
+        let transport_update = Self::parse_optional_transport_update(args, "transport")?;
 
         let keywords_update = if let Some(raw) = args.get("keywords") {
             Some(Self::parse_string_list(raw, "keywords")?)
@@ -793,6 +829,7 @@ impl Tool for ModelRoutingConfigTool {
                 },
                 "transport": {
                     "type": ["string", "null"],
+                    "enum": ["auto", "websocket", "sse", "ws", "http", null],
                     "description": "Optional route transport override for upsert_scenario (auto, websocket, sse)"
                 },
                 "keywords": {
@@ -1041,6 +1078,54 @@ mod tests {
                 && item["model"] == json!("gpt-5.3-codex")
                 && item["transport"] == json!("websocket")
         }));
+    }
+
+    #[tokio::test]
+    async fn upsert_scenario_transport_alias_is_canonicalized() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ModelRoutingConfigTool::new(test_config(&tmp).await, test_security());
+
+        let result = tool
+            .execute(json!({
+                "action": "upsert_scenario",
+                "hint": "analysis",
+                "provider": "openai",
+                "model": "gpt-5.3-codex",
+                "transport": "WS"
+            }))
+            .await
+            .unwrap();
+        assert!(result.success, "{:?}", result.error);
+
+        let get_result = tool.execute(json!({"action": "get"})).await.unwrap();
+        assert!(get_result.success);
+        let output: Value = serde_json::from_str(&get_result.output).unwrap();
+        let scenarios = output["scenarios"].as_array().unwrap();
+        assert!(scenarios.iter().any(|item| {
+            item["hint"] == json!("analysis") && item["transport"] == json!("websocket")
+        }));
+    }
+
+    #[tokio::test]
+    async fn upsert_scenario_rejects_invalid_transport() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ModelRoutingConfigTool::new(test_config(&tmp).await, test_security());
+
+        let result = tool
+            .execute(json!({
+                "action": "upsert_scenario",
+                "hint": "analysis",
+                "provider": "openai",
+                "model": "gpt-5.3-codex",
+                "transport": "udp"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("'transport' must be one of: auto, websocket, sse"));
     }
 
     #[tokio::test]

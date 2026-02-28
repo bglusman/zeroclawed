@@ -314,9 +314,11 @@ pub struct ProviderConfig {
     ///
     /// Resolution order:
     /// 1) `model_routes[].transport` (route-specific)
-    /// 2) `provider.transport`
-    /// 3) env overrides (`PROVIDER_TRANSPORT`, `ZEROCLAW_PROVIDER_TRANSPORT`, `ZEROCLAW_CODEX_TRANSPORT`)
+    /// 2) env overrides (`PROVIDER_TRANSPORT`, `ZEROCLAW_PROVIDER_TRANSPORT`, `ZEROCLAW_CODEX_TRANSPORT`)
+    /// 3) `provider.transport`
     /// 4) runtime default (`auto`, WebSocket-first with SSE fallback for OpenAI Codex)
+    ///
+    /// Note: env overrides replace configured `provider.transport` when set.
     ///
     /// Existing configs that omit `provider.transport` remain valid and fall back to defaults.
     #[serde(default)]
@@ -10156,6 +10158,60 @@ default_model = "legacy-model"
         assert_eq!(config.runtime.reasoning_level.as_deref(), Some("medium"));
 
         std::env::remove_var("ZEROCLAW_REASONING_LEVEL");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_normalizes_zeroclaw_alias() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+        std::env::set_var("ZEROCLAW_PROVIDER_TRANSPORT", "WS");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("websocket"));
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_normalizes_legacy_alias() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+        std::env::set_var("PROVIDER_TRANSPORT", "HTTP");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("sse"));
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_invalid_zeroclaw_does_not_override_existing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.provider.transport = Some("sse".to_string());
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
+        std::env::set_var("ZEROCLAW_PROVIDER_TRANSPORT", "udp");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("sse"));
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+    }
+
+    #[test]
+    async fn env_override_provider_transport_invalid_legacy_does_not_override_existing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        config.provider.transport = Some("auto".to_string());
+
+        std::env::remove_var("ZEROCLAW_PROVIDER_TRANSPORT");
+        std::env::set_var("PROVIDER_TRANSPORT", "udp");
+        config.apply_env_overrides();
+        assert_eq!(config.provider.transport.as_deref(), Some("auto"));
+
+        std::env::remove_var("PROVIDER_TRANSPORT");
     }
 
     #[test]

@@ -394,9 +394,10 @@ Notes:
 - For OpenAI Codex, default transport mode is `auto` (WebSocket-first with SSE fallback).
 - Transport override precedence for OpenAI Codex:
   1. `[[model_routes]].transport` (route-specific)
-  2. `provider.transport`
-  3. `PROVIDER_TRANSPORT` / `ZEROCLAW_CODEX_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT`
+  2. `PROVIDER_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT` / `ZEROCLAW_CODEX_TRANSPORT`
+  3. `provider.transport`
   4. legacy `ZEROCLAW_RESPONSES_WEBSOCKET` (boolean)
+- Environment overrides replace configured `provider.transport` when set.
 
 ## `[skills]`
 
