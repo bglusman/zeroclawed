@@ -19,6 +19,12 @@ impl CortexMemMemory {
         let inner = LucidMemory::new_with_command(workspace_dir, local, cortex_cmd);
         Self { inner }
     }
+
+    #[cfg(test)]
+    fn new_with_command_for_test(workspace_dir: &Path, local: SqliteMemory, command: &str) -> Self {
+        let inner = LucidMemory::new_with_command(workspace_dir, local, command.to_string());
+        Self { inner }
+    }
 }
 
 #[async_trait]
@@ -82,5 +88,22 @@ mod tests {
         let sqlite = SqliteMemory::new(tmp.path()).unwrap();
         let memory = CortexMemMemory::new(tmp.path(), sqlite);
         assert_eq!(memory.name(), "cortex-mem");
+    }
+
+    #[tokio::test]
+    async fn cortex_backend_keeps_local_store_when_bridge_command_fails() {
+        let tmp = TempDir::new().unwrap();
+        let sqlite = SqliteMemory::new(tmp.path()).unwrap();
+        let memory =
+            CortexMemMemory::new_with_command_for_test(tmp.path(), sqlite, "missing-cortex-cli");
+
+        memory
+            .store("cortex_key", "local first", MemoryCategory::Conversation, None)
+            .await
+            .unwrap();
+
+        let stored = memory.get("cortex_key").await.unwrap();
+        assert!(stored.is_some(), "expected local sqlite entry to be present");
+        assert_eq!(stored.unwrap().content, "local first");
     }
 }
