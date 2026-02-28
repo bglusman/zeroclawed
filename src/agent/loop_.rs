@@ -2042,7 +2042,7 @@ pub async fn run(
 
         // Inject memory + hardware RAG context into user message
         let mem_context =
-            build_context(mem.as_ref(), &msg, config.memory.min_relevance_score).await;
+            build_context(mem.as_ref(), &msg, config.memory.min_relevance_score, None).await;
         let rag_limit = if config.agent.compact_context { 2 } else { 5 };
         let hw_context = hardware_rag
             .as_ref()
@@ -2191,8 +2191,13 @@ pub async fn run(
             }
 
             // Inject memory + hardware RAG context into user message
-            let mem_context =
-                build_context(mem.as_ref(), &user_input, config.memory.min_relevance_score).await;
+            let mem_context = build_context(
+                mem.as_ref(),
+                &user_input,
+                config.memory.min_relevance_score,
+                None,
+            )
+            .await;
             let rag_limit = if config.agent.compact_context { 2 } else { 5 };
             let hw_context = hardware_rag
                 .as_ref()
@@ -2332,6 +2337,14 @@ pub async fn run(
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
 pub async fn process_message(config: Config, message: &str) -> Result<String> {
+    process_message_with_session(config, message, None).await
+}
+
+pub async fn process_message_with_session(
+    config: Config,
+    message: &str,
+    session_id: Option<&str>,
+) -> Result<String> {
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -2495,7 +2508,13 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
-    let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
+    let mem_context = build_context(
+        mem.as_ref(),
+        message,
+        config.memory.min_relevance_score,
+        session_id,
+    )
+    .await;
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };
     let hw_context = hardware_rag
         .as_ref()
@@ -4545,7 +4564,7 @@ Tail"#;
         .await
         .unwrap();
 
-        let context = build_context(&mem, "status updates", 0.0).await;
+        let context = build_context(&mem, "status updates", 0.0, None).await;
         assert!(context.contains("user_msg_real"));
         assert!(!context.contains("assistant_resp_poisoned"));
         assert!(!context.contains("fabricated event"));
