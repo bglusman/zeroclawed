@@ -69,7 +69,7 @@ pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
     build_shell_policy_instructions, build_tool_instructions_from_specs,
-    run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
+    run_tool_call_loop_with_reply_target, scrub_credentials,
     SafetyHeartbeatConfig,
 };
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
@@ -3276,12 +3276,13 @@ or tune thresholds in config.",
     // even in multi-turn conversations where the system prompt may be stale.
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
     let timestamped_content = format!("[{now}] {}", msg.content);
+    let persisted_user_content = msg.content.clone();
 
     // Preserve user turn before the LLM call so interrupted requests keep context.
     append_sender_turn(
         ctx.as_ref(),
         &history_key,
-        ChatMessage::user(&timestamped_content),
+        ChatMessage::user(&persisted_user_content),
     );
 
     // Build history from per-sender conversation cache.
@@ -3294,14 +3295,29 @@ or tune thresholds in config.",
         .unwrap_or_default();
     let mut prior_turns = normalize_cached_channel_turns(prior_turns_raw);
 
-    // Only enrich with memory context when there is no prior conversation
-    // history. Follow-up turns already include context from previous messages.
-    if !had_prior_history {
-        let memory_context =
-            build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
-        if let Some(last_turn) = prior_turns.last_mut() {
-            if last_turn.role == "user" && !memory_context.is_empty() {
-                last_turn.content = format!("{memory_context}{timestamped_content}");
+    if let Some(last_turn) = prior_turns.last_mut() {
+        if last_turn.role == "user" {
+            // Preserve any merged prior-user prefix (e.g. interrupted prior turn)
+            // and only rewrite the latest user segment with a fresh timestamp.
+            if let Some(prefix) = last_turn.content.strip_suffix(&persisted_user_content) {
+                last_turn.content = format!("{prefix}{timestamped_content}");
+            } else {
+                last_turn.content = timestamped_content.clone();
+            }
+
+            // Only enrich with memory context when there is no prior
+            // conversation history. Follow-up turns already include context
+            // from previous messages.
+            if !had_prior_history {
+                let memory_context = build_memory_context(
+                    ctx.memory.as_ref(),
+                    &msg.content,
+                    ctx.min_relevance_score,
+                )
+                .await;
+                if !memory_context.is_empty() {
+                    last_turn.content = format!("{memory_context}{}", last_turn.content);
+                }
             }
         }
     }
@@ -3430,52 +3446,11 @@ or tune thresholds in config.",
 
     let timeout_budget_secs =
         channel_message_timeout_budget_secs(ctx.message_timeout_secs, ctx.max_tool_iterations);
-    let (approval_prompt_tx, mut approval_prompt_rx) =
-        tokio::sync::mpsc::unbounded_channel::<crate::agent::loop_::NonCliApprovalPrompt>();
-    let approval_prompt_task = if msg.channel == "cli" {
-        None
-    } else if let Some(channel_ref) = target_channel.as_ref() {
-        let channel = Arc::clone(channel_ref);
-        let reply_target = msg.reply_target.clone();
-        let thread_ts = msg.thread_ts.clone();
-        Some(tokio::spawn(async move {
-            while let Some(prompt) = approval_prompt_rx.recv().await {
-                if let Err(err) = channel
-                    .send_approval_prompt(
-                        &reply_target,
-                        &prompt.request_id,
-                        &prompt.tool_name,
-                        &prompt.arguments,
-                        thread_ts.clone(),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        channel = %channel.name(),
-                        request_id = %prompt.request_id,
-                        "Failed to send approval prompt: {err}"
-                    );
-                }
-            }
-        }))
-    } else {
-        None
-    };
-    let non_cli_approval_context = if msg.channel == "cli" || target_channel.is_none() {
-        None
-    } else {
-        Some(NonCliApprovalContext {
-            sender: msg.sender.clone(),
-            reply_target: msg.reply_target.clone(),
-            prompt_tx: approval_prompt_tx.clone(),
-        })
-    };
-
     let llm_result = tokio::select! {
         () = cancellation_token.cancelled() => LlmExecutionResult::Cancelled,
         result = tokio::time::timeout(
             Duration::from_secs(timeout_budget_secs),
-            run_tool_call_loop_with_non_cli_approval_context(
+            run_tool_call_loop_with_reply_target(
                 active_provider.as_ref(),
                 &mut history,
                 ctx.tools_registry.as_ref(),
@@ -3486,7 +3461,7 @@ or tune thresholds in config.",
                 true,
                 Some(ctx.approval_manager.as_ref()),
                 msg.channel.as_str(),
-                non_cli_approval_context,
+                Some(msg.reply_target.as_str()),
                 &ctx.multimodal,
                 ctx.max_tool_iterations,
                 Some(cancellation_token.clone()),
@@ -3497,11 +3472,6 @@ or tune thresholds in config.",
             ),
         ) => LlmExecutionResult::Completed(result),
     };
-
-    drop(approval_prompt_tx);
-    if let Some(handle) = approval_prompt_task {
-        log_worker_join_result(handle.await);
-    }
 
     if let Some(handle) = draft_updater {
         let _ = handle.await;
@@ -3828,7 +3798,11 @@ or tune thresholds in config.",
                     .downcast_ref::<providers::ProviderCapabilityError>()
                     .is_some_and(|capability| capability.capability.eq_ignore_ascii_case("vision"));
                 let rolled_back = should_rollback_user_turn
-                    && rollback_orphan_user_turn(ctx.as_ref(), &history_key, &timestamped_content);
+                    && rollback_orphan_user_turn(
+                        ctx.as_ref(),
+                        &history_key,
+                        &persisted_user_content,
+                    );
 
                 if !rolled_back {
                     // Close the orphan user turn so subsequent messages don't
