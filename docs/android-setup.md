@@ -159,6 +159,17 @@ scripts/android/termux_source_build_check.sh \
   --json-output /tmp/zeroclaw-android-selfcheck.json
 ```
 
+For pipeline usage, output JSON directly to stdout:
+
+```bash
+scripts/android/termux_source_build_check.sh \
+  --target aarch64-linux-android \
+  --mode ndk-cross \
+  --diagnose-log /path/to/cargo-error.log \
+  --json-output - \
+  --quiet
+```
+
 ## Troubleshooting
 
 ### "Permission denied"
