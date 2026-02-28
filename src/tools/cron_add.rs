@@ -59,7 +59,7 @@ impl Tool for CronAddTool {
         "Create a scheduled cron job (shell or agent) with cron/at/every schedules. \
          Use job_type='agent' with a prompt to run the AI agent on schedule. \
          Use schedule.kind='at' for one-time reminders/delayed sends (recommended). \
-         schedule.kind='every' creates a recurring loop and requires explicit recurring confirmation. \
+         Agent jobs with schedule.kind='cron' or schedule.kind='every' are recurring and require explicit recurring confirmation. \
          To deliver output to a channel (Discord, Telegram, Slack, Mattermost, QQ, Napcat, Lark, Feishu, Email), set \
          delivery={\"mode\":\"announce\",\"channel\":\"discord\",\"to\":\"<channel_id_or_chat_id>\"}. \
          This is the preferred tool for sending scheduled/delayed messages to users via channels."
@@ -81,7 +81,7 @@ impl Tool for CronAddTool {
                 "model": { "type": "string" },
                 "recurring_confirmed": {
                     "type": "boolean",
-                    "description": "Required for agent schedule.kind='every'. Set true only when recurring behavior is intentional.",
+                    "description": "Required for agent recurring schedules (schedule.kind='cron' or 'every'). Set true only when recurring behavior is intentional.",
                     "default": false
                 },
                 "delivery": {
@@ -230,27 +230,43 @@ impl Tool for CronAddTool {
                     .and_then(serde_json::Value::as_bool)
                     .unwrap_or(false);
 
-                if let Schedule::Every { every_ms } = schedule {
-                    if !recurring_confirmed {
-                        return Ok(ToolResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some(
-                                "Agent jobs with schedule.kind='every' require recurring_confirmed=true. \
+                match &schedule {
+                    Schedule::Every { every_ms } => {
+                        if !recurring_confirmed {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(
+                                    "Agent jobs with recurring schedules require recurring_confirmed=true. \
 For one-time reminders, use schedule.kind='at' with an RFC3339 timestamp."
-                                    .to_string(),
-                            ),
-                        });
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        if *every_ms < MIN_AGENT_EVERY_MS {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(format!(
+                                    "Agent schedule.kind='every' must be >= {MIN_AGENT_EVERY_MS} ms (5 minutes)"
+                                )),
+                            });
+                        }
                     }
-                    if every_ms < MIN_AGENT_EVERY_MS {
-                        return Ok(ToolResult {
-                            success: false,
-                            output: String::new(),
-                            error: Some(format!(
-                                "Agent schedule.kind='every' must be >= {MIN_AGENT_EVERY_MS} ms (5 minutes)"
-                            )),
-                        });
+                    Schedule::Cron { .. } => {
+                        if !recurring_confirmed {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some(
+                                    "Agent jobs with recurring schedules require recurring_confirmed=true. \
+For one-time reminders, use schedule.kind='at' with an RFC3339 timestamp."
+                                        .to_string(),
+                                ),
+                            });
+                        }
                     }
+                    Schedule::At { .. } => {}
                 }
 
                 let delivery = match args.get("delivery") {
@@ -530,6 +546,28 @@ mod tests {
                 "schedule": { "kind": "every", "every_ms": 300000 },
                 "job_type": "agent",
                 "prompt": "Send me a recurring status update"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("recurring_confirmed=true"));
+    }
+
+    #[tokio::test]
+    async fn agent_cron_requires_recurring_confirmation() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = test_config(&tmp).await;
+        let tool = CronAddTool::new(cfg.clone(), test_security(&cfg));
+
+        let result = tool
+            .execute(json!({
+                "schedule": { "kind": "cron", "expr": "*/5 * * * *" },
+                "job_type": "agent",
+                "prompt": "Send recurring reminders"
             }))
             .await
             .unwrap();
