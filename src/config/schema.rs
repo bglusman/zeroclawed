@@ -4755,8 +4755,9 @@ pub struct BlueBubblesConfig {
 
 impl std::fmt::Debug for BlueBubblesConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted_server_url = redact_url_userinfo_for_debug(&self.server_url);
         f.debug_struct("BlueBubblesConfig")
-            .field("server_url", &self.server_url)
+            .field("server_url", &redacted_server_url)
             .field("password", &"[REDACTED]")
             .field("allowed_senders", &self.allowed_senders)
             .field(
@@ -4765,6 +4766,42 @@ impl std::fmt::Debug for BlueBubblesConfig {
             )
             .finish()
     }
+}
+
+fn redact_url_userinfo_for_debug(raw: &str) -> String {
+    let fallback = || {
+        let Some(at) = raw.rfind('@') else {
+            return raw.to_string();
+        };
+        let left = &raw[..at];
+        if left.contains('/') || left.contains('?') || left.contains('#') {
+            return raw.to_string();
+        }
+        format!("[REDACTED]@{}", &raw[at + 1..])
+    };
+
+    let Some(scheme_idx) = raw.find("://") else {
+        return fallback();
+    };
+
+    let auth_start = scheme_idx + 3;
+    let rest = &raw[auth_start..];
+    let auth_end_rel = rest
+        .find(|c| c == '/' || c == '?' || c == '#')
+        .unwrap_or(rest.len());
+    let authority = &rest[..auth_end_rel];
+
+    let Some(at) = authority.rfind('@') else {
+        return raw.to_string();
+    };
+
+    let host = &authority[at + 1..];
+    let mut sanitized = String::with_capacity(raw.len());
+    sanitized.push_str(&raw[..auth_start]);
+    sanitized.push_str("[REDACTED]@");
+    sanitized.push_str(host);
+    sanitized.push_str(&rest[auth_end_rel..]);
+    sanitized
 }
 
 impl ChannelConfig for BlueBubblesConfig {
@@ -8785,6 +8822,23 @@ mod tests {
         assert!(!debug_output.contains("paired_tokens"));
         assert!(!debug_output.contains("bot_token"));
         assert!(!debug_output.contains("db_url"));
+    }
+
+    #[test]
+    async fn bluebubbles_debug_redacts_server_url_userinfo() {
+        let cfg = BlueBubblesConfig {
+            server_url: "https://alice:super-secret@example.com:1234/api/v1".to_string(),
+            password: "channel-password".to_string(),
+            allowed_senders: vec!["*".to_string()],
+            webhook_secret: Some("hook-secret".to_string()),
+            ignore_senders: vec![],
+        };
+
+        let debug_output = format!("{cfg:?}");
+        assert!(debug_output.contains("https://[REDACTED]@example.com:1234/api/v1"));
+        assert!(!debug_output.contains("alice:super-secret"));
+        assert!(!debug_output.contains("channel-password"));
+        assert!(!debug_output.contains("hook-secret"));
     }
 
     #[test]
