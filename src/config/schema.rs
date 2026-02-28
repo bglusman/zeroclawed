@@ -10792,6 +10792,26 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
+    async fn default_model_hint_accepts_matching_model_route_with_whitespace() {
+        let mut config = Config::default();
+        config.default_model = Some("hint: reasoning ".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: " reasoning ".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "trimmed default hint should match trimmed route hint"
+        );
+    }
+
+    #[test]
     async fn provider_transport_normalizes_aliases() {
         let mut config = Config::default();
         config.provider.transport = Some("WS".to_string());

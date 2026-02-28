@@ -1549,6 +1549,14 @@ pub fn create_routed_provider_with_options(
     // and max_tokens overrides do not bleed across routes.
     let mut routes: Vec<(String, router::Route)> = Vec::new();
     for route in model_routes {
+        let route_hint = route.hint.trim();
+        if route_hint.is_empty() {
+            tracing::warn!(
+                provider = route.provider.as_str(),
+                "Ignoring routed provider with empty hint"
+            );
+            continue;
+        }
         let routed_credential = route.api_key.as_ref().and_then(|raw_key| {
             let trimmed_key = raw_key.trim();
             (!trimmed_key.is_empty()).then_some(trimmed_key)
@@ -1577,10 +1585,10 @@ pub fn create_routed_provider_with_options(
             &route_options,
         ) {
             Ok(provider) => {
-                let provider_id = format!("{}#{}", route.provider, route.hint);
+                let provider_id = format!("{}#{}", route.provider, route_hint);
                 providers.push((provider_id.clone(), provider));
                 routes.push((
-                    route.hint.clone(),
+                    route_hint.to_string(),
                     router::Route {
                         provider_name: provider_id,
                         model: route.model.clone(),
@@ -1590,7 +1598,7 @@ pub fn create_routed_provider_with_options(
             Err(error) => {
                 tracing::warn!(
                     provider = route.provider.as_str(),
-                    hint = route.hint.as_str(),
+                    hint = route_hint,
                     "Ignoring routed provider that failed to initialize: {error}"
                 );
             }
@@ -3194,6 +3202,33 @@ mod tests {
         assert!(
             provider.is_ok(),
             "hint default should allow startup from route providers"
+        );
+    }
+
+    #[test]
+    fn routed_provider_normalizes_whitespace_in_hint_routes() {
+        let reliability = crate::config::ReliabilityConfig::default();
+        let routes = vec![crate::config::ModelRouteConfig {
+            hint: " reasoning ".to_string(),
+            provider: "lmstudio".to_string(),
+            model: "qwen2.5-coder".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let provider = create_routed_provider_with_options(
+            "provider-that-does-not-exist",
+            None,
+            None,
+            &reliability,
+            &routes,
+            "hint: reasoning ",
+            &ProviderRuntimeOptions::default(),
+        );
+        assert!(
+            provider.is_ok(),
+            "trimmed default hint should match trimmed route hint"
         );
     }
 
