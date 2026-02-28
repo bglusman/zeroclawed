@@ -261,6 +261,6 @@ flowchart TD
 ## Quick Troubleshooting
 
 1. Unexpected skipped jobs: inspect `scripts/ci/detect_change_scope.sh` outputs.
-2. Workflow-change PR blocked: verify `WORKFLOW_OWNER_LOGINS` and approvals.
+2. CI/CD-change PR blocked: verify `@chumyin` approved review is present.
 3. Fork PR appears stalled: check whether Actions run approval is pending.
 4. Docker not published: confirm a `v*` tag was pushed to the intended commit.
