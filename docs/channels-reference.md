@@ -352,7 +352,11 @@ password = "email-password"
 from_address = "bot@example.com"
 poll_interval_secs = 60
 allowed_senders = ["*"]
+imap_id = { enabled = true, name = "zeroclaw", version = "0.1.7", vendor = "zeroclaw-labs" }
 ```
+
+`imap_id` sends RFC 2971 client metadata right after IMAP login. This is required by some providers
+(for example NetEase `163.com` / `126.com`) before mailbox selection is allowed.
 
 ### 4.10 IRC
 
