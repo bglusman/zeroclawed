@@ -329,6 +329,12 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
 }
 
 fn conversation_history_key(msg: &traits::ChannelMessage) -> String {
+    // QQ uses thread_ts as a passive-reply message id, not a thread identifier.
+    // Using it in history keys would reset context on every incoming message.
+    if msg.channel == "qq" {
+        return format!("{}_{}", msg.channel, msg.sender);
+    }
+
     // Include thread_ts for per-topic session isolation in forum groups
     match &msg.thread_ts {
         Some(tid) => format!("{}_{}_{}", msg.channel, tid, msg.sender),
@@ -9393,6 +9399,34 @@ BTC is currently around $65,000 based on latest tool output."#
         assert_ne!(
             conversation_memory_key(&msg1),
             conversation_memory_key(&msg2)
+        );
+    }
+
+    #[test]
+    fn conversation_history_key_ignores_qq_message_id_thread() {
+        let msg1 = traits::ChannelMessage {
+            id: "msg_1".into(),
+            sender: "user_open_1".into(),
+            reply_target: "user:user_open_1".into(),
+            content: "first".into(),
+            channel: "qq".into(),
+            timestamp: 1,
+            thread_ts: Some("msg-a".into()),
+        };
+        let msg2 = traits::ChannelMessage {
+            id: "msg_2".into(),
+            sender: "user_open_1".into(),
+            reply_target: "user:user_open_1".into(),
+            content: "second".into(),
+            channel: "qq".into(),
+            timestamp: 2,
+            thread_ts: Some("msg-b".into()),
+        };
+
+        assert_eq!(conversation_history_key(&msg1), "qq_user_open_1");
+        assert_eq!(
+            conversation_history_key(&msg1),
+            conversation_history_key(&msg2)
         );
     }
 
