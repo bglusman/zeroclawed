@@ -10694,11 +10694,8 @@ BTC is currently around $65,000 based on latest tool output."#;
 
     #[tokio::test]
     async fn classify_health_timeout() {
-        let result = tokio::time::timeout(Duration::from_millis(1), async {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            true
-        })
-        .await;
+        let result = tokio::time::timeout(Duration::from_millis(1), std::future::pending::<bool>())
+            .await;
         let state = classify_health_result(&result);
         assert_eq!(state, ChannelHealthState::Timeout);
     }
