@@ -70,20 +70,65 @@ adb shell /data/local/tmp/zeroclaw --version
 
 ## Building from Source
 
-To build for Android yourself:
+ZeroClaw supports two Android source-build workflows.
+
+### A) Build directly inside Termux (on-device)
+
+Use this when compiling natively on your phone/tablet.
 
 ```bash
-# Install Android NDK
+# Termux prerequisites
+pkg update
+pkg install -y clang pkg-config
+
+# Add Android Rust targets (aarch64 target is enough for most devices)
+rustup target add aarch64-linux-android armv7-linux-androideabi
+
+# Build for your current device arch
+cargo build --release --target aarch64-linux-android
+```
+
+Notes:
+- `.cargo/config.toml` uses `clang` for Android targets by default.
+- You do not need NDK-prefixed linkers such as `aarch64-linux-android21-clang` for native Termux builds.
+- The `wasm-tools` runtime is currently unavailable on Android builds; WASM tools fall back to a stub implementation.
+
+### B) Cross-compile from Linux/macOS with Android NDK
+
+Use this when building Android binaries from a desktop CI/dev machine.
+
+```bash
 # Add targets
 rustup target add armv7-linux-androideabi aarch64-linux-android
 
-# Set NDK path
+# Configure Android NDK toolchain
 export ANDROID_NDK_HOME=/path/to/ndk
-export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+export NDK_TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+export PATH="$NDK_TOOLCHAIN:$PATH"
+
+# Override Cargo defaults with NDK wrapper linkers
+export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$NDK_TOOLCHAIN/armv7a-linux-androideabi21-clang"
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_TOOLCHAIN/aarch64-linux-android21-clang"
+
+# Ensure cc-rs build scripts use the same compilers
+export CC_armv7_linux_androideabi="$CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER"
+export CC_aarch64_linux_android="$CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER"
 
 # Build
 cargo build --release --target armv7-linux-androideabi
 cargo build --release --target aarch64-linux-android
+```
+
+### Quick environment self-check
+
+Use the built-in checker to validate linker/toolchain setup before long builds:
+
+```bash
+# From repo root
+scripts/android/termux_source_build_check.sh --target aarch64-linux-android
+
+# Run an actual cargo check after environment validation
+scripts/android/termux_source_build_check.sh --target aarch64-linux-android --run-cargo-check
 ```
 
 ## Troubleshooting
@@ -95,8 +140,24 @@ chmod +x zeroclaw
 ```
 
 ### "not found" or linker errors
-
 Make sure you downloaded the correct architecture for your device.
+
+For native Termux builds, make sure `clang` exists and remove stale NDK overrides:
+
+```bash
+unset CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
+unset CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER
+unset CC_aarch64_linux_android
+unset CC_armv7_linux_androideabi
+command -v clang
+```
+
+For cross-compilation, ensure `ANDROID_NDK_HOME` and `CARGO_TARGET_*_LINKER` point to valid NDK binaries.
+If build scripts (for example `ring`/`aws-lc-sys`) still report `failed to find tool "aarch64-linux-android-clang"`,
+also export `CC_aarch64_linux_android` / `CC_armv7_linux_androideabi` to the same NDK clang wrappers.
+
+### "WASM tools are unavailable on Android"
+This is expected today. Android builds run the WASM tool loader in stub mode; build on Linux/macOS/Windows if you need runtime `wasm-tools` execution.
 
 ### Old Android (4.x)
 
