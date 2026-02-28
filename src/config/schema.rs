@@ -1,5 +1,7 @@
 use crate::config::traits::ChannelConfig;
-use crate::providers::{is_glm_alias, is_zai_alias};
+use crate::providers::{
+    canonical_china_provider_name, is_glm_alias, is_qwen_oauth_alias, is_zai_alias,
+};
 use crate::security::{AutonomyLevel, DomainMatcher};
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -13,6 +15,100 @@ use std::sync::{OnceLock, RwLock};
 use tokio::fs::File;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
+
+/// Default fallback model when none is configured. Uses a format compatible with
+/// OpenRouter and other multi-provider gateways. For Anthropic direct API, this
+/// model ID will be normalized by the provider layer.
+pub const DEFAULT_MODEL_FALLBACK: &str = "anthropic/claude-sonnet-4.6";
+
+fn canonical_provider_for_model_defaults(provider_name: &str) -> String {
+    if let Some(canonical) = canonical_china_provider_name(provider_name) {
+        return if canonical == "doubao" {
+            "volcengine".to_string()
+        } else {
+            canonical.to_string()
+        };
+    }
+
+    match provider_name {
+        "grok" => "xai".to_string(),
+        "together" => "together-ai".to_string(),
+        "google" | "google-gemini" => "gemini".to_string(),
+        "github-copilot" => "copilot".to_string(),
+        "openai_codex" | "codex" => "openai-codex".to_string(),
+        "kimi_coding" | "kimi_for_coding" => "kimi-code".to_string(),
+        "nvidia-nim" | "build.nvidia.com" => "nvidia".to_string(),
+        "aws-bedrock" => "bedrock".to_string(),
+        "llama.cpp" => "llamacpp".to_string(),
+        _ => provider_name.to_string(),
+    }
+}
+
+/// Returns a provider-aware fallback model ID when `default_model` is missing.
+pub fn default_model_fallback_for_provider(provider_name: Option<&str>) -> &'static str {
+    let normalized_provider = provider_name
+        .unwrap_or("openrouter")
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-");
+
+    if normalized_provider == "qwen-coding-plan" {
+        return "qwen3-coder-plus";
+    }
+
+    let canonical_provider = if is_qwen_oauth_alias(&normalized_provider) {
+        "qwen-code".to_string()
+    } else {
+        canonical_provider_for_model_defaults(&normalized_provider)
+    };
+
+    match canonical_provider.as_str() {
+        "anthropic" => "claude-sonnet-4-5-20250929",
+        "openai" => "gpt-5.2",
+        "openai-codex" => "gpt-5-codex",
+        "venice" => "zai-org-glm-5",
+        "groq" => "llama-3.3-70b-versatile",
+        "mistral" => "mistral-large-latest",
+        "deepseek" => "deepseek-chat",
+        "xai" => "grok-4-1-fast-reasoning",
+        "perplexity" => "sonar-pro",
+        "fireworks" => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "novita" => "minimax/minimax-m2.5",
+        "together-ai" => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "cohere" => "command-a-03-2025",
+        "moonshot" => "kimi-k2.5",
+        "hunyuan" => "hunyuan-t1-latest",
+        "glm" | "zai" => "glm-5",
+        "minimax" => "MiniMax-M2.5",
+        "qwen" => "qwen-plus",
+        "volcengine" => "doubao-1-5-pro-32k-250115",
+        "siliconflow" => "Pro/zai-org/GLM-4.7",
+        "qwen-code" => "qwen3-coder-plus",
+        "ollama" => "llama3.2",
+        "llamacpp" => "ggml-org/gpt-oss-20b-GGUF",
+        "sglang" | "vllm" | "osaurus" | "copilot" => "default",
+        "gemini" => "gemini-2.5-pro",
+        "kimi-code" => "kimi-for-coding",
+        "bedrock" => "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "nvidia" => "meta/llama-3.3-70b-instruct",
+        _ => DEFAULT_MODEL_FALLBACK,
+    }
+}
+
+/// Resolves the model ID used by runtime components.
+/// Preference order:
+/// 1) Explicit configured model (if non-empty)
+/// 2) Provider-aware fallback
+pub fn resolve_default_model_id(
+    default_model: Option<&str>,
+    provider_name: Option<&str>,
+) -> String {
+    if let Some(model) = default_model.map(str::trim).filter(|m| !m.is_empty()) {
+        return model.to_string();
+    }
+
+    default_model_fallback_for_provider(provider_name).to_string()
+}
 
 const SUPPORTED_PROXY_SERVICE_KEYS: &[&str] = &[
     "provider.anthropic",
@@ -60,6 +156,8 @@ const SUPPORTED_PROXY_SERVICE_SELECTORS: &[&str] = &[
 static RUNTIME_PROXY_CONFIG: OnceLock<RwLock<ProxyConfig>> = OnceLock::new();
 static RUNTIME_PROXY_CLIENT_CACHE: OnceLock<RwLock<HashMap<String, reqwest::Client>>> =
     OnceLock::new();
+const DEFAULT_PROVIDER_NAME: &str = "openrouter";
+const DEFAULT_MODEL_NAME: &str = "anthropic/claude-sonnet-4.6";
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -305,6 +403,12 @@ pub struct ModelProviderConfig {
     /// Provider protocol variant ("responses" or "chat_completions").
     #[serde(default)]
     pub wire_api: Option<String>,
+    /// Optional profile-scoped default model.
+    #[serde(default, alias = "model")]
+    pub default_model: Option<String>,
+    /// Optional profile-scoped API key.
+    #[serde(default)]
+    pub api_key: Option<String>,
     /// If true, load OpenAI auth material (OPENAI_API_KEY or ~/.codex/auth.json).
     #[serde(default)]
     pub requires_openai_auth: bool,
@@ -416,6 +520,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.dingtalk.is_some(),
             self.channels_config.napcat.is_some(),
             self.channels_config.qq.is_some(),
+            self.channels_config.acp.is_some(),
             self.channels_config.nostr.is_some(),
             self.channels_config.clawdtalk.is_some(),
         ]
@@ -726,6 +831,8 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
+    #[serde(default)]
+    pub session: AgentSessionConfig,
     /// Maximum tool-call loop turns per user message. Default: `20`.
     /// Setting to `0` falls back to the safe default of `20`.
     #[serde(default = "default_agent_max_tool_iterations")]
@@ -770,6 +877,47 @@ pub struct AgentConfig {
     pub safety_heartbeat_turn_interval: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentSessionBackend {
+    Memory,
+    Sqlite,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentSessionStrategy {
+    PerSender,
+    PerChannel,
+    Main,
+}
+
+/// Session persistence configuration (`[agent.session]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AgentSessionConfig {
+    /// Session backend to use. Options: "memory", "sqlite", "none".
+    /// Default: "none" (no persistence).
+    /// Set to "none" to disable session persistence entirely.
+    #[serde(default = "default_agent_session_backend")]
+    pub backend: AgentSessionBackend,
+
+    /// Strategy for resolving session IDs. Options: "per-sender", "per-channel", "main".
+    /// Default: "per-sender" (each user gets a unique session per channel).
+    #[serde(default = "default_agent_session_strategy")]
+    pub strategy: AgentSessionStrategy,
+
+    /// Time-to-live for sessions in seconds.
+    /// Default: 3600 (1 hour).
+    #[serde(default = "default_agent_session_ttl_seconds")]
+    pub ttl_seconds: u64,
+
+    /// Maximum number of messages to retain per session.
+    /// Default: 50.
+    #[serde(default = "default_agent_session_max_messages")]
+    pub max_messages: usize,
+}
+
 fn default_agent_max_tool_iterations() -> usize {
     20
 }
@@ -780,6 +928,22 @@ fn default_agent_max_history_messages() -> usize {
 
 fn default_agent_tool_dispatcher() -> String {
     "auto".into()
+}
+
+fn default_agent_session_backend() -> AgentSessionBackend {
+    AgentSessionBackend::None
+}
+
+fn default_agent_session_strategy() -> AgentSessionStrategy {
+    AgentSessionStrategy::PerSender
+}
+
+fn default_agent_session_ttl_seconds() -> u64 {
+    3600
+}
+
+fn default_agent_session_max_messages() -> usize {
+    default_agent_max_history_messages()
 }
 
 fn default_loop_detection_no_progress_threshold() -> usize {
@@ -806,6 +970,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             compact_context: true,
+            session: AgentSessionConfig::default(),
             max_tool_iterations: default_agent_max_tool_iterations(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
@@ -815,6 +980,17 @@ impl Default for AgentConfig {
             loop_detection_failure_streak: default_loop_detection_failure_streak(),
             safety_heartbeat_interval: default_safety_heartbeat_interval(),
             safety_heartbeat_turn_interval: default_safety_heartbeat_turn_interval(),
+        }
+    }
+}
+
+impl Default for AgentSessionConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_agent_session_backend(),
+            strategy: default_agent_session_strategy(),
+            ttl_seconds: default_agent_session_ttl_seconds(),
+            max_messages: default_agent_session_max_messages(),
         }
     }
 }
@@ -3874,6 +4050,8 @@ impl<T: ChannelConfig> crate::config::traits::ConfigHandle for ConfigWrapper<T> 
 pub struct ChannelsConfig {
     /// Enable the CLI interactive channel. Default: `true`.
     pub cli: bool,
+    /// ACP (Agent Client Protocol) channel configuration.
+    pub acp: Option<AcpConfig>,
     /// Telegram bot channel configuration.
     pub telegram: Option<TelegramConfig>,
     /// Discord bot channel configuration.
@@ -4022,6 +4200,10 @@ impl ChannelsConfig {
                 self.nostr.is_some(),
             ),
             (
+                Box::new(ConfigWrapper::new(self.acp.as_ref())),
+                self.acp.is_some(),
+            ),
+            (
                 Box::new(ConfigWrapper::new(self.clawdtalk.as_ref())),
                 self.clawdtalk.is_some(),
             ),
@@ -4046,6 +4228,7 @@ impl Default for ChannelsConfig {
     fn default() -> Self {
         Self {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,
@@ -4267,7 +4450,12 @@ pub struct SlackConfig {
     pub app_token: Option<String>,
     /// Optional channel ID to restrict the bot to a single channel.
     /// Omit (or set `"*"`) to listen across all accessible channels.
+    /// Ignored when `channel_ids` is non-empty.
     pub channel_id: Option<String>,
+    /// Explicit list of channel/DM IDs to listen on simultaneously.
+    /// Takes precedence over `channel_id`. Empty = fall back to `channel_id`.
+    #[serde(default)]
+    pub channel_ids: Vec<String>,
     /// Allowed Slack user IDs. Empty = deny all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
@@ -5654,9 +5842,9 @@ impl Default for Config {
             config_path: zeroclaw_dir.join("config.toml"),
             api_key: None,
             api_url: None,
-            default_provider: Some("openrouter".to_string()),
+            default_provider: Some(DEFAULT_PROVIDER_NAME.to_string()),
             provider_api: None,
-            default_model: Some("anthropic/claude-sonnet-4.6".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
             model_providers: HashMap::new(),
             provider: ProviderConfig::default(),
             default_temperature: 0.7,
@@ -5848,7 +6036,10 @@ pub(crate) async fn persist_active_workspace_config_dir(config_dir: &Path) -> Re
         );
     }
 
+    #[cfg(unix)]
     sync_directory(&default_config_dir).await?;
+    #[cfg(not(unix))]
+    sync_directory(&default_config_dir)?;
     Ok(())
 }
 
@@ -6614,6 +6805,10 @@ impl Config {
             config.workspace_dir = workspace_dir;
             let store = crate::security::SecretStore::new(&zeroclaw_dir, config.secrets.encrypt);
             decrypt_optional_secret(&store, &mut config.api_key, "config.api_key")?;
+            for (profile_name, profile) in config.model_providers.iter_mut() {
+                let secret_path = format!("config.model_providers.{profile_name}.api_key");
+                decrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+            }
             decrypt_optional_secret(
                 &store,
                 &mut config.transcription.api_key,
@@ -6850,6 +7045,18 @@ impl Config {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string);
+        let profile_default_model = profile
+            .default_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let profile_api_key = profile
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
         if self
             .api_url
@@ -6859,6 +7066,30 @@ impl Config {
         {
             if let Some(base_url) = base_url.as_ref() {
                 self.api_url = Some(base_url.clone());
+            }
+        }
+
+        if self
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|value| value.is_empty())
+        {
+            if let Some(profile_api_key) = profile_api_key {
+                self.api_key = Some(profile_api_key);
+            }
+        }
+
+        if let Some(profile_default_model) = profile_default_model {
+            let can_apply_profile_model =
+                self.default_model
+                    .as_deref()
+                    .map(str::trim)
+                    .is_none_or(|value| {
+                        value.is_empty() || value.eq_ignore_ascii_case(DEFAULT_MODEL_NAME)
+                    });
+            if can_apply_profile_model {
+                self.default_model = Some(profile_default_model);
             }
         }
 
@@ -6908,6 +7139,10 @@ impl Config {
     /// Called after TOML deserialization and env-override application to catch
     /// obviously invalid values early instead of failing at arbitrary runtime points.
     pub fn validate(&self) -> Result<()> {
+        if let Some(acp) = &self.channels_config.acp {
+            acp.validate()?;
+        }
+
         // Gateway
         if self.gateway.host.trim().is_empty() {
             anyhow::bail!("gateway.host must not be empty");
@@ -7336,6 +7571,24 @@ impl Config {
             }
         }
 
+        if let Some(default_hint) = self
+            .default_model
+            .as_deref()
+            .and_then(|model| model.strip_prefix("hint:"))
+            .map(str::trim)
+            .filter(|hint| !hint.is_empty())
+        {
+            if !self
+                .model_routes
+                .iter()
+                .any(|route| route.hint.trim() == default_hint)
+            {
+                anyhow::bail!(
+                    "default_model uses hint '{default_hint}', but no matching [[model_routes]] entry exists"
+                );
+            }
+        }
+
         if self
             .provider
             .transport
@@ -7541,7 +7794,9 @@ impl Config {
         } else if let Ok(provider) = std::env::var("PROVIDER") {
             let should_apply_legacy_provider =
                 self.default_provider.as_deref().map_or(true, |configured| {
-                    configured.trim().eq_ignore_ascii_case("openrouter")
+                    configured
+                        .trim()
+                        .eq_ignore_ascii_case(DEFAULT_PROVIDER_NAME)
                 });
             if should_apply_legacy_provider && !provider.is_empty() {
                 self.default_provider = Some(provider);
@@ -8125,6 +8380,10 @@ impl Config {
         let store = crate::security::SecretStore::new(zeroclaw_dir, self.secrets.encrypt);
 
         encrypt_optional_secret(&store, &mut config_to_save.api_key, "config.api_key")?;
+        for (profile_name, profile) in config_to_save.model_providers.iter_mut() {
+            let secret_path = format!("config.model_providers.{profile_name}.api_key");
+            encrypt_optional_secret(&store, &mut profile.api_key, &secret_path)?;
+        }
         encrypt_optional_secret(
             &store,
             &mut config_to_save.transcription.api_key,
@@ -8291,7 +8550,10 @@ impl Config {
                 })?;
         }
 
+        #[cfg(unix)]
         sync_directory(parent_dir).await?;
+        #[cfg(not(unix))]
+        sync_directory(parent_dir)?;
 
         if had_existing_config {
             let _ = fs::remove_file(&backup_path).await;
@@ -8301,32 +8563,83 @@ impl Config {
     }
 }
 
+#[cfg(unix)]
 async fn sync_directory(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        let dir = File::open(path)
-            .await
-            .with_context(|| format!("Failed to open directory for fsync: {}", path.display()))?;
-        dir.sync_all()
-            .await
-            .with_context(|| format!("Failed to fsync directory metadata: {}", path.display()))?;
-        Ok(())
-    }
+    let dir = File::open(path)
+        .await
+        .with_context(|| format!("Failed to open directory for fsync: {}", path.display()))?;
+    dir.sync_all()
+        .await
+        .with_context(|| format!("Failed to fsync directory metadata: {}", path.display()))?;
+    Ok(())
+}
 
-    #[cfg(not(unix))]
-    {
-        let _ = path;
+#[cfg(not(unix))]
+fn sync_directory(path: &Path) -> Result<()> {
+    let _ = path;
+    Ok(())
+}
+
+/// ACP (Agent Client Protocol) channel configuration.
+///
+/// Enables ZeroClaw to act as an ACP client, connecting to an OpenCode ACP server
+/// via `opencode acp` command for JSON-RPC 2.0 communication over stdio.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AcpConfig {
+    /// OpenCode binary path (default: "opencode").
+    #[serde(default = "default_acp_opencode_path")]
+    pub opencode_path: Option<String>,
+    /// Working directory for OpenCode process.
+    pub workdir: Option<String>,
+    /// Additional arguments to pass to `opencode acp`.
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Allowed user identifiers (empty = deny all, "*" = allow all).
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+fn default_acp_opencode_path() -> Option<String> {
+    Some("opencode".to_string())
+}
+
+impl AcpConfig {
+    fn validate(&self) -> Result<()> {
+        if self
+            .opencode_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.opencode_path must not be empty when set");
+        }
+
+        if self
+            .workdir
+            .as_deref()
+            .is_some_and(|dir| dir.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.workdir must not be empty when set");
+        }
+
         Ok(())
     }
 }
 
+impl ChannelConfig for AcpConfig {
+    fn name() -> &'static str {
+        "ACP"
+    }
+
+    fn desc() -> &'static str {
+        "Agent Client Protocol channel for OpenCode integration"
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
-    use tempfile::TempDir;
     use tokio::sync::{Mutex, MutexGuard};
     use tokio::test;
     use tokio_stream::wrappers::ReadDirStream;
@@ -8518,7 +8831,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     async fn save_sets_config_permissions_on_new_file() {
-        let temp = TempDir::new().expect("temp dir");
+        let temp = tempfile::TempDir::new().expect("temp dir");
         let config_path = temp.path().join("config.toml");
         let workspace_dir = temp.path().join("workspace");
 
@@ -8832,6 +9145,7 @@ ws_url = "ws://127.0.0.1:3002"
             goal_loop: GoalLoopConfig::default(),
             channels_config: ChannelsConfig {
                 cli: true,
+                acp: None,
                 telegram: Some(TelegramConfig {
                     bot_token: "123:ABC".into(),
                     allowed_users: vec!["user1".into()],
@@ -9199,7 +9513,10 @@ tool_dispatcher = "xml"
         ));
         fs::create_dir_all(&dir).await.unwrap();
 
+        #[cfg(unix)]
         sync_directory(&dir).await.unwrap();
+        #[cfg(not(unix))]
+        sync_directory(&dir).unwrap();
 
         let _ = fs::remove_dir_all(&dir).await;
     }
@@ -9763,6 +10080,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn channels_config_with_imessage_and_matrix() {
         let c = ChannelsConfig {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,
@@ -9834,6 +10152,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn slack_config_deserializes_without_allowed_users() {
         let json = r#"{"bot_token":"xoxb-tok"}"#;
         let parsed: SlackConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(
             parsed.effective_group_reply_mode(),
@@ -9845,6 +10164,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn slack_config_deserializes_with_allowed_users() {
         let json = r#"{"bot_token":"xoxb-tok","allowed_users":["U111"]}"#;
         let parsed: SlackConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert_eq!(parsed.allowed_users, vec!["U111"]);
     }
 
@@ -9866,6 +10186,7 @@ bot_token = "xoxb-tok"
 channel_id = "C123"
 "#;
         let parsed: SlackConfig = toml::from_str(toml_str).unwrap();
+        assert!(parsed.channel_ids.is_empty());
         assert!(parsed.allowed_users.is_empty());
         assert_eq!(parsed.channel_id.as_deref(), Some("C123"));
         assert_eq!(
@@ -10045,6 +10366,7 @@ channel_id = "C123"
     async fn channels_config_with_whatsapp() {
         let c = ChannelsConfig {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,
@@ -10642,6 +10964,8 @@ model = "gpt-5.3-codex"
 name = "sub2api"
 base_url = "https://api.tonsof.blue/v1"
 wire_api = "responses"
+model = "gpt-5.3-codex"
+api_key = "profile-key"
 requires_openai_auth = true
 "#;
 
@@ -10653,6 +10977,8 @@ requires_openai_auth = true
             .get("sub2api")
             .expect("profile should exist");
         assert_eq!(profile.wire_api.as_deref(), Some("responses"));
+        assert_eq!(profile.default_model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(profile.api_key.as_deref(), Some("profile-key"));
         assert!(profile.requires_openai_auth);
     }
 
@@ -10814,6 +11140,67 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
+    async fn default_model_hint_requires_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "fast".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let err = config
+            .validate()
+            .expect_err("default_model hint without matching route should fail");
+        assert!(err
+            .to_string()
+            .contains("default_model uses hint 'reasoning'"));
+    }
+
+    #[test]
+    async fn default_model_hint_accepts_matching_model_route() {
+        let mut config = Config::default();
+        config.default_model = Some("hint:reasoning".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "matching default hint route should validate"
+        );
+    }
+
+    #[test]
+    async fn default_model_hint_accepts_matching_model_route_with_whitespace() {
+        let mut config = Config::default();
+        config.default_model = Some("hint: reasoning ".to_string());
+        config.model_routes = vec![ModelRouteConfig {
+            hint: " reasoning ".to_string(),
+            provider: "openrouter".to_string(),
+            model: "openai/gpt-5.2".to_string(),
+            max_tokens: None,
+            api_key: None,
+            transport: None,
+        }];
+
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "trimmed default hint should match trimmed route hint"
+        );
+    }
+
+    #[test]
     async fn provider_transport_normalizes_aliases() {
         let mut config = Config::default();
         config.provider.transport = Some("WS".to_string());
@@ -10898,6 +11285,31 @@ provider_api = "not-a-real-mode"
     }
 
     #[test]
+    async fn resolve_default_model_id_prefers_configured_model() {
+        let resolved =
+            resolve_default_model_id(Some("  anthropic/claude-opus-4.6  "), Some("openrouter"));
+        assert_eq!(resolved, "anthropic/claude-opus-4.6");
+    }
+
+    #[test]
+    async fn resolve_default_model_id_uses_provider_specific_fallback() {
+        let openai = resolve_default_model_id(None, Some("openai"));
+        assert_eq!(openai, "gpt-5.2");
+
+        let bedrock = resolve_default_model_id(None, Some("aws-bedrock"));
+        assert_eq!(bedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0");
+    }
+
+    #[test]
+    async fn resolve_default_model_id_handles_special_provider_aliases() {
+        let qwen_coding_plan = resolve_default_model_id(None, Some("qwen-coding-plan"));
+        assert_eq!(qwen_coding_plan, "qwen3-coder-plus");
+
+        let google_alias = resolve_default_model_id(None, Some("google-gemini"));
+        assert_eq!(google_alias, "gemini-2.5-pro");
+    }
+
+    #[test]
     async fn model_provider_profile_maps_to_custom_endpoint() {
         let _env_guard = env_override_lock().await;
         let mut config = Config {
@@ -10908,6 +11320,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: None,
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -10936,6 +11350,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue".to_string()),
                     wire_api: Some("responses".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: true,
                 },
             )]),
@@ -10998,6 +11414,8 @@ provider_api = "not-a-real-mode"
                     name: Some("sub2api".to_string()),
                     base_url: Some("https://api.tonsof.blue/v1".to_string()),
                     wire_api: Some("ws".to_string()),
+                    default_model: None,
+                    api_key: None,
                     requires_openai_auth: false,
                 },
             )]),
@@ -11008,6 +11426,54 @@ provider_api = "not-a-real-mode"
         assert!(error
             .to_string()
             .contains("wire_api must be one of: responses, chat_completions"));
+    }
+
+    #[test]
+    async fn model_provider_profile_uses_profile_api_key_when_global_is_missing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            api_key: None,
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: None,
+                    api_key: Some("profile-api-key".to_string()),
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.api_key.as_deref(), Some("profile-api-key"));
+    }
+
+    #[test]
+    async fn model_provider_profile_can_override_default_model_when_openrouter_default_is_set() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config {
+            default_provider: Some("sub2api".to_string()),
+            default_model: Some(DEFAULT_MODEL_NAME.to_string()),
+            model_providers: HashMap::from([(
+                "sub2api".to_string(),
+                ModelProviderConfig {
+                    name: Some("sub2api".to_string()),
+                    base_url: Some("https://api.tonsof.blue/v1".to_string()),
+                    wire_api: None,
+                    default_model: Some("qwen-max".to_string()),
+                    api_key: None,
+                    requires_openai_auth: false,
+                },
+            )]),
+            ..Config::default()
+        };
+
+        config.apply_env_overrides();
+        assert_eq!(config.default_model.as_deref(), Some("qwen-max"));
     }
 
     #[test]

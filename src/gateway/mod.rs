@@ -90,6 +90,17 @@ fn qq_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
     format!("qq_{}_{}", msg.sender, msg.id)
 }
 
+fn gateway_message_session_id(msg: &crate::channels::traits::ChannelMessage) -> String {
+    if msg.channel == "qq" || msg.channel == "napcat" {
+        return format!("{}_{}", msg.channel, msg.sender);
+    }
+
+    match &msg.thread_ts {
+        Some(thread_id) => format!("{}_{}_{}", msg.channel, thread_id, msg.sender),
+        None => format!("{}_{}", msg.channel, msg.sender),
+    }
+}
+
 fn hash_webhook_secret(value: &str) -> String {
     use sha2::{Digest, Sha256};
 
@@ -1024,9 +1035,10 @@ async fn run_gateway_chat_simple(state: &AppState, message: &str) -> anyhow::Res
 pub(super) async fn run_gateway_chat_with_tools(
     state: &AppState,
     message: &str,
+    session_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let config = state.config.lock().clone();
-    crate::agent::process_message(config, message).await
+    crate::agent::process_message_with_session(config, message, session_id).await
 }
 
 fn gateway_outbound_leak_guard_snapshot(
@@ -1062,6 +1074,8 @@ pub struct WebhookBody {
     pub message: String,
     #[serde(default)]
     pub stream: Option<bool>,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -1579,6 +1593,11 @@ async fn handle_webhook(
     }
 
     let message = webhook_body.message.trim();
+    let webhook_session_id = webhook_body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
     if message.is_empty() {
         let err = serde_json::json!({
             "error": "The `message` field is required and must be a non-empty string."
@@ -1590,7 +1609,12 @@ async fn handle_webhook(
         let key = webhook_memory_key();
         let _ = state
             .mem
-            .store(&key, message, MemoryCategory::Conversation, None)
+            .store(
+                &key,
+                message,
+                MemoryCategory::Conversation,
+                webhook_session_id,
+            )
             .await;
     }
 
@@ -1786,8 +1810,7 @@ async fn handle_whatsapp_verify(
 /// Returns true if the signature is valid, false otherwise.
 /// See: <https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests>
 pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header: &str) -> bool {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
+    use ring::hmac;
 
     // Signature format: "sha256=<hex_signature>"
     let Some(hex_sig) = signature_header.strip_prefix("sha256=") else {
@@ -1799,14 +1822,8 @@ pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header
         return false;
     };
 
-    // Compute HMAC-SHA256
-    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) else {
-        return false;
-    };
-    mac.update(body);
-
-    // Constant-time comparison
-    mac.verify_slice(&expected).is_ok()
+    let key = hmac::Key::new(hmac::HMAC_SHA256, app_secret.as_bytes());
+    hmac::verify(&key, body, &expected).is_ok()
 }
 
 /// POST /whatsapp — incoming message webhook
@@ -1868,17 +1885,23 @@ async fn handle_whatsapp_message(
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
+        let session_id = gateway_message_session_id(msg);
 
         // Auto-save to memory
         if state.auto_save {
             let key = whatsapp_memory_key(msg);
             let _ = state
                 .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .store(
+                    &key,
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                    Some(&session_id),
+                )
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -1990,18 +2013,24 @@ async fn handle_linq_webhook(
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
+        let session_id = gateway_message_session_id(msg);
 
         // Auto-save to memory
         if state.auto_save {
             let key = linq_memory_key(msg);
             let _ = state
                 .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .store(
+                    &key,
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                    Some(&session_id),
+                )
                 .await;
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2034,6 +2063,7 @@ async fn handle_linq_webhook(
 }
 
 /// POST /github — incoming GitHub webhook (issue/PR comments)
+#[allow(clippy::large_futures)]
 async fn handle_github_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2167,7 +2197,7 @@ async fn handle_github_webhook(
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, None).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2351,18 +2381,24 @@ async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
+        let session_id = gateway_message_session_id(msg);
 
         // Auto-save to memory
         if state.auto_save {
             let key = wati_memory_key(msg);
             let _ = state
                 .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .store(
+                    &key,
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                    Some(&session_id),
+                )
                 .await;
         }
 
         // Call the LLM
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2463,16 +2499,22 @@ async fn handle_nextcloud_talk_webhook(
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
+        let session_id = gateway_message_session_id(msg);
 
         if state.auto_save {
             let key = nextcloud_talk_memory_key(msg);
             let _ = state
                 .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .store(
+                    &key,
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                    Some(&session_id),
+                )
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -2558,16 +2600,22 @@ async fn handle_qq_webhook(
             msg.sender,
             truncate_with_ellipsis(&msg.content, 50)
         );
+        let session_id = gateway_message_session_id(msg);
 
         if state.auto_save {
             let key = qq_memory_key(msg);
             let _ = state
                 .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .store(
+                    &key,
+                    &msg.content,
+                    MemoryCategory::Conversation,
+                    Some(&session_id),
+                )
                 .await;
         }
 
-        match run_gateway_chat_with_tools(&state, &msg.content).await {
+        match run_gateway_chat_with_tools(&state, &msg.content, Some(&session_id)).await {
             Ok(response) => {
                 let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
                 let safe_response = sanitize_gateway_response(
@@ -3365,6 +3413,7 @@ Reminder set successfully."#;
         let body = Ok(Json(WebhookBody {
             message: "hello".into(),
             stream: None,
+            session_id: None,
         }));
         let first = handle_webhook(
             State(state.clone()),
@@ -3379,6 +3428,7 @@ Reminder set successfully."#;
         let body = Ok(Json(WebhookBody {
             message: "hello".into(),
             stream: None,
+            session_id: None,
         }));
         let second = handle_webhook(State(state), test_connect_info(), headers, body)
             .await
@@ -3437,6 +3487,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "hello".into(),
                 stream: None,
+                session_id: None,
             })),
         )
         .await
@@ -3490,6 +3541,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "   ".into(),
                 stream: None,
+                session_id: None,
             })),
         )
         .await
@@ -3544,6 +3596,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "stream me".into(),
                 stream: Some(true),
+                session_id: None,
             })),
         )
         .await
@@ -3722,6 +3775,7 @@ Reminder set successfully."#;
         let body1 = Ok(Json(WebhookBody {
             message: "hello one".into(),
             stream: None,
+            session_id: None,
         }));
         let first = handle_webhook(
             State(state.clone()),
@@ -3736,6 +3790,7 @@ Reminder set successfully."#;
         let body2 = Ok(Json(WebhookBody {
             message: "hello two".into(),
             stream: None,
+            session_id: None,
         }));
         let second = handle_webhook(State(state), test_connect_info(), headers, body2)
             .await
@@ -3809,6 +3864,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "hello".into(),
                 stream: None,
+                session_id: None,
             })),
         )
         .await
@@ -3871,6 +3927,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "hello".into(),
                 stream: None,
+                session_id: None,
             })),
         )
         .await
@@ -3929,6 +3986,7 @@ Reminder set successfully."#;
             Ok(Json(WebhookBody {
                 message: "hello".into(),
                 stream: None,
+                session_id: None,
             })),
         )
         .await

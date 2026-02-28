@@ -10,7 +10,7 @@ use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use regex::{Regex, RegexSet};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
@@ -33,6 +33,7 @@ mod execution;
 mod history;
 mod parsing;
 
+use crate::agent::session::{resolve_session_id, shared_session_manager};
 use context::{build_context, build_hardware_context};
 use detection::{DetectionVerdict, LoopDetectionConfig, LoopDetector};
 use execution::{
@@ -981,7 +982,7 @@ pub(crate) async fn run_tool_call_loop(
                         Some(model),
                         Some(&turn_id),
                         Some(false),
-                        Some(&parse_issue),
+                        Some(parse_issue),
                         serde_json::json!({
                             "iteration": iteration + 1,
                             "response_excerpt": truncate_with_ellipsis(
@@ -1816,10 +1817,12 @@ pub async fn run(
         .or(config.default_provider.as_deref())
         .unwrap_or("openrouter");
 
-    let model_name = model_override
-        .as_deref()
-        .or(config.default_model.as_deref())
-        .unwrap_or("anthropic/claude-sonnet-4");
+    let model_name = crate::config::resolve_default_model_id(
+        model_override
+            .as_deref()
+            .or(config.default_model.as_deref()),
+        Some(provider_name),
+    );
 
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
@@ -1840,7 +1843,7 @@ pub async fn run(
         config.api_url.as_deref(),
         &config.reliability,
         &config.model_routes,
-        model_name,
+        &model_name,
         &provider_runtime_options,
     )?;
 
@@ -2003,7 +2006,7 @@ pub async fn run(
     let native_tools = provider.supports_native_tools();
     let mut system_prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
-        model_name,
+        &model_name,
         &tool_descs,
         &skills,
         Some(&config.identity),
@@ -2042,7 +2045,7 @@ pub async fn run(
 
         // Inject memory + hardware RAG context into user message
         let mem_context =
-            build_context(mem.as_ref(), &msg, config.memory.min_relevance_score).await;
+            build_context(mem.as_ref(), &msg, config.memory.min_relevance_score, None).await;
         let rag_limit = if config.agent.compact_context { 2 } else { 5 };
         let hw_context = hardware_rag
             .as_ref()
@@ -2085,7 +2088,7 @@ pub async fn run(
                         &tools_registry,
                         observer.as_ref(),
                         provider_name,
-                        model_name,
+                        &model_name,
                         temperature,
                         false,
                         approval_manager.as_ref(),
@@ -2101,6 +2104,17 @@ pub async fn run(
             )
             .await?;
         final_output = response.clone();
+        if config.memory.auto_save && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+            let assistant_key = autosave_memory_key("assistant_resp");
+            let _ = mem
+                .store(
+                    &assistant_key,
+                    &response,
+                    MemoryCategory::Conversation,
+                    None,
+                )
+                .await;
+        }
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
     } else {
@@ -2191,8 +2205,13 @@ pub async fn run(
             }
 
             // Inject memory + hardware RAG context into user message
-            let mem_context =
-                build_context(mem.as_ref(), &user_input, config.memory.min_relevance_score).await;
+            let mem_context = build_context(
+                mem.as_ref(),
+                &user_input,
+                config.memory.min_relevance_score,
+                None,
+            )
+            .await;
             let rag_limit = if config.agent.compact_context { 2 } else { 5 };
             let hw_context = hardware_rag
                 .as_ref()
@@ -2246,7 +2265,7 @@ pub async fn run(
                             &tools_registry,
                             observer.as_ref(),
                             provider_name,
-                            model_name,
+                            &model_name,
                             temperature,
                             false,
                             approval_manager.as_ref(),
@@ -2288,6 +2307,17 @@ pub async fn run(
                 }
             };
             final_output = response.clone();
+            if config.memory.auto_save && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+                let assistant_key = autosave_memory_key("assistant_resp");
+                let _ = mem
+                    .store(
+                        &assistant_key,
+                        &response,
+                        MemoryCategory::Conversation,
+                        None,
+                    )
+                    .await;
+            }
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
                 &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
@@ -2302,7 +2332,7 @@ pub async fn run(
             if let Ok(compacted) = auto_compact_history(
                 &mut history,
                 provider.as_ref(),
-                model_name,
+                &model_name,
                 config.agent.max_history_messages,
             )
             .await
@@ -2332,6 +2362,14 @@ pub async fn run(
 /// Process a single message through the full agent (with tools, peripherals, memory).
 /// Used by channels (Telegram, Discord, etc.) to enable hardware and tool use.
 pub async fn process_message(config: Config, message: &str) -> Result<String> {
+    process_message_with_session(config, message, None).await
+}
+
+pub async fn process_message_with_session(
+    config: Config,
+    message: &str,
+    session_id: Option<&str>,
+) -> Result<String> {
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -2375,10 +2413,10 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     tools_registry.extend(peripheral_tools);
 
     let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
-    let model_name = config
-        .default_model
-        .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
+    let model_name = crate::config::resolve_default_model_id(
+        config.default_model.as_deref(),
+        Some(provider_name),
+    );
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
         provider_api_url: config.api_url.clone(),
@@ -2495,7 +2533,13 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
-    let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
+    let mem_context = build_context(
+        mem.as_ref(),
+        message,
+        config.memory.min_relevance_score,
+        session_id,
+    )
+    .await;
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };
     let hw_context = hardware_rag
         .as_ref()
@@ -4545,7 +4589,7 @@ Tail"#;
         .await
         .unwrap();
 
-        let context = build_context(&mem, "status updates", 0.0).await;
+        let context = build_context(&mem, "status updates", 0.0, None).await;
         assert!(context.contains("user_msg_real"));
         assert!(!context.contains("assistant_resp_poisoned"));
         assert!(!context.contains("fabricated event"));

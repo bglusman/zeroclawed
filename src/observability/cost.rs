@@ -48,7 +48,7 @@ impl CostObserver {
         // Try model family matching (e.g., "claude-sonnet-4" matches any claude-sonnet-4-*)
         for (key, pricing) in &self.prices {
             // Strip provider prefix if present
-            let key_model = key.split('/').last().unwrap_or(key);
+            let key_model = key.split('/').next_back().unwrap_or(key);
 
             // Check if model starts with the key (family match)
             if model.starts_with(key_model) || key_model.starts_with(model) {

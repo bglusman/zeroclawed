@@ -765,7 +765,7 @@ impl TelegramChannel {
     }
 
     fn log_poll_transport_error(sanitized: &str, consecutive_failures: u32) {
-        if consecutive_failures >= 6 && consecutive_failures % 6 == 0 {
+        if consecutive_failures >= 6 && consecutive_failures.is_multiple_of(6) {
             tracing::warn!(
                 "Telegram poll transport error persists (consecutive={}): {}",
                 consecutive_failures,
@@ -3109,8 +3109,8 @@ impl Channel for TelegramChannel {
         let thread_id = parsed_thread_id.or(thread_ts);
 
         let raw_args = arguments.to_string();
-        let args_preview = if raw_args.len() > 260 {
-            format!("{}...", &raw_args[..260])
+        let args_preview = if raw_args.chars().count() > 260 {
+            crate::util::truncate_with_ellipsis(&raw_args, 260)
         } else {
             raw_args
         };

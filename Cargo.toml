@@ -110,7 +110,7 @@ prost = { version = "0.14", default-features = false, features = ["derive"], opt
 # Memory / persistence
 rusqlite = { version = "0.37", features = ["bundled"] }
 postgres = { version = "0.19", features = ["with-chrono-0_4"], optional = true }
-tokio-postgres-rustls = { version = "0.12", optional = true }
+tokio-postgres-rustls = { version = "0.13", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
@@ -238,7 +238,6 @@ whatsapp-web = ["dep:wa-rs", "dep:wa-rs-core", "dep:wa-rs-binary", "dep:wa-rs-pr
 # Keep disabled by default to preserve current runtime behavior.
 firecrawl = []
 web-fetch-html2md = []
-web-fetch-plaintext = []
 
 [profile.release]
 opt-level = "z"      # Optimize for size

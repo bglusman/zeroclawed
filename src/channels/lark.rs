@@ -174,7 +174,6 @@ struct LarkEvent {
 #[derive(Debug, serde::Deserialize)]
 struct LarkEventHeader {
     event_type: String,
-    #[allow(dead_code)]
     event_id: String,
 }
 
@@ -217,6 +216,10 @@ const LARK_TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(120);
 const LARK_DEFAULT_TOKEN_TTL: Duration = Duration::from_secs(7200);
 /// Feishu/Lark API business code for expired/invalid tenant access token.
 const LARK_INVALID_ACCESS_TOKEN_CODE: i64 = 99_991_663;
+/// Retention window for seen event/message dedupe keys.
+const LARK_EVENT_DEDUP_TTL: Duration = Duration::from_secs(30 * 60);
+/// Periodic cleanup interval for the dedupe cache.
+const LARK_EVENT_DEDUP_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 const LARK_IMAGE_DOWNLOAD_FALLBACK_TEXT: &str =
     "[Image message received but could not be downloaded]";
 
@@ -367,8 +370,10 @@ pub struct LarkChannel {
     receive_mode: crate::config::schema::LarkReceiveMode,
     /// Cached tenant access token
     tenant_token: Arc<RwLock<Option<CachedTenantToken>>>,
-    /// Dedup set: WS message_ids seen in last ~30 min to prevent double-dispatch
-    ws_seen_ids: Arc<RwLock<HashMap<String, Instant>>>,
+    /// Dedup set for recently seen event/message keys across WS + webhook paths.
+    recent_event_keys: Arc<RwLock<HashMap<String, Instant>>>,
+    /// Last time we ran TTL cleanup over the dedupe cache.
+    recent_event_cleanup_at: Arc<RwLock<Instant>>,
 }
 
 impl LarkChannel {
@@ -412,7 +417,8 @@ impl LarkChannel {
             platform,
             receive_mode: crate::config::schema::LarkReceiveMode::default(),
             tenant_token: Arc::new(RwLock::new(None)),
-            ws_seen_ids: Arc::new(RwLock::new(HashMap::new())),
+            recent_event_keys: Arc::new(RwLock::new(HashMap::new())),
+            recent_event_cleanup_at: Arc::new(RwLock::new(Instant::now())),
         }
     }
 
@@ -518,6 +524,42 @@ impl LarkChannel {
         if let Ok(mut guard) = self.resolved_bot_open_id.write() {
             *guard = open_id;
         }
+    }
+
+    fn dedupe_event_key(event_id: Option<&str>, message_id: Option<&str>) -> Option<String> {
+        let normalized_event = event_id.map(str::trim).filter(|value| !value.is_empty());
+        if let Some(event_id) = normalized_event {
+            return Some(format!("event:{event_id}"));
+        }
+
+        let normalized_message = message_id.map(str::trim).filter(|value| !value.is_empty());
+        normalized_message.map(|message_id| format!("message:{message_id}"))
+    }
+
+    async fn try_mark_event_key_seen(&self, dedupe_key: &str) -> bool {
+        let now = Instant::now();
+        if self.recent_event_keys.read().await.contains_key(dedupe_key) {
+            return false;
+        }
+
+        let should_cleanup = {
+            let last_cleanup = self.recent_event_cleanup_at.read().await;
+            now.duration_since(*last_cleanup) >= LARK_EVENT_DEDUP_CLEANUP_INTERVAL
+        };
+
+        let mut seen = self.recent_event_keys.write().await;
+        if seen.contains_key(dedupe_key) {
+            return false;
+        }
+
+        if should_cleanup {
+            seen.retain(|_, t| now.duration_since(*t) < LARK_EVENT_DEDUP_TTL);
+            let mut last_cleanup = self.recent_event_cleanup_at.write().await;
+            *last_cleanup = now;
+        }
+
+        seen.insert(dedupe_key.to_string(), now);
+        true
     }
 
     async fn fetch_image_marker(&self, image_key: &str) -> anyhow::Result<String> {
@@ -880,17 +922,14 @@ impl LarkChannel {
 
                     let lark_msg = &recv.message;
 
-                    // Dedup
-                    {
-                        let now = Instant::now();
-                        let mut seen = self.ws_seen_ids.write().await;
-                        // GC
-                        seen.retain(|_, t| now.duration_since(*t) < Duration::from_secs(30 * 60));
-                        if seen.contains_key(&lark_msg.message_id) {
-                            tracing::debug!("Lark WS: dup {}", lark_msg.message_id);
+                    if let Some(dedupe_key) = Self::dedupe_event_key(
+                        Some(event.header.event_id.as_str()),
+                        Some(lark_msg.message_id.as_str()),
+                    ) {
+                        if !self.try_mark_event_key_seen(&dedupe_key).await {
+                            tracing::debug!("Lark WS: duplicate event dropped ({dedupe_key})");
                             continue;
                         }
-                        seen.insert(lark_msg.message_id.clone(), now);
                     }
 
                     // Decode content by type (mirrors clawdbot-feishu parsing)
@@ -1290,6 +1329,22 @@ impl LarkChannel {
             Some(e) => e,
             None => return messages,
         };
+        let event_id = payload
+            .pointer("/header/event_id")
+            .and_then(|id| id.as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        let message_id = event
+            .pointer("/message/message_id")
+            .and_then(|id| id.as_str())
+            .map(str::trim)
+            .filter(|id| !id.is_empty());
+        if let Some(dedupe_key) = Self::dedupe_event_key(event_id, message_id) {
+            if !self.try_mark_event_key_seen(&dedupe_key).await {
+                tracing::debug!("Lark webhook: duplicate event dropped ({dedupe_key})");
+                return messages;
+            }
+        }
 
         let open_id = event
             .pointer("/sender/sender_id/open_id")
@@ -2316,6 +2371,100 @@ mod tests {
         let msgs = ch.parse_event_payload_async(&payload).await;
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, LARK_IMAGE_DOWNLOAD_FALLBACK_TEXT);
+    }
+
+    #[tokio::test]
+    async fn lark_parse_event_payload_async_dedupes_repeated_event_id() {
+        let ch = LarkChannel::new(
+            "id".into(),
+            "secret".into(),
+            "token".into(),
+            None,
+            vec!["*".into()],
+            true,
+        );
+        let payload = serde_json::json!({
+            "header": {
+                "event_type": "im.message.receive_v1",
+                "event_id": "evt_abc"
+            },
+            "event": {
+                "sender": { "sender_id": { "open_id": "ou_user" } },
+                "message": {
+                    "message_id": "om_first",
+                    "message_type": "text",
+                    "content": "{\"text\":\"hello\"}",
+                    "chat_id": "oc_chat"
+                }
+            }
+        });
+
+        let first = ch.parse_event_payload_async(&payload).await;
+        let second = ch.parse_event_payload_async(&payload).await;
+        assert_eq!(first.len(), 1);
+        assert!(second.is_empty());
+    }
+
+    #[tokio::test]
+    async fn lark_parse_event_payload_async_dedupes_by_message_id_without_event_id() {
+        let ch = LarkChannel::new(
+            "id".into(),
+            "secret".into(),
+            "token".into(),
+            None,
+            vec!["*".into()],
+            true,
+        );
+        let payload = serde_json::json!({
+            "header": {
+                "event_type": "im.message.receive_v1"
+            },
+            "event": {
+                "sender": { "sender_id": { "open_id": "ou_user" } },
+                "message": {
+                    "message_id": "om_fallback",
+                    "message_type": "text",
+                    "content": "{\"text\":\"hello\"}",
+                    "chat_id": "oc_chat"
+                }
+            }
+        });
+
+        let first = ch.parse_event_payload_async(&payload).await;
+        let second = ch.parse_event_payload_async(&payload).await;
+        assert_eq!(first.len(), 1);
+        assert!(second.is_empty());
+    }
+
+    #[tokio::test]
+    async fn try_mark_event_key_seen_cleans_up_expired_keys_periodically() {
+        let ch = LarkChannel::new(
+            "id".into(),
+            "secret".into(),
+            "token".into(),
+            None,
+            vec!["*".into()],
+            true,
+        );
+
+        {
+            let mut seen = ch.recent_event_keys.write().await;
+            seen.insert(
+                "event:stale".to_string(),
+                Instant::now() - LARK_EVENT_DEDUP_TTL - Duration::from_secs(5),
+            );
+        }
+
+        {
+            let mut cleanup_at = ch.recent_event_cleanup_at.write().await;
+            *cleanup_at =
+                Instant::now() - LARK_EVENT_DEDUP_CLEANUP_INTERVAL - Duration::from_secs(1);
+        }
+
+        assert!(ch.try_mark_event_key_seen("event:fresh").await);
+        let seen = ch.recent_event_keys.read().await;
+        assert!(!seen.contains_key("event:stale"));
+        assert!(seen.contains_key("event:fresh"));
     }
 
     #[test]
