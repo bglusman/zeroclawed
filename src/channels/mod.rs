@@ -996,6 +996,9 @@ fn runtime_defaults_snapshot(ctx: &ChannelRuntimeContext) -> ChannelRuntimeDefau
     }
 }
 
+/// Return a snapshot of the runtime perplexity-filter config, falling back to
+/// the value stored on `ChannelRuntimeContext` when no runtime config override
+/// has been applied yet.
 fn runtime_perplexity_filter_snapshot(
     ctx: &ChannelRuntimeContext,
 ) -> crate::config::PerplexityFilterConfig {
@@ -2520,6 +2523,89 @@ async fn handle_runtime_command_if_needed(
                     Err(err) => format!(
                         "Removed runtime session grant for `{tool_name}`: {}.\nFailed to persist removal to config: {err}",
                         if removed_session { "yes" } else { "no" }
+                    ),
+                }
+            }
+        }
+        ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
+            let request_id = raw_request_id.trim().to_string();
+            if request_id.is_empty() {
+                "Usage: `/approve-allow <request-id>`".to_string()
+            } else {
+                match ctx.approval_manager.confirm_non_cli_pending_request(
+                    &request_id,
+                    sender,
+                    source_channel,
+                    reply_target,
+                ) {
+                    Ok(req) => {
+                        let tool_name = req.tool_name;
+                        if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
+                            let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
+                            format!(
+                                "Allowed one-time all-tools bypass from request `{request_id}`.\nQueued bypass tokens: `{remaining}`."
+                            )
+                        } else {
+                            ctx.approval_manager.grant_non_cli_session(&tool_name);
+                            ctx.approval_manager
+                                .apply_persistent_runtime_grant(&tool_name);
+                            format!(
+                                "Allowed supervised execution for `{tool_name}` from request `{request_id}`."
+                            )
+                        }
+                    }
+                    Err(PendingApprovalError::NotFound) => format!(
+                        "Pending approval request `{request_id}` not found."
+                    ),
+                    Err(PendingApprovalError::Expired) => format!(
+                        "Pending approval request `{request_id}` has expired."
+                    ),
+                    Err(PendingApprovalError::RequesterMismatch) => format!(
+                        "Request `{request_id}` can only be allowed by the original requester in the same chat/channel."
+                    ),
+                }
+            }
+        }
+        ChannelRuntimeCommand::DenyToolApproval(raw_request_id) => {
+            let request_id = raw_request_id.trim().to_string();
+            if request_id.is_empty() {
+                "Usage: `/approve-deny <request-id>`".to_string()
+            } else {
+                match ctx.approval_manager.reject_non_cli_pending_request(
+                    &request_id,
+                    sender,
+                    source_channel,
+                    reply_target,
+                ) {
+                    Ok(req) => {
+                        runtime_trace::record_event(
+                            "approval_request_denied",
+                            Some(source_channel),
+                            None,
+                            None,
+                            None,
+                            Some(true),
+                            Some("pending request denied"),
+                            serde_json::json!({
+                                "request_id": request_id,
+                                "tool_name": req.tool_name,
+                                "sender": sender,
+                                "channel": source_channel,
+                            }),
+                        );
+                        format!(
+                            "Denied approval request `{request_id}` for tool `{}`.",
+                            req.tool_name
+                        )
+                    }
+                    Err(PendingApprovalError::NotFound) => format!(
+                        "Pending approval request `{request_id}` not found."
+                    ),
+                    Err(PendingApprovalError::Expired) => format!(
+                        "Pending approval request `{request_id}` has expired."
+                    ),
+                    Err(PendingApprovalError::RequesterMismatch) => format!(
+                        "Request `{request_id}` can only be denied by the original requester in the same chat/channel."
                     ),
                 }
             }
