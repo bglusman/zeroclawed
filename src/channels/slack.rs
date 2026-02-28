@@ -4,8 +4,15 @@ use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+#[derive(Clone)]
+struct CachedSlackDisplayName {
+    display_name: String,
+    expires_at: Instant,
+}
 
 /// Slack channel — polls conversations.history via Web API
 pub struct SlackChannel {
@@ -15,12 +22,14 @@ pub struct SlackChannel {
     allowed_users: Vec<String>,
     mention_only: bool,
     group_reply_allowed_sender_ids: Vec<String>,
+    user_display_name_cache: Mutex<HashMap<String, CachedSlackDisplayName>>,
 }
 
 const SLACK_HISTORY_MAX_RETRIES: u32 = 3;
 const SLACK_HISTORY_DEFAULT_RETRY_AFTER_SECS: u64 = 1;
 const SLACK_HISTORY_MAX_BACKOFF_SECS: u64 = 120;
 const SLACK_HISTORY_MAX_JITTER_MS: u64 = 500;
+const SLACK_USER_CACHE_TTL_SECS: u64 = 6 * 60 * 60;
 
 impl SlackChannel {
     pub fn new(
@@ -36,6 +45,7 @@ impl SlackChannel {
             allowed_users,
             mention_only: false,
             group_reply_allowed_sender_ids: Vec::new(),
+            user_display_name_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -128,6 +138,137 @@ impl SlackChannel {
         normalized.sort();
         normalized.dedup();
         normalized
+    }
+
+    fn user_cache_ttl() -> Duration {
+        Duration::from_secs(SLACK_USER_CACHE_TTL_SECS)
+    }
+
+    fn sanitize_display_name(name: &str) -> Option<String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    fn extract_user_display_name(payload: &serde_json::Value) -> Option<String> {
+        let user = payload.get("user")?;
+        let profile = user.get("profile");
+
+        let candidates = [
+            profile
+                .and_then(|p| p.get("display_name"))
+                .and_then(|v| v.as_str()),
+            profile
+                .and_then(|p| p.get("display_name_normalized"))
+                .and_then(|v| v.as_str()),
+            profile
+                .and_then(|p| p.get("real_name_normalized"))
+                .and_then(|v| v.as_str()),
+            profile
+                .and_then(|p| p.get("real_name"))
+                .and_then(|v| v.as_str()),
+            user.get("real_name").and_then(|v| v.as_str()),
+            user.get("name").and_then(|v| v.as_str()),
+        ];
+
+        for candidate in candidates.into_iter().flatten() {
+            if let Some(display_name) = Self::sanitize_display_name(candidate) {
+                return Some(display_name);
+            }
+        }
+
+        None
+    }
+
+    fn cached_sender_display_name(&self, user_id: &str) -> Option<String> {
+        let now = Instant::now();
+        let Ok(mut cache) = self.user_display_name_cache.lock() else {
+            return None;
+        };
+
+        if let Some(entry) = cache.get(user_id) {
+            if now <= entry.expires_at {
+                return Some(entry.display_name.clone());
+            }
+        }
+
+        cache.remove(user_id);
+        None
+    }
+
+    fn cache_sender_display_name(&self, user_id: &str, display_name: &str) {
+        let Ok(mut cache) = self.user_display_name_cache.lock() else {
+            return;
+        };
+        cache.insert(
+            user_id.to_string(),
+            CachedSlackDisplayName {
+                display_name: display_name.to_string(),
+                expires_at: Instant::now() + Self::user_cache_ttl(),
+            },
+        );
+    }
+
+    async fn fetch_sender_display_name(&self, user_id: &str) -> Option<String> {
+        let resp = match self
+            .http_client()
+            .get("https://slack.com/api/users.info")
+            .bearer_auth(&self.bot_token)
+            .query(&[("user", user_id)])
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::warn!("Slack users.info request failed for {user_id}: {err}");
+                return None;
+            }
+        };
+
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
+
+        if !status.is_success() {
+            let sanitized = crate::providers::sanitize_api_error(&body);
+            tracing::warn!("Slack users.info failed for {user_id} ({status}): {sanitized}");
+            return None;
+        }
+
+        let payload: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+        if payload.get("ok") == Some(&serde_json::Value::Bool(false)) {
+            let err = payload
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            tracing::warn!("Slack users.info returned error for {user_id}: {err}");
+            return None;
+        }
+
+        Self::extract_user_display_name(&payload)
+    }
+
+    async fn resolve_sender_identity(&self, user_id: &str) -> String {
+        let user_id = user_id.trim();
+        if user_id.is_empty() {
+            return String::new();
+        }
+
+        if let Some(display_name) = self.cached_sender_display_name(user_id) {
+            return display_name;
+        }
+
+        if let Some(display_name) = self.fetch_sender_display_name(user_id).await {
+            self.cache_sender_display_name(user_id, &display_name);
+            return display_name;
+        }
+
+        user_id.to_string()
     }
 
     fn is_group_channel_id(channel_id: &str) -> bool {
@@ -476,10 +617,11 @@ impl SlackChannel {
                 };
 
                 last_ts_by_channel.insert(channel_id.clone(), ts.to_string());
+                let sender = self.resolve_sender_identity(user).await;
 
                 let channel_msg = ChannelMessage {
                     id: format!("slack_{channel_id}_{ts}"),
-                    sender: user.to_string(),
+                    sender,
                     reply_target: channel_id.clone(),
                     content: normalized_text,
                     channel: "slack".to_string(),
@@ -820,10 +962,11 @@ impl Channel for SlackChannel {
                         };
 
                         last_ts_by_channel.insert(channel_id.clone(), ts.to_string());
+                        let sender = self.resolve_sender_identity(user).await;
 
                         let channel_msg = ChannelMessage {
                             id: format!("slack_{channel_id}_{ts}"),
-                            sender: user.to_string(),
+                            sender,
                             reply_target: channel_id.clone(),
                             content: normalized_text,
                             channel: "slack".to_string(),
@@ -950,6 +1093,72 @@ mod tests {
     fn wildcard_allows_everyone() {
         let ch = SlackChannel::new("xoxb-fake".into(), None, None, vec!["*".into()]);
         assert!(ch.is_user_allowed("U12345"));
+    }
+
+    #[test]
+    fn extract_user_display_name_prefers_profile_display_name() {
+        let payload = serde_json::json!({
+            "ok": true,
+            "user": {
+                "name": "fallback_name",
+                "profile": {
+                    "display_name": "Display Name",
+                    "real_name": "Real Name"
+                }
+            }
+        });
+
+        assert_eq!(
+            SlackChannel::extract_user_display_name(&payload).as_deref(),
+            Some("Display Name")
+        );
+    }
+
+    #[test]
+    fn extract_user_display_name_falls_back_to_username() {
+        let payload = serde_json::json!({
+            "ok": true,
+            "user": {
+                "name": "fallback_name",
+                "profile": {
+                    "display_name": "   ",
+                    "real_name": ""
+                }
+            }
+        });
+
+        assert_eq!(
+            SlackChannel::extract_user_display_name(&payload).as_deref(),
+            Some("fallback_name")
+        );
+    }
+
+    #[test]
+    fn cached_sender_display_name_returns_none_when_expired() {
+        let ch = SlackChannel::new("xoxb-fake".into(), None, None, vec!["*".into()]);
+        {
+            let mut cache = ch.user_display_name_cache.lock().unwrap();
+            cache.insert(
+                "U123".to_string(),
+                CachedSlackDisplayName {
+                    display_name: "Expired Name".to_string(),
+                    expires_at: Instant::now() - Duration::from_secs(1),
+                },
+            );
+        }
+
+        assert_eq!(ch.cached_sender_display_name("U123"), None);
+    }
+
+    #[test]
+    fn cached_sender_display_name_returns_cached_value_when_valid() {
+        let ch = SlackChannel::new("xoxb-fake".into(), None, None, vec!["*".into()]);
+        ch.cache_sender_display_name("U123", "Cached Name");
+
+        assert_eq!(
+            ch.cached_sender_display_name("U123").as_deref(),
+            Some("Cached Name")
+        );
     }
 
     #[test]
