@@ -41,6 +41,7 @@ Last refreshed: **February 25, 2026**.
 
 - [reference/README.md](reference/README.md)
 - [commands-reference.md](commands-reference.md)
+- [cron-scheduling.md](cron-scheduling.md)
 - [providers-reference.md](providers-reference.md)
 - [channels-reference.md](channels-reference.md)
 - [nextcloud-talk-setup.md](nextcloud-talk-setup.md)
