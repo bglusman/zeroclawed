@@ -19,10 +19,10 @@ use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Config as RlConfig, Context, Editor, Helper};
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
 use std::io::Write as _;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -33,7 +33,7 @@ mod execution;
 mod history;
 mod parsing;
 
-use crate::agent::session::{create_session_manager, resolve_session_id, SessionManager};
+use crate::agent::session::{resolve_session_id, shared_session_manager};
 use context::{build_context, build_hardware_context};
 use detection::{DetectionVerdict, LoopDetectionConfig, LoopDetector};
 use execution::{
@@ -149,33 +149,6 @@ impl Highlighter for SlashCommandCompleter {
 impl Validator for SlashCommandCompleter {}
 impl Helper for SlashCommandCompleter {}
 
-static CHANNEL_SESSION_MANAGER: LazyLock<Mutex<HashMap<String, Arc<dyn SessionManager>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn channel_session_manager(config: &Config) -> Result<Option<Arc<dyn SessionManager>>> {
-    let key = format!(
-        "{}:{:?}",
-        config.workspace_dir.display(),
-        config.agent.session
-    );
-
-    {
-        let map = CHANNEL_SESSION_MANAGER.lock().unwrap();
-        if let Some(mgr) = map.get(&key) {
-            return Ok(Some(mgr.clone()));
-        }
-    }
-
-    let mgr_opt = create_session_manager(&config.agent.session, &config.workspace_dir)?;
-
-    if let Some(mgr) = mgr_opt {
-        let mut map = CHANNEL_SESSION_MANAGER.lock().unwrap();
-        map.insert(key, mgr.clone());
-        Ok(Some(mgr))
-    } else {
-        Ok(None)
-    }
-}
 static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
     RegexSet::new([
         r"(?i)token",
@@ -2432,7 +2405,7 @@ pub async fn process_message(
         format!("{context}[{now}] {message}")
     };
 
-    let session_manager = channel_session_manager(&config)?;
+    let session_manager = shared_session_manager(&config.agent.session, &config.workspace_dir)?;
     let session_id = resolve_session_id(&config.agent.session, sender_id, Some(channel_name));
     tracing::debug!(session_id, "session_id resolved");
     if let Some(mgr) = session_manager {
@@ -2441,7 +2414,7 @@ pub async fn process_message(
         tracing::debug!(history_len = stored_history.len(), "session history loaded");
         let filtered_history: Vec<ChatMessage> = stored_history
             .into_iter()
-            .filter(|m| m.role != "system")
+            .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
             .collect();
 
         let mut history = Vec::new();
@@ -2463,12 +2436,7 @@ pub async fn process_message(
         .await?;
         let persisted: Vec<ChatMessage> = history
             .into_iter()
-            .filter(|m| {
-                m.role != "system"
-                    && m.role != "tool"
-                    && m.role != "tool_use"
-                    && m.role != "tool_result"
-            })
+            .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
             .collect();
         let saved_len = persisted.len();
         session

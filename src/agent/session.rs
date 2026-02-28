@@ -9,20 +9,29 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{LazyLock, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tokio::time;
+
+static SHARED_SESSION_MANAGERS: LazyLock<StdMutex<HashMap<String, Arc<dyn SessionManager>>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 pub fn resolve_session_id(
     session_config: &AgentSessionConfig,
     sender_id: &str,
     channel_name: Option<&str>,
 ) -> String {
+    fn escape_part(raw: &str) -> String {
+        raw.replace(':', "%3A")
+    }
+
     match session_config.strategy {
         AgentSessionStrategy::Main => "main".to_string(),
-        AgentSessionStrategy::PerChannel => channel_name.unwrap_or("main").to_string(),
+        AgentSessionStrategy::PerChannel => escape_part(channel_name.unwrap_or("main")),
         AgentSessionStrategy::PerSender => match channel_name {
-            Some(channel) => format!("{channel}:{sender_id}"),
+            Some(channel) => format!("{}:{sender_id}", escape_part(channel)),
             None => sender_id.to_string(),
         },
     }
@@ -42,6 +51,27 @@ pub fn create_session_manager(
             Ok(Some(SqliteSessionManager::new(path, ttl, max_messages)?))
         }
     }
+}
+
+pub fn shared_session_manager(
+    session_config: &AgentSessionConfig,
+    workspace_dir: &Path,
+) -> Result<Option<Arc<dyn SessionManager>>> {
+    let key = format!("{}:{session_config:?}", workspace_dir.display());
+
+    {
+        let map = SHARED_SESSION_MANAGERS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(mgr) = map.get(&key) {
+            return Ok(Some(mgr.clone()));
+        }
+    }
+
+    let mgr_opt = create_session_manager(session_config, workspace_dir)?;
+    if let Some(mgr) = mgr_opt.as_ref() {
+        let mut map = SHARED_SESSION_MANAGERS.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(key, mgr.clone());
+    }
+    Ok(mgr_opt)
 }
 
 #[derive(Clone)]
@@ -67,13 +97,16 @@ impl Session {
 #[async_trait]
 pub trait SessionManager: Send + Sync {
     fn clone_arc(&self) -> Arc<dyn SessionManager>;
+    async fn ensure_exists(&self, _session_id: &str) -> Result<()> {
+        Ok(())
+    }
     async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>>;
     async fn set_history(&self, session_id: &str, history: Vec<ChatMessage>) -> Result<()>;
     async fn delete(&self, session_id: &str) -> Result<()>;
     async fn cleanup_expired(&self) -> Result<usize>;
 
     async fn get_or_create(&self, session_id: &str) -> Result<Session> {
-        let _ = self.get_history(session_id).await?;
+        self.ensure_exists(session_id).await?;
         Ok(Session {
             id: session_id.to_string(),
             manager: self.clone_arc(),
@@ -89,7 +122,7 @@ fn unix_seconds_now() -> i64 {
 }
 
 fn trim_non_system(history: &mut Vec<ChatMessage>, max_messages: usize) {
-    history.retain(|m| m.role != "system");
+    history.retain(|m| m.role != crate::providers::ROLE_SYSTEM);
     if max_messages == 0 || history.len() <= max_messages {
         return;
     }
@@ -97,14 +130,14 @@ fn trim_non_system(history: &mut Vec<ChatMessage>, max_messages: usize) {
     history.drain(0..drop_count);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct MemorySessionState {
-    history: Vec<ChatMessage>,
-    updated_at_unix: i64,
+    history: RwLock<Vec<ChatMessage>>,
+    updated_at_unix: AtomicI64,
 }
 
 struct MemorySessionManagerInner {
-    sessions: RwLock<HashMap<String, MemorySessionState>>,
+    sessions: RwLock<HashMap<String, Arc<MemorySessionState>>>,
     ttl: Duration,
     max_messages: usize,
 }
@@ -146,29 +179,56 @@ impl SessionManager for MemorySessionManager {
         Arc::new(self.clone())
     }
 
-    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
+    async fn ensure_exists(&self, session_id: &str) -> Result<()> {
         let mut sessions = self.inner.sessions.write().await;
+        if sessions.contains_key(session_id) {
+            return Ok(());
+        }
         let now = unix_seconds_now();
-        let entry = sessions
-            .entry(session_id.to_string())
-            .or_insert_with(|| MemorySessionState {
-                history: Vec::new(),
-                updated_at_unix: now,
-            });
-        entry.updated_at_unix = now;
-        Ok(entry.history.clone())
+        sessions.insert(
+            session_id.to_string(),
+            Arc::new(MemorySessionState {
+                history: RwLock::new(Vec::new()),
+                updated_at_unix: AtomicI64::new(now),
+            }),
+        );
+        Ok(())
+    }
+
+    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
+        let now = unix_seconds_now();
+        let state = {
+            let sessions = self.inner.sessions.read().await;
+            sessions.get(session_id).cloned()
+        };
+        let Some(state) = state else {
+            return Ok(Vec::new());
+        };
+        state.updated_at_unix.store(now, Ordering::Relaxed);
+        let history = state.history.read().await;
+        let mut history = history.clone();
+        trim_non_system(&mut history, self.inner.max_messages);
+        Ok(history)
     }
 
     async fn set_history(&self, session_id: &str, mut history: Vec<ChatMessage>) -> Result<()> {
         trim_non_system(&mut history, self.inner.max_messages);
-        let mut sessions = self.inner.sessions.write().await;
-        sessions.insert(
-            session_id.to_string(),
-            MemorySessionState {
-                history,
-                updated_at_unix: unix_seconds_now(),
-            },
-        );
+        let now = unix_seconds_now();
+        let state = {
+            let mut sessions = self.inner.sessions.write().await;
+            sessions
+                .entry(session_id.to_string())
+                .or_insert_with(|| {
+                    Arc::new(MemorySessionState {
+                        history: RwLock::new(Vec::new()),
+                        updated_at_unix: AtomicI64::new(now),
+                    })
+                })
+                .clone()
+        };
+        state.updated_at_unix.store(now, Ordering::Relaxed);
+        let mut stored = state.history.write().await;
+        *stored = history;
         Ok(())
     }
 
@@ -185,7 +245,7 @@ impl SessionManager for MemorySessionManager {
         let cutoff = unix_seconds_now() - self.inner.ttl.as_secs() as i64;
         let mut sessions = self.inner.sessions.write().await;
         let before = sessions.len();
-        sessions.retain(|_, s| s.updated_at_unix >= cutoff);
+        sessions.retain(|_, s| s.updated_at_unix.load(Ordering::Relaxed) >= cutoff);
         Ok(before.saturating_sub(sessions.len()))
     }
 }
@@ -268,8 +328,25 @@ impl SessionManager for SqliteSessionManager {
         Arc::new(self.clone())
     }
 
-    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
+    async fn ensure_exists(&self, session_id: &str) -> Result<()> {
         let now = unix_seconds_now();
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            conn.execute(
+                "INSERT OR IGNORE INTO agent_sessions(session_id, history_json, updated_at)
+                 VALUES(?1, '[]', ?2)",
+                params![session_id, now],
+            )?;
+            Ok(())
+        })
+        .await
+        .context("SQLite blocking task panicked")?
+    }
+
+    async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
         let conn = self.conn.clone();
         let session_id = session_id.to_string();
         let max_messages = self.max_messages;
@@ -282,20 +359,11 @@ impl SessionManager for SqliteSessionManager {
             let mut rows = stmt.query(params![session_id])?;
             if let Some(row) = rows.next()? {
                 let json: String = row.get(0)?;
-                conn.execute(
-                    "UPDATE agent_sessions SET updated_at = ?2 WHERE session_id = ?1",
-                    params![session_id, now],
-                )?;
                 let mut history: Vec<ChatMessage> = serde_json::from_str(&json)
                     .with_context(|| format!("Failed to parse session history for session_id={session_id}"))?;
                 trim_non_system(&mut history, max_messages);
                 return Ok(history);
             }
-
-            conn.execute(
-                "INSERT INTO agent_sessions(session_id, history_json, updated_at) VALUES(?1, '[]', ?2)",
-                params![session_id, now],
-            )?;
             Ok(Vec::new())
         })
         .await
@@ -394,6 +462,11 @@ mod tests {
             "whatsapp:u1"
         );
         assert_eq!(resolve_session_id(&cfg, "u1", None), "u1");
+
+        assert_eq!(
+            resolve_session_id(&cfg, "u1", Some("matrix:@alice")),
+            "matrix%3A@alice:u1"
+        );
     }
 
     #[tokio::test]
