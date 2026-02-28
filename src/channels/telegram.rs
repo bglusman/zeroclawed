@@ -4752,7 +4752,7 @@ mod tests {
 
     #[test]
     fn passes_mention_only_gate_allows_configured_sender_for_non_text_messages() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true)
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true)
             .with_group_reply_allowed_senders(vec!["555".into()]);
         {
             let mut cache = ch.bot_username.lock();
@@ -4775,7 +4775,7 @@ mod tests {
 
     #[test]
     fn passes_mention_only_gate_rejects_non_mentioned_non_bypassed_non_text_messages() {
-        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true);
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()], true, true);
         {
             let mut cache = ch.bot_username.lock();
             *cache = Some("mybot".to_string());

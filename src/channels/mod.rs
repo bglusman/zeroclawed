@@ -69,8 +69,7 @@ pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
     build_shell_policy_instructions, build_tool_instructions_from_specs,
-    run_tool_call_loop_with_reply_target, scrub_credentials,
-    SafetyHeartbeatConfig,
+    run_tool_call_loop_with_reply_target, scrub_credentials, SafetyHeartbeatConfig,
 };
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
@@ -3468,7 +3467,6 @@ or tune thresholds in config.",
                 delta_tx,
                 ctx.hooks.as_deref(),
                 &excluded_tools_snapshot,
-                ctx.safety_heartbeat.clone(),
             ),
         ) => LlmExecutionResult::Completed(result),
     };
@@ -7431,6 +7429,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
+            safety_heartbeat: None,
         });
 
         process_channel_message(
@@ -7450,7 +7449,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].contains("Approved pending request"));
+        assert!(sent[0].contains("Approved supervised execution for `mock_price`"));
         assert!(sent[0].contains("mock_price"));
         drop(sent);
 
@@ -7520,6 +7519,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: Arc::clone(&approval_manager),
+            safety_heartbeat: None,
         });
 
         process_channel_message(
@@ -7539,7 +7539,7 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 1);
-        assert!(sent[0].contains("Denied pending request"));
+        assert!(sent[0].contains("Rejected approval request"));
         assert!(sent[0].contains("mock_price"));
         drop(sent);
 
@@ -7765,6 +7765,7 @@ BTC is currently around $65,000 based on latest tool output."#
             query_classification: crate::config::QueryClassificationConfig::default(),
             model_routes: Vec::new(),
             approval_manager: mock_price_approved_manager(),
+            safety_heartbeat: None,
         });
         maybe_apply_runtime_config_update(runtime_ctx.as_ref())
             .await
@@ -10694,8 +10695,8 @@ BTC is currently around $65,000 based on latest tool output."#;
 
     #[tokio::test]
     async fn classify_health_timeout() {
-        let result = tokio::time::timeout(Duration::from_millis(1), std::future::pending::<bool>())
-            .await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(1), std::future::pending::<bool>()).await;
         let state = classify_health_result(&result);
         assert_eq!(state, ChannelHealthState::Timeout);
     }
