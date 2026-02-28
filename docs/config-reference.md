@@ -566,6 +566,7 @@ Notes:
 |---|---|---|
 | `enabled` | `false` | Enable browser tools (`browser_open` and `browser`) |
 | `allowed_domains` | `[]` | Allowed domains for `browser_open` and `browser` (exact/subdomain match, or `"*"` for all public domains) |
+| `browser_open` | `default` | Browser used by `browser_open`: `disable`, `brave`, `chrome`, `firefox`, `edge` (`msedge` alias), `default` |
 | `session_name` | unset | Browser session name (for agent-browser automation) |
 | `backend` | `agent_browser` | Browser automation backend: `"agent_browser"`, `"rust_native"`, `"computer_use"`, or `"auto"` |
 | `auto_backend_priority` | `[]` | Priority order for `backend = "auto"` (for example `["agent_browser","rust_native","computer_use"]`) |
@@ -637,7 +638,7 @@ Notes:
 | Key | Default | Purpose |
 |---|---|---|
 | `enabled` | `false` | Enable `web_search_tool` |
-| `provider` | `duckduckgo` | Search backend: `duckduckgo`, `brave`, `firecrawl`, `tavily`, `perplexity`, `exa`, `jina` |
+| `provider` | `duckduckgo` | Search backend: `duckduckgo` (`ddg` alias), `brave`, `firecrawl`, `tavily`, `perplexity`, `exa`, `jina` |
 | `fallback_providers` | `[]` | Fallback providers tried in order after primary failure |
 | `retries_per_provider` | `0` | Retry count before switching to next provider |
 | `retry_backoff_ms` | `250` | Delay between retry attempts (milliseconds) |
@@ -656,7 +657,7 @@ Notes:
 | `exa_search_type` | `auto` | Exa search mode: `auto`, `keyword`, `neural` |
 | `exa_include_text` | `false` | Include text payloads in Exa responses |
 | `jina_site_filters` | `[]` | Optional site filters for Jina search |
-| `max_results` | `5` | Maximum search results returned (clamped to 1-10) |
+| `max_results` | `5` | Maximum search results returned (must be 1-10) |
 | `timeout_secs` | `15` | Request timeout in seconds |
 | `user_agent` | `ZeroClaw/1.0` | User-Agent header for search requests |
 
@@ -666,6 +667,7 @@ Notes:
 - `web_search` finds candidate URLs; pair it with `web_fetch` for page content extraction.
 - Agents can modify these settings at runtime via the `web_search_config` tool (`action=get|set|list_providers`).
 - In supervised mode, `web_search_config` mutations still require normal tool approval unless explicitly auto-approved.
+- Invalid provider names, `exa_search_type`, and out-of-range retry/result/timeout values are rejected during config validation.
 
 Recommended resilient profile:
 

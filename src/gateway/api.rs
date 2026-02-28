@@ -990,6 +990,11 @@ mod tests {
         cfg.proxy.https_proxy = Some("https://user:pass@proxy.internal:8443".to_string());
         cfg.proxy.all_proxy = Some("socks5://user:pass@proxy.internal:1080".to_string());
         cfg.transcription.api_key = Some("transcription-real-key".to_string());
+        cfg.web_search.api_key = Some("web-search-generic-key".to_string());
+        cfg.web_search.brave_api_key = Some("web-search-brave-key".to_string());
+        cfg.web_search.perplexity_api_key = Some("web-search-perplexity-key".to_string());
+        cfg.web_search.exa_api_key = Some("web-search-exa-key".to_string());
+        cfg.web_search.jina_api_key = Some("web-search-jina-key".to_string());
         cfg.tunnel.cloudflare = Some(CloudflareTunnelConfig {
             token: "cloudflare-real-token".to_string(),
         });
@@ -1025,6 +1030,23 @@ mod tests {
         assert_eq!(masked.proxy.https_proxy.as_deref(), Some(MASKED_SECRET));
         assert_eq!(masked.proxy.all_proxy.as_deref(), Some(MASKED_SECRET));
         assert_eq!(masked.transcription.api_key.as_deref(), Some(MASKED_SECRET));
+        assert_eq!(masked.web_search.api_key.as_deref(), Some(MASKED_SECRET));
+        assert_eq!(
+            masked.web_search.brave_api_key.as_deref(),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            masked.web_search.perplexity_api_key.as_deref(),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            masked.web_search.exa_api_key.as_deref(),
+            Some(MASKED_SECRET)
+        );
+        assert_eq!(
+            masked.web_search.jina_api_key.as_deref(),
+            Some(MASKED_SECRET)
+        );
         assert_eq!(
             masked
                 .tunnel
@@ -1076,6 +1098,11 @@ mod tests {
         current.proxy.http_proxy = Some("http://user:pass@proxy.internal:8080".to_string());
         current.proxy.https_proxy = Some("https://user:pass@proxy.internal:8443".to_string());
         current.proxy.all_proxy = Some("socks5://user:pass@proxy.internal:1080".to_string());
+        current.web_search.api_key = Some("web-search-generic-key".to_string());
+        current.web_search.brave_api_key = Some("web-search-brave-key".to_string());
+        current.web_search.perplexity_api_key = Some("web-search-perplexity-key".to_string());
+        current.web_search.exa_api_key = Some("web-search-exa-key".to_string());
+        current.web_search.jina_api_key = Some("web-search-jina-key".to_string());
         current.tunnel.cloudflare = Some(CloudflareTunnelConfig {
             token: "cloudflare-real-token".to_string(),
         });
@@ -1120,6 +1147,26 @@ mod tests {
         assert_eq!(
             restored.proxy.all_proxy.as_deref(),
             Some("socks5://user:pass@proxy.internal:1080")
+        );
+        assert_eq!(
+            restored.web_search.api_key.as_deref(),
+            Some("web-search-generic-key")
+        );
+        assert_eq!(
+            restored.web_search.brave_api_key.as_deref(),
+            Some("web-search-brave-key")
+        );
+        assert_eq!(
+            restored.web_search.perplexity_api_key.as_deref(),
+            Some("web-search-perplexity-key")
+        );
+        assert_eq!(
+            restored.web_search.exa_api_key.as_deref(),
+            Some("web-search-exa-key")
+        );
+        assert_eq!(
+            restored.web_search.jina_api_key.as_deref(),
+            Some("web-search-jina-key")
         );
         assert_eq!(
             restored

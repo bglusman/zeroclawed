@@ -35,7 +35,7 @@ impl BrowserChoice {
             "firefox" => Self::Firefox,
             "edge" | "msedge" => Self::Edge,
             "default" | "" => Self::Default,
-            _ => Self::Default,
+            _ => Self::Disable,
         }
     }
 
@@ -378,9 +378,25 @@ async fn open_in_edge(url: &str) -> anyhow::Result<()> {
 
 // Windows implementations
 #[cfg(target_os = "windows")]
+fn escape_for_cmd_start(url: &str) -> String {
+    url.replace('^', "^^")
+        .replace('&', "^&")
+        .replace('|', "^|")
+        .replace('<', "^<")
+        .replace('>', "^>")
+        .replace('%', "%%")
+        .replace('"', "^\"")
+}
+
+#[cfg(target_os = "windows")]
 async fn open_in_brave(url: &str) -> anyhow::Result<()> {
+    let escaped = escape_for_cmd_start(url);
     let status = tokio::process::Command::new("cmd")
-        .args(["/C", "start", "", "brave", url])
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg("brave")
+        .arg(format!("\"{escaped}\""))
         .status()
         .await?;
 
@@ -393,8 +409,13 @@ async fn open_in_brave(url: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 async fn open_in_chrome(url: &str) -> anyhow::Result<()> {
+    let escaped = escape_for_cmd_start(url);
     let status = tokio::process::Command::new("cmd")
-        .args(["/C", "start", "", "chrome", url])
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg("chrome")
+        .arg(format!("\"{escaped}\""))
         .status()
         .await?;
 
@@ -407,8 +428,13 @@ async fn open_in_chrome(url: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 async fn open_in_firefox(url: &str) -> anyhow::Result<()> {
+    let escaped = escape_for_cmd_start(url);
     let status = tokio::process::Command::new("cmd")
-        .args(["/C", "start", "", "firefox", url])
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg("firefox")
+        .arg(format!("\"{escaped}\""))
         .status()
         .await?;
 
@@ -421,8 +447,12 @@ async fn open_in_firefox(url: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 async fn open_in_default(url: &str) -> anyhow::Result<()> {
+    let escaped = escape_for_cmd_start(url);
     let status = tokio::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg(format!("\"{escaped}\""))
         .status()
         .await?;
 
@@ -435,8 +465,13 @@ async fn open_in_default(url: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 async fn open_in_edge(url: &str) -> anyhow::Result<()> {
+    let escaped = escape_for_cmd_start(url);
     let status = tokio::process::Command::new("cmd")
-        .args(["/C", "start", "", "msedge", url])
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg("msedge")
+        .arg(format!("\"{escaped}\""))
         .status()
         .await?;
 
@@ -678,7 +713,7 @@ mod tests {
         assert_eq!(BrowserChoice::from_str("msedge"), BrowserChoice::Edge);
         assert_eq!(BrowserChoice::from_str("default"), BrowserChoice::Default);
         assert_eq!(BrowserChoice::from_str(""), BrowserChoice::Default);
-        assert_eq!(BrowserChoice::from_str("unknown"), BrowserChoice::Default);
+        assert_eq!(BrowserChoice::from_str("unknown"), BrowserChoice::Disable);
     }
 
     #[test]

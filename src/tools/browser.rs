@@ -526,7 +526,7 @@ impl BrowserTool {
                 allowed_field_name: "browser.allowed_domains",
                 blocked_field_name: None,
                 empty_allowed_message: "Browser tool enabled but no allowed_domains configured. Add [browser].allowed_domains in config.toml",
-                scheme_policy: UrlSchemePolicy::HttpOrHttps,
+                scheme_policy: UrlSchemePolicy::HttpsOnly,
                 ipv6_error_context: "browser",
                 url_access: Some(&self.url_access),
             },
@@ -2972,6 +2972,7 @@ mod tests {
         assert!(tool.validate_url("https://127.0.0.1").is_err());
 
         // Invalid - not https
+        assert!(tool.validate_url("http://example.com").is_err());
         assert!(tool.validate_url("ftp://example.com").is_err());
 
         // file:// URLs blocked (local file exfiltration risk)

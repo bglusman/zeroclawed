@@ -1467,7 +1467,7 @@ pub struct BrowserConfig {
     /// Allowed domains for `browser_open` (exact or subdomain match)
     #[serde(default)]
     pub allowed_domains: Vec<String>,
-    /// Browser for browser_open tool: "disable" | "brave" | "chrome" | "firefox" | "edge" | "default"
+    /// Browser for browser_open tool: "disable" | "brave" | "chrome" | "firefox" | "edge" | "msedge" | "default"
     #[serde(default = "default_browser_open")]
     pub browser_open: String,
     /// Browser session name (for agent-browser automation)
@@ -1663,7 +1663,7 @@ pub struct WebSearchConfig {
     /// Enable `web_search_tool` for web searches
     #[serde(default)]
     pub enabled: bool,
-    /// Search provider: "duckduckgo" (free, no API key), "brave", "firecrawl",
+    /// Search provider: "duckduckgo"/"ddg" (free, no API key), "brave", "firecrawl",
     /// "tavily", "perplexity", "exa", or "jina"
     #[serde(default = "default_web_search_provider")]
     pub provider: String,
@@ -1687,7 +1687,7 @@ pub struct WebSearchConfig {
     #[serde(default)]
     pub jina_api_key: Option<String>,
     /// Fallback providers attempted after primary provider fails.
-    /// Supported values: duckduckgo, brave, firecrawl, tavily, perplexity, exa, jina
+    /// Supported values: duckduckgo (or ddg), brave, firecrawl, tavily, perplexity, exa, jina
     #[serde(default)]
     pub fallback_providers: Vec<String>,
     /// Retry count per provider before falling back to next provider
@@ -1756,6 +1756,69 @@ fn default_web_search_retry_backoff_ms() -> u64 {
 
 fn default_web_search_exa_search_type() -> String {
     "auto".into()
+}
+
+const BROWSER_OPEN_ALLOWED_VALUES: &[&str] = &[
+    "disable", "brave", "chrome", "firefox", "edge", "msedge", "default",
+];
+const BROWSER_BACKEND_ALLOWED_VALUES: &[&str] =
+    &["agent_browser", "rust_native", "computer_use", "auto"];
+const BROWSER_AUTO_BACKEND_ALLOWED_VALUES: &[&str] =
+    &["agent_browser", "rust_native", "computer_use"];
+const WEB_SEARCH_PROVIDER_ALLOWED_VALUES: &[&str] = &[
+    "duckduckgo",
+    "ddg",
+    "brave",
+    "firecrawl",
+    "tavily",
+    "perplexity",
+    "exa",
+    "jina",
+];
+const WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES: &[&str] = &["auto", "keyword", "neural"];
+
+fn normalize_browser_open_choice(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "disable" => Some("disable"),
+        "brave" => Some("brave"),
+        "chrome" => Some("chrome"),
+        "firefox" => Some("firefox"),
+        "edge" | "msedge" => Some("edge"),
+        "default" | "" => Some("default"),
+        _ => None,
+    }
+}
+
+fn normalize_browser_backend(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "agent_browser" | "agentbrowser" => Some("agent_browser"),
+        "rust_native" | "native" => Some("rust_native"),
+        "computer_use" | "computeruse" => Some("computer_use"),
+        "auto" => Some("auto"),
+        _ => None,
+    }
+}
+
+fn normalize_browser_auto_backend(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "agent_browser" | "agentbrowser" => Some("agent_browser"),
+        "rust_native" | "native" => Some("rust_native"),
+        "computer_use" | "computeruse" => Some("computer_use"),
+        _ => None,
+    }
+}
+
+fn normalize_web_search_provider(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "duckduckgo" | "ddg" => Some("duckduckgo"),
+        "brave" => Some("brave"),
+        "firecrawl" => Some("firecrawl"),
+        "tavily" => Some("tavily"),
+        "perplexity" => Some("perplexity"),
+        "exa" => Some("exa"),
+        "jina" => Some("jina"),
+        _ => None,
+    }
 }
 
 impl Default for WebSearchConfig {
@@ -6786,6 +6849,63 @@ impl Config {
             );
         }
 
+        // Browser
+        if normalize_browser_open_choice(&self.browser.browser_open).is_none() {
+            anyhow::bail!(
+                "browser.browser_open must be one of: {}",
+                BROWSER_OPEN_ALLOWED_VALUES.join(", ")
+            );
+        }
+        if normalize_browser_backend(&self.browser.backend).is_none() {
+            anyhow::bail!(
+                "browser.backend must be one of: {}",
+                BROWSER_BACKEND_ALLOWED_VALUES.join(", ")
+            );
+        }
+        for (i, backend) in self.browser.auto_backend_priority.iter().enumerate() {
+            if normalize_browser_auto_backend(backend).is_none() {
+                anyhow::bail!(
+                    "browser.auto_backend_priority[{i}] must be one of: {}",
+                    BROWSER_AUTO_BACKEND_ALLOWED_VALUES.join(", ")
+                );
+            }
+        }
+
+        // Web search
+        if normalize_web_search_provider(&self.web_search.provider).is_none() {
+            anyhow::bail!(
+                "web_search.provider must be one of: {}",
+                WEB_SEARCH_PROVIDER_ALLOWED_VALUES.join(", ")
+            );
+        }
+        for (i, provider) in self.web_search.fallback_providers.iter().enumerate() {
+            if normalize_web_search_provider(provider).is_none() {
+                anyhow::bail!(
+                    "web_search.fallback_providers[{i}] must be one of: {}",
+                    WEB_SEARCH_PROVIDER_ALLOWED_VALUES.join(", ")
+                );
+            }
+        }
+        let exa_search_type = self.web_search.exa_search_type.trim().to_ascii_lowercase();
+        if !WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES.contains(&exa_search_type.as_str()) {
+            anyhow::bail!(
+                "web_search.exa_search_type must be one of: {}",
+                WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES.join(", ")
+            );
+        }
+        if self.web_search.retries_per_provider > 5 {
+            anyhow::bail!("web_search.retries_per_provider must be between 0 and 5");
+        }
+        if self.web_search.retry_backoff_ms == 0 {
+            anyhow::bail!("web_search.retry_backoff_ms must be greater than 0");
+        }
+        if !(1..=10).contains(&self.web_search.max_results) {
+            anyhow::bail!("web_search.max_results must be between 1 and 10");
+        }
+        if self.web_search.timeout_secs == 0 {
+            anyhow::bail!("web_search.timeout_secs must be greater than 0");
+        }
+
         // Scheduler
         if self.scheduler.max_concurrent == 0 {
             anyhow::bail!("scheduler.max_concurrent must be greater than 0");
@@ -8730,6 +8850,9 @@ tool_dispatcher = "xml"
         config.proxy.all_proxy = Some("socks5://user:pass@proxy.internal:1080".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
         config.web_search.brave_api_key = Some("brave-credential".into());
+        config.web_search.perplexity_api_key = Some("perplexity-credential".into());
+        config.web_search.exa_api_key = Some("exa-credential".into());
+        config.web_search.jina_api_key = Some("jina-credential".into());
         config.storage.provider.config.db_url = Some("postgres://user:pw@host/db".into());
         config.reliability.api_keys = vec!["backup-credential".into()];
         config.gateway.paired_tokens = vec!["zc_0123456789abcdef".into()];
@@ -8831,6 +8954,20 @@ tool_dispatcher = "xml"
             store.decrypt(web_search_encrypted).unwrap(),
             "brave-credential"
         );
+        let perplexity_encrypted = stored.web_search.perplexity_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            perplexity_encrypted
+        ));
+        assert_eq!(
+            store.decrypt(perplexity_encrypted).unwrap(),
+            "perplexity-credential"
+        );
+        let exa_encrypted = stored.web_search.exa_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(exa_encrypted));
+        assert_eq!(store.decrypt(exa_encrypted).unwrap(), "exa-credential");
+        let jina_encrypted = stored.web_search.jina_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(jina_encrypted));
+        assert_eq!(store.decrypt(jina_encrypted).unwrap(), "jina-credential");
 
         let worker = stored.agents.get("worker").unwrap();
         let worker_encrypted = worker.api_key.as_deref().unwrap();
@@ -9845,6 +9982,112 @@ default_temperature = 0.7
         assert_eq!(ws.exa_search_type, "auto");
         assert!(!ws.exa_include_text);
         assert!(ws.jina_site_filters.is_empty());
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_browser_open_value() {
+        let mut config = Config::default();
+        config.browser.browser_open = "safari".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.browser_open validation failure");
+        assert!(error.to_string().contains("browser.browser_open"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_browser_backend_value() {
+        let mut config = Config::default();
+        config.browser.backend = "playwright".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.backend validation failure");
+        assert!(error.to_string().contains("browser.backend"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_invalid_auto_backend_priority_value() {
+        let mut config = Config::default();
+        config.browser.backend = "auto".into();
+        config.browser.auto_backend_priority = vec!["auto".into()];
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.auto_backend_priority validation failure");
+        assert!(error
+            .to_string()
+            .contains("browser.auto_backend_priority[0]"));
+    }
+
+    #[test]
+    async fn config_validate_accepts_web_search_ddg_alias() {
+        let mut config = Config::default();
+        config.web_search.provider = "ddg".into();
+        config.web_search.fallback_providers = vec!["jina".into()];
+
+        config
+            .validate()
+            .expect("ddg alias should be accepted for web_search.provider");
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_web_search_provider() {
+        let mut config = Config::default();
+        config.web_search.provider = "serpapi".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.provider validation failure");
+        assert!(error.to_string().contains("web_search.provider"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_web_search_fallback_provider() {
+        let mut config = Config::default();
+        config.web_search.fallback_providers = vec!["serpapi".into()];
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.fallback_providers validation failure");
+        assert!(error
+            .to_string()
+            .contains("web_search.fallback_providers[0]"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_invalid_web_search_exa_search_type() {
+        let mut config = Config::default();
+        config.web_search.exa_search_type = "semantic".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.exa_search_type validation failure");
+        assert!(error.to_string().contains("web_search.exa_search_type"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_web_search_out_of_range_values() {
+        let mut config = Config::default();
+        config.web_search.max_results = 11;
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.max_results validation failure");
+        assert!(error.to_string().contains("web_search.max_results"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_web_search_excessive_retries() {
+        let mut config = Config::default();
+        config.web_search.retries_per_provider = 6;
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.retries_per_provider validation failure");
+        assert!(error
+            .to_string()
+            .contains("web_search.retries_per_provider"));
     }
 
     // ── Environment variable overrides (Docker support) ─────────
