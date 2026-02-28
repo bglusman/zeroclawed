@@ -163,7 +163,7 @@ pub async fn handle_ws_chat(
         if !state.pairing.is_authenticated(&token) {
             return (
                 axum::http::StatusCode::UNAUTHORIZED,
-                "Unauthorized — provide Authorization: Bearer <token> or Sec-WebSocket-Protocol: bearer.<token>",
+                "Unauthorized — provide Authorization: Bearer <token>, Sec-WebSocket-Protocol: bearer.<token>, or ?token=<token>",
             )
                 .into_response();
         }
