@@ -40,6 +40,8 @@ Last verified: **February 28, 2026**.
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none> --force`
+- `zeroclaw onboard --migrate-openclaw`
+- `zeroclaw onboard --migrate-openclaw --openclaw-source <PATH> --openclaw-config <PATH>`
 
 `onboard` safety behavior:
 
@@ -48,6 +50,8 @@ Last verified: **February 28, 2026**.
   - Provider-only update (update provider/model/API key while preserving existing channels, tunnel, memory, hooks, and other settings)
 - In non-interactive environments, existing `config.toml` causes a safe refusal unless `--force` is passed.
 - Use `zeroclaw onboard --channels-only` when you only need to rotate channel tokens/allowlists.
+- OpenClaw migration mode is merge-first by design: existing ZeroClaw data/config is preserved, missing fields are filled, and list-like values are union-merged with de-duplication.
+- Interactive onboarding can auto-detect `~/.openclaw` and prompt for optional merge migration even without `--migrate-openclaw`.
 
 ### `agent`
 
@@ -62,6 +66,7 @@ Tip:
 - In interactive chat, you can also ask to:
   - switch web search provider/fallbacks (`web_search_config`)
   - inspect or update domain access policy (`web_access_config`)
+  - preview/apply OpenClaw merge migration (`openclaw_migration`)
 
 ### `gateway` / `daemon`
 
@@ -263,7 +268,15 @@ Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injec
 
 ### `migrate`
 
-- `zeroclaw migrate openclaw [--source <path>] [--dry-run]`
+- `zeroclaw migrate openclaw [--source <path>] [--source-config <path>] [--dry-run] [--no-memory] [--no-config]`
+
+`migrate openclaw` behavior:
+
+- Default mode migrates both memory and config/agents with merge-first semantics.
+- Existing ZeroClaw values are preserved; migration does not overwrite existing user content.
+- Memory migration de-duplicates repeated content during merge while keeping existing entries intact.
+- `--dry-run` prints a migration report without writing data.
+- `--no-memory` or `--no-config` scopes migration to selected modules.
 
 ### `config`
 

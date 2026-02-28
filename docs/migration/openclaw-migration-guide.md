@@ -2,7 +2,29 @@
 
 This guide walks you through migrating an OpenClaw deployment to ZeroClaw. It covers configuration conversion, endpoint changes, and the architectural differences you need to know.
 
-## Quick Start
+## Quick Start (Built-in Merge Migration)
+
+ZeroClaw now includes a built-in OpenClaw migration flow:
+
+```bash
+# Preview migration report (no writes)
+zeroclaw migrate openclaw --dry-run
+
+# Apply merge migration (memory + config + agents)
+zeroclaw migrate openclaw
+
+# Optional: run migration during onboarding
+zeroclaw onboard --migrate-openclaw
+```
+
+Default migration semantics are **merge-first**:
+
+- Existing ZeroClaw values are preserved (no blind overwrite).
+- Missing provider/model/channel/agent fields are filled from OpenClaw.
+- List-like fields (for example agent tools / allowlists) are union-merged with de-duplication.
+- Memory import skips duplicate content to reduce noise while keeping existing data.
+
+## Legacy Conversion Script (Optional)
 
 ```bash
 # 1. Convert your OpenClaw config

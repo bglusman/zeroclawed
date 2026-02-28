@@ -174,6 +174,18 @@ enum Commands {
         /// Disable OTP in quick setup (not recommended)
         #[arg(long)]
         no_totp: bool,
+
+        /// Merge-migrate data from OpenClaw during onboarding
+        #[arg(long)]
+        migrate_openclaw: bool,
+
+        /// Optional OpenClaw workspace path (defaults to ~/.openclaw/workspace)
+        #[arg(long)]
+        openclaw_source: Option<std::path::PathBuf>,
+
+        /// Optional OpenClaw config path (defaults to ~/.openclaw/openclaw.json)
+        #[arg(long)]
+        openclaw_config: Option<std::path::PathBuf>,
     },
 
     /// Start the AI agent loop
@@ -813,6 +825,9 @@ async fn main() -> Result<()> {
         model,
         memory,
         no_totp,
+        migrate_openclaw,
+        openclaw_source,
+        openclaw_config,
     } = &cli.command
     {
         let interactive = *interactive;
@@ -823,6 +838,11 @@ async fn main() -> Result<()> {
         let model = model.clone();
         let memory = memory.clone();
         let no_totp = *no_totp;
+        let migrate_openclaw = *migrate_openclaw;
+        let openclaw_source = openclaw_source.clone();
+        let openclaw_config = openclaw_config.clone();
+        let openclaw_migration_enabled =
+            migrate_openclaw || openclaw_source.is_some() || openclaw_config.is_some();
 
         if interactive && channels_only {
             bail!("Use either --interactive or --channels-only, not both");
@@ -832,10 +852,13 @@ async fn main() -> Result<()> {
                 || provider.is_some()
                 || model.is_some()
                 || memory.is_some()
-                || no_totp)
+                || no_totp
+                || migrate_openclaw
+                || openclaw_source.is_some()
+                || openclaw_config.is_some())
         {
             bail!(
-                "--channels-only does not accept --api-key, --provider, --model, --memory, or --no-totp"
+                "--channels-only does not accept --api-key, --provider, --model, --memory, --no-totp, or OpenClaw migration flags"
             );
         }
         if channels_only && force {
@@ -844,15 +867,28 @@ async fn main() -> Result<()> {
         let config = if channels_only {
             Box::pin(onboard::run_channels_repair_wizard()).await
         } else if interactive {
-            Box::pin(onboard::run_wizard(force)).await
+            Box::pin(onboard::run_wizard_with_migration(
+                force,
+                onboard::OpenClawOnboardMigrationOptions {
+                    enabled: openclaw_migration_enabled,
+                    source_workspace: openclaw_source,
+                    source_config: openclaw_config,
+                },
+            ))
+            .await
         } else {
-            onboard::run_quick_setup(
+            onboard::run_quick_setup_with_migration(
                 api_key.as_deref(),
                 provider.as_deref(),
                 model.as_deref(),
                 memory.as_deref(),
                 force,
                 no_totp,
+                onboard::OpenClawOnboardMigrationOptions {
+                    enabled: openclaw_migration_enabled,
+                    source_workspace: openclaw_source,
+                    source_config: openclaw_config,
+                },
             )
             .await
         }?;
@@ -2396,6 +2432,82 @@ mod tests {
         match cli.command {
             Commands::Onboard { no_totp, .. } => assert!(no_totp),
             other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn onboard_cli_accepts_openclaw_migration_flags() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "onboard",
+            "--migrate-openclaw",
+            "--openclaw-source",
+            "/tmp/openclaw-workspace",
+            "--openclaw-config",
+            "/tmp/openclaw.json",
+        ])
+        .expect("onboard openclaw migration flags should parse");
+
+        match cli.command {
+            Commands::Onboard {
+                migrate_openclaw,
+                openclaw_source,
+                openclaw_config,
+                ..
+            } => {
+                assert!(migrate_openclaw);
+                assert_eq!(
+                    openclaw_source.as_deref(),
+                    Some(std::path::Path::new("/tmp/openclaw-workspace"))
+                );
+                assert_eq!(
+                    openclaw_config.as_deref(),
+                    Some(std::path::Path::new("/tmp/openclaw.json"))
+                );
+            }
+            other => panic!("expected onboard command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn migrate_openclaw_cli_accepts_source_and_module_flags() {
+        let cli = Cli::try_parse_from([
+            "zeroclaw",
+            "migrate",
+            "openclaw",
+            "--source",
+            "/tmp/openclaw-workspace",
+            "--source-config",
+            "/tmp/openclaw.json",
+            "--dry-run",
+            "--no-config",
+        ])
+        .expect("migrate openclaw flags should parse");
+
+        match cli.command {
+            Commands::Migrate {
+                migrate_command:
+                    MigrateCommands::Openclaw {
+                        source,
+                        source_config,
+                        dry_run,
+                        no_memory,
+                        no_config,
+                    },
+            } => {
+                assert_eq!(
+                    source.as_deref(),
+                    Some(std::path::Path::new("/tmp/openclaw-workspace"))
+                );
+                assert_eq!(
+                    source_config.as_deref(),
+                    Some(std::path::Path::new("/tmp/openclaw.json"))
+                );
+                assert!(dry_run);
+                assert!(!no_memory);
+                assert!(no_config);
+            }
+            other => panic!("expected migrate openclaw command, got {other:?}"),
         }
     }
 

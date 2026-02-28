@@ -18,6 +18,10 @@ use crate::memory::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind,
 };
+use crate::migration::{
+    load_config_without_env, migrate_openclaw, resolve_openclaw_config, resolve_openclaw_workspace,
+    OpenClawMigrationOptions,
+};
 use crate::providers::{
     canonical_china_provider_name, is_doubao_alias, is_glm_alias, is_glm_cn_alias,
     is_minimax_alias, is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_qwen_oauth_alias,
@@ -43,6 +47,13 @@ pub struct ProjectContext {
     pub timezone: String,
     pub agent_name: String,
     pub communication_style: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OpenClawOnboardMigrationOptions {
+    pub enabled: bool,
+    pub source_workspace: Option<PathBuf>,
+    pub source_config: Option<PathBuf>,
 }
 
 // ── Banner ───────────────────────────────────────────────────────
@@ -81,6 +92,13 @@ enum InteractiveOnboardingMode {
 }
 
 pub async fn run_wizard(force: bool) -> Result<Config> {
+    run_wizard_with_migration(force, OpenClawOnboardMigrationOptions::default()).await
+}
+
+pub async fn run_wizard_with_migration(
+    force: bool,
+    migration_options: OpenClawOnboardMigrationOptions,
+) -> Result<Config> {
     println!("{}", style(BANNER).cyan().bold());
 
     println!(
@@ -100,7 +118,9 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
     match resolve_interactive_onboarding_mode(&config_path, force)? {
         InteractiveOnboardingMode::FullOnboarding => {}
         InteractiveOnboardingMode::UpdateProviderOnly => {
-            return run_provider_update_wizard(&workspace_dir, &config_path).await;
+            let mut config = run_provider_update_wizard(&workspace_dir, &config_path).await?;
+            maybe_run_openclaw_migration(&mut config, &migration_options, true).await?;
+            return Ok(config);
         }
     }
 
@@ -142,7 +162,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     // ── Build config ──
     // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: if api_key.is_empty() {
@@ -215,6 +235,8 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+
+    maybe_run_openclaw_migration(&mut config, &migration_options, true).await?;
 
     // ── Final summary ────────────────────────────────────────────
     print_summary(&config);
@@ -432,11 +454,32 @@ pub async fn run_quick_setup(
     force: bool,
     no_totp: bool,
 ) -> Result<Config> {
+    run_quick_setup_with_migration(
+        credential_override,
+        provider,
+        model_override,
+        memory_backend,
+        force,
+        no_totp,
+        OpenClawOnboardMigrationOptions::default(),
+    )
+    .await
+}
+
+pub async fn run_quick_setup_with_migration(
+    credential_override: Option<&str>,
+    provider: Option<&str>,
+    model_override: Option<&str>,
+    memory_backend: Option<&str>,
+    force: bool,
+    no_totp: bool,
+    migration_options: OpenClawOnboardMigrationOptions,
+) -> Result<Config> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
 
-    run_quick_setup_with_home(
+    let mut config = run_quick_setup_with_home(
         credential_override,
         provider,
         model_override,
@@ -445,7 +488,66 @@ pub async fn run_quick_setup(
         no_totp,
         &home,
     )
-    .await
+    .await?;
+
+    maybe_run_openclaw_migration(&mut config, &migration_options, false).await?;
+    Ok(config)
+}
+
+async fn maybe_run_openclaw_migration(
+    config: &mut Config,
+    options: &OpenClawOnboardMigrationOptions,
+    allow_interactive_prompt: bool,
+) -> Result<()> {
+    let resolved_workspace = resolve_openclaw_workspace(options.source_workspace.clone())?;
+    let resolved_config = resolve_openclaw_config(options.source_config.clone())?;
+
+    let auto_detected = resolved_workspace.exists() || resolved_config.exists();
+    let should_run = if options.enabled {
+        true
+    } else if allow_interactive_prompt && auto_detected {
+        println!();
+        println!(
+            "  {} OpenClaw data detected. Optional merge migration is available.",
+            style("↻").cyan().bold()
+        );
+        Confirm::new()
+            .with_prompt(
+                "  Merge OpenClaw data into this ZeroClaw workspace now? (preserve existing data)",
+            )
+            .default(true)
+            .interact()?
+    } else {
+        false
+    };
+
+    if !should_run {
+        return Ok(());
+    }
+
+    println!(
+        "  {} Running OpenClaw merge migration...",
+        style("↻").cyan().bold()
+    );
+
+    let _report = migrate_openclaw(
+        config,
+        OpenClawMigrationOptions {
+            source_workspace: options.source_workspace.clone(),
+            source_config: options.source_config.clone(),
+            include_memory: true,
+            include_config: true,
+            dry_run: false,
+        },
+    )
+    .await?;
+
+    *config = load_config_without_env(config)?;
+    println!(
+        "  {} OpenClaw migration merged successfully",
+        style("✓").green().bold()
+    );
+    Ok(())
 }
 
 fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
