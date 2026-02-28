@@ -196,6 +196,7 @@ chmod +x zeroclaw
 ```
 
 ### "not found" or linker errors
+
 Make sure you downloaded the correct architecture for your device.
 
 For native Termux builds, make sure `clang` exists and remove stale NDK overrides:
@@ -213,6 +214,7 @@ If build scripts (for example `ring`/`aws-lc-sys`) still report `failed to find 
 also export `CC_aarch64_linux_android` / `CC_armv7_linux_androideabi` to the same NDK clang wrappers.
 
 ### "WASM tools are unavailable on Android"
+
 This is expected today. Android builds run the WASM tool loader in stub mode; build on Linux/macOS/Windows if you need runtime `wasm-tools` execution.
 
 ### Old Android (4.x)
