@@ -10,7 +10,7 @@ use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use regex::{Regex, RegexSet};
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
@@ -33,7 +33,6 @@ mod execution;
 mod history;
 mod parsing;
 
-use crate::agent::session::{resolve_session_id, shared_session_manager};
 use context::{build_context, build_hardware_context};
 use detection::{DetectionVerdict, LoopDetectionConfig, LoopDetector};
 use execution::{
