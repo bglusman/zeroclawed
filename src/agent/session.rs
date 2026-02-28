@@ -122,7 +122,7 @@ fn unix_seconds_now() -> i64 {
 }
 
 fn trim_non_system(history: &mut Vec<ChatMessage>, max_messages: usize) {
-    history.retain(|m| m.role != crate::providers::ROLE_SYSTEM);
+    history.retain(|m| m.role != "system");
     if max_messages == 0 || history.len() <= max_messages {
         return;
     }
@@ -196,7 +196,6 @@ impl SessionManager for MemorySessionManager {
     }
 
     async fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
-        let now = unix_seconds_now();
         let state = {
             let sessions = self.inner.sessions.read().await;
             sessions.get(session_id).cloned()
@@ -204,7 +203,6 @@ impl SessionManager for MemorySessionManager {
         let Some(state) = state else {
             return Ok(Vec::new());
         };
-        state.updated_at_unix.store(now, Ordering::Relaxed);
         let history = state.history.read().await;
         let mut history = history.clone();
         trim_non_system(&mut history, self.inner.max_messages);
