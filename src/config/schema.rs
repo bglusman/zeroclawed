@@ -405,6 +405,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.whatsapp.is_some(),
             self.channels_config.linq.is_some(),
             self.channels_config.github.is_some(),
+            self.channels_config.bluebubbles.is_some(),
             self.channels_config.wati.is_some(),
             self.channels_config.nextcloud_talk.is_some(),
             self.channels_config.email.is_some(),
@@ -3894,6 +3895,8 @@ pub struct ChannelsConfig {
     pub linq: Option<LinqConfig>,
     /// GitHub channel configuration.
     pub github: Option<GitHubConfig>,
+    /// BlueBubbles iMessage bridge channel configuration.
+    pub bluebubbles: Option<BlueBubblesConfig>,
     /// WATI WhatsApp Business API channel configuration.
     pub wati: Option<WatiConfig>,
     /// Nextcloud Talk bot channel configuration.
@@ -3970,6 +3973,10 @@ impl ChannelsConfig {
             (
                 Box::new(ConfigWrapper::new(self.github.as_ref())),
                 self.github.is_some(),
+            ),
+            (
+                Box::new(ConfigWrapper::new(self.bluebubbles.as_ref())),
+                self.bluebubbles.is_some(),
             ),
             (
                 Box::new(ConfigWrapper::new(self.wati.as_ref())),
@@ -4049,6 +4056,7 @@ impl Default for ChannelsConfig {
             whatsapp: None,
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -4531,6 +4539,51 @@ impl ChannelConfig for GitHubConfig {
     }
     fn desc() -> &'static str {
         "issues/PR comments via webhook + REST API"
+    }
+}
+
+/// BlueBubbles iMessage bridge channel configuration.
+///
+/// BlueBubbles is a self-hosted macOS server that exposes iMessage via a
+/// REST API and webhook push notifications. See <https://bluebubbles.app>.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+pub struct BlueBubblesConfig {
+    /// BlueBubbles server URL (e.g. `http://192.168.1.100:1234` or an ngrok URL).
+    pub server_url: String,
+    /// BlueBubbles server password.
+    pub password: String,
+    /// Allowed sender handles (phone numbers or Apple IDs). Use `["*"]` to allow all.
+    #[serde(default)]
+    pub allowed_senders: Vec<String>,
+    /// Optional shared secret to authenticate inbound webhooks.
+    /// If set, incoming requests must include `Authorization: Bearer <secret>`.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
+    /// Sender handles to silently ignore (e.g. suppress echoed outbound messages).
+    #[serde(default)]
+    pub ignore_senders: Vec<String>,
+}
+
+impl std::fmt::Debug for BlueBubblesConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlueBubblesConfig")
+            .field("server_url", &self.server_url)
+            .field("password", &"[REDACTED]")
+            .field("allowed_senders", &self.allowed_senders)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
+impl ChannelConfig for BlueBubblesConfig {
+    fn name() -> &'static str {
+        "BlueBubbles"
+    }
+    fn desc() -> &'static str {
+        "iMessage via BlueBubbles self-hosted macOS server"
     }
 }
 
@@ -8775,6 +8828,7 @@ ws_url = "ws://127.0.0.1:3002"
                 whatsapp: None,
                 linq: None,
                 github: None,
+                bluebubbles: None,
                 wati: None,
                 nextcloud_talk: None,
                 email: None,
@@ -9705,6 +9759,7 @@ allowed_users = ["@ops:matrix.org"]
             whatsapp: None,
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,
@@ -9985,6 +10040,7 @@ channel_id = "C123"
             }),
             linq: None,
             github: None,
+            bluebubbles: None,
             wati: None,
             nextcloud_talk: None,
             email: None,

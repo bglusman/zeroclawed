@@ -15,8 +15,8 @@ pub mod static_files;
 pub mod ws;
 
 use crate::channels::{
-    Channel, GitHubChannel, LinqChannel, NextcloudTalkChannel, QQChannel, SendMessage, WatiChannel,
-    WhatsAppChannel,
+    BlueBubblesChannel, Channel, GitHubChannel, LinqChannel, NextcloudTalkChannel, QQChannel,
+    SendMessage, WatiChannel, WhatsAppChannel,
 };
 use crate::config::Config;
 use crate::cost::CostTracker;
@@ -72,6 +72,10 @@ fn linq_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
 
 fn github_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
     format!("github_{}_{}", msg.sender, msg.id)
+}
+
+fn bluebubbles_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
+    format!("bluebubbles_{}_{}", msg.sender, msg.id)
 }
 
 fn wati_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
@@ -310,6 +314,9 @@ pub struct AppState {
     pub linq: Option<Arc<LinqChannel>>,
     /// Linq webhook signing secret for signature verification
     pub linq_signing_secret: Option<Arc<str>>,
+    pub bluebubbles: Option<Arc<BlueBubblesChannel>>,
+    /// BlueBubbles inbound webhook secret for Bearer auth verification
+    pub bluebubbles_webhook_secret: Option<Arc<str>>,
     pub nextcloud_talk: Option<Arc<NextcloudTalkChannel>>,
     /// Nextcloud Talk webhook secret for signature verification
     pub nextcloud_talk_webhook_secret: Option<Arc<str>>,
@@ -510,6 +517,23 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         })
         .map(Arc::from);
 
+    // BlueBubbles channel (if configured)
+    let bluebubbles_channel: Option<Arc<BlueBubblesChannel>> =
+        config.channels_config.bluebubbles.as_ref().map(|bb| {
+            Arc::new(BlueBubblesChannel::new(
+                bb.server_url.clone(),
+                bb.password.clone(),
+                bb.allowed_senders.clone(),
+                bb.ignore_senders.clone(),
+            ))
+        });
+    let bluebubbles_webhook_secret: Option<Arc<str>> = config
+        .channels_config
+        .bluebubbles
+        .as_ref()
+        .and_then(|bb| bb.webhook_secret.as_deref())
+        .map(Arc::from);
+
     // WATI channel (if configured)
     let wati_channel: Option<Arc<WatiChannel>> =
         config.channels_config.wati.as_ref().map(|wati_cfg| {
@@ -629,6 +653,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     if config.channels_config.github.is_some() {
         println!("  POST /github    — GitHub issue/PR comment webhook");
     }
+    if bluebubbles_channel.is_some() {
+        println!("  POST /bluebubbles — BlueBubbles iMessage webhook");
+    }
     if wati_channel.is_some() {
         println!("  GET  /wati      — WATI webhook verification");
         println!("  POST /wati      — WATI message webhook");
@@ -695,6 +722,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         whatsapp_app_secret,
         linq: linq_channel,
         linq_signing_secret,
+        bluebubbles: bluebubbles_channel,
+        bluebubbles_webhook_secret,
         nextcloud_talk: nextcloud_talk_channel,
         nextcloud_talk_webhook_secret,
         wati: wati_channel,
@@ -742,6 +771,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/whatsapp", post(handle_whatsapp_message))
         .route("/linq", post(handle_linq_webhook))
         .route("/github", post(handle_github_webhook))
+        .route("/bluebubbles", post(handle_bluebubbles_webhook))
         .route("/wati", get(handle_wati_verify))
         .route("/wati", post(handle_wati_webhook))
         .route("/nextcloud-talk", post(handle_nextcloud_talk_webhook))
@@ -2176,6 +2206,96 @@ async fn handle_github_webhook(
     )
 }
 
+/// POST /bluebubbles — incoming BlueBubbles iMessage webhook
+async fn handle_bluebubbles_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let Some(ref bluebubbles) = state.bluebubbles else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "BlueBubbles not configured"})),
+        );
+    };
+
+    // Verify Authorization: Bearer <webhook_secret> if configured
+    if let Some(ref expected) = state.bluebubbles_webhook_secret {
+        let provided = headers
+            .get("Authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        if !provided.is_some_and(|t| constant_time_eq(t, expected.as_ref())) {
+            tracing::warn!("BlueBubbles webhook auth failed (missing or invalid Bearer token)");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Unauthorized"})),
+            );
+        }
+    }
+
+    let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid JSON payload"})),
+        );
+    };
+
+    let messages = bluebubbles.parse_webhook_payload(&payload);
+
+    if messages.is_empty() {
+        return (StatusCode::OK, Json(serde_json::json!({"status": "ok"})));
+    }
+
+    for msg in &messages {
+        tracing::info!(
+            "BlueBubbles iMessage from {}: {}",
+            msg.sender,
+            truncate_with_ellipsis(&msg.content, 50)
+        );
+
+        if state.auto_save {
+            let key = bluebubbles_memory_key(msg);
+            let _ = state
+                .mem
+                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .await;
+        }
+
+        let _ = bluebubbles.start_typing(&msg.reply_target).await;
+        let leak_guard_cfg = gateway_outbound_leak_guard_snapshot(&state);
+
+        match run_gateway_chat_with_tools(&state, &msg.content).await {
+            Ok(response) => {
+                let _ = bluebubbles.stop_typing(&msg.reply_target).await;
+                let safe_response = sanitize_gateway_response(
+                    &response,
+                    state.tools_registry_exec.as_ref(),
+                    &leak_guard_cfg,
+                );
+                if let Err(e) = bluebubbles
+                    .send(&SendMessage::new(safe_response, &msg.reply_target))
+                    .await
+                {
+                    tracing::error!("Failed to send BlueBubbles reply: {e}");
+                }
+            }
+            Err(e) => {
+                let _ = bluebubbles.stop_typing(&msg.reply_target).await;
+                tracing::error!("LLM error for BlueBubbles message: {e:#}");
+                let _ = bluebubbles
+                    .send(&SendMessage::new(
+                        "Sorry, I couldn't process your message right now.",
+                        &msg.reply_target,
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+}
+
 /// GET /wati — WATI webhook verification (echoes hub.challenge)
 async fn handle_wati_verify(
     State(state): State<AppState>,
@@ -2589,6 +2709,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -2645,6 +2767,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -2687,6 +2811,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -2730,6 +2856,8 @@ mod tests {
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3215,6 +3343,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3284,6 +3414,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3335,6 +3467,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3387,6 +3521,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3448,6 +3584,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3502,6 +3640,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3561,6 +3701,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3644,6 +3786,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3698,6 +3842,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3757,6 +3903,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3830,6 +3978,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3883,6 +4033,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -3947,6 +4099,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -4016,6 +4170,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -4075,6 +4231,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: Some(channel),
             nextcloud_talk_webhook_secret: Some(Arc::from(secret)),
             wati: None,
@@ -4127,6 +4285,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
@@ -4178,6 +4338,8 @@ Reminder set successfully."#;
             whatsapp_app_secret: None,
             linq: None,
             linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,

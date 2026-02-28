@@ -14,6 +14,7 @@
 //! To add a new channel, implement [`Channel`] in a new submodule and wire it into
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
+pub mod bluebubbles;
 pub mod clawdtalk;
 pub mod cli;
 pub mod dingtalk;
@@ -44,6 +45,7 @@ pub mod whatsapp_storage;
 #[cfg(feature = "whatsapp-web")]
 pub mod whatsapp_web;
 
+pub use bluebubbles::BlueBubblesChannel;
 pub use clawdtalk::ClawdTalkChannel;
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
@@ -496,6 +498,27 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
              - Keep normal text outside markers and never wrap markers in code fences.\n\
              - You can combine text and media in one response — text is sent first, then each attachment.\n\
              - Use tool results silently: answer the latest user message directly, and do not narrate delayed/internal tool execution bookkeeping.",
+        ),
+        "bluebubbles" => Some(
+            "You are responding on iMessage via BlueBubbles. Always complete your research before replying — use as many tool calls as needed to get a full, accurate answer.\n\
+             \n\
+             ## Text styles (iMessage native)\n\
+             - **bold** — key terms, scores, names, important info\n\
+             - *italic* — emphasis, secondary info\n\
+             - ~~strikethrough~~ — corrections or outdated info\n\
+             - __underline__ — titles, proper nouns\n\
+             - `code` — commands, technical terms\n\
+             \n\
+             ## Message effects (append to end, e.g. 'Great job! [EFFECT:confetti]')\n\
+             Available: [EFFECT:slam] [EFFECT:loud] [EFFECT:gentle] [EFFECT:invisible-ink]\n\
+             [EFFECT:confetti] [EFFECT:balloons] [EFFECT:fireworks] [EFFECT:lasers]\n\
+             [EFFECT:love] [EFFECT:celebration] [EFFECT:echo] [EFFECT:spotlight]\n\
+             Use effects sparingly and only when context clearly warrants it.\n\
+             \n\
+             ## Format rules\n\
+             - No markdown tables — use bullet lists with dashes\n\
+             - Keep replies conversational but complete — do not truncate results\n\
+             - Do not narrate tool execution — just do the research and give the answer",
         ),
         _ => None,
     }
