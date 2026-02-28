@@ -728,6 +728,21 @@ pub struct AgentConfig {
     /// Tool dispatch strategy (e.g. `"auto"`). Default: `"auto"`.
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
+    /// Loop detection: no-progress repeat threshold.
+    /// Triggers when the same tool+args produces identical output this many times.
+    /// Set to `0` to disable. Default: `3`.
+    #[serde(default = "default_loop_detection_no_progress_threshold")]
+    pub loop_detection_no_progress_threshold: usize,
+    /// Loop detection: ping-pong cycle threshold.
+    /// Detects A→B→A→B alternating patterns with no progress.
+    /// Value is number of full cycles (A-B = 1 cycle). Set to `0` to disable. Default: `2`.
+    #[serde(default = "default_loop_detection_ping_pong_cycles")]
+    pub loop_detection_ping_pong_cycles: usize,
+    /// Loop detection: consecutive failure streak threshold.
+    /// Triggers when the same tool fails this many times in a row.
+    /// Set to `0` to disable. Default: `3`.
+    #[serde(default = "default_loop_detection_failure_streak")]
+    pub loop_detection_failure_streak: usize,
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -742,6 +757,18 @@ fn default_agent_tool_dispatcher() -> String {
     "auto".into()
 }
 
+fn default_loop_detection_no_progress_threshold() -> usize {
+    3
+}
+
+fn default_loop_detection_ping_pong_cycles() -> usize {
+    2
+}
+
+fn default_loop_detection_failure_streak() -> usize {
+    3
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -750,6 +777,9 @@ impl Default for AgentConfig {
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+            loop_detection_no_progress_threshold: default_loop_detection_no_progress_threshold(),
+            loop_detection_ping_pong_cycles: default_loop_detection_ping_pong_cycles(),
+            loop_detection_failure_streak: default_loop_detection_failure_streak(),
         }
     }
 }

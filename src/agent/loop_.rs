@@ -28,11 +28,13 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 mod context;
+pub(crate) mod detection;
 mod execution;
 mod history;
 mod parsing;
 
 use context::{build_context, build_hardware_context};
+use detection::{DetectionVerdict, LoopDetectionConfig, LoopDetector};
 use execution::{
     execute_tools_parallel, execute_tools_sequential, should_execute_tools_in_parallel,
     ToolExecutionOutcome,
@@ -286,6 +288,7 @@ pub(crate) struct NonCliApprovalContext {
 
 tokio::task_local! {
     static TOOL_LOOP_NON_CLI_APPROVAL_CONTEXT: Option<NonCliApprovalContext>;
+    static LOOP_DETECTION_CONFIG: LoopDetectionConfig;
 }
 
 /// Extract a short hint from tool call arguments for progress display.
@@ -571,6 +574,14 @@ pub(crate) fn is_tool_iteration_limit_error(err: &anyhow::Error) -> bool {
     })
 }
 
+pub(crate) fn is_loop_detection_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|source| {
+        source
+            .to_string()
+            .contains("Agent stopped early due to detected loop pattern")
+    })
+}
+
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
 /// execute tools, and loop until the LLM produces a final text response.
 /// When `silent` is true, suppresses stdout (for channel use).
@@ -771,6 +782,11 @@ pub(crate) async fn run_tool_call_loop(
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
     let mut missing_tool_call_retry_used = false;
     let mut missing_tool_call_retry_prompt: Option<String> = None;
+    let ld_config = LOOP_DETECTION_CONFIG
+        .try_with(Clone::clone)
+        .unwrap_or_default();
+    let mut loop_detector = LoopDetector::new(ld_config);
+    let mut loop_detection_prompt: Option<String> = None;
     let bypass_non_cli_approval_for_turn =
         approval.is_some_and(|mgr| channel_name != "cli" && mgr.consume_non_cli_allow_all_once());
     if bypass_non_cli_approval_for_turn {
@@ -812,6 +828,9 @@ pub(crate) async fn run_tool_call_loop(
             multimodal::prepare_messages_for_provider(history, multimodal_config).await?;
         let mut request_messages = prepared_messages.messages.clone();
         if let Some(prompt) = missing_tool_call_retry_prompt.take() {
+            request_messages.push(ChatMessage::user(prompt));
+        }
+        if let Some(prompt) = loop_detection_prompt.take() {
             request_messages.push(ChatMessage::user(prompt));
         }
 
@@ -1441,6 +1460,12 @@ pub(crate) async fn run_tool_call_loop(
                     .await;
             }
 
+            // ── Loop detection: record call ──────────────────────
+            {
+                let sig = tool_call_signature(&call.name, &call.arguments);
+                loop_detector.record_call(&sig.0, &sig.1, &outcome.output, outcome.success);
+            }
+
             ordered_results[*idx] = Some((call.name.clone(), call.tool_call_id.clone(), outcome));
         }
 
@@ -1484,6 +1509,49 @@ pub(crate) async fn run_tool_call_loop(
                     "content": result,
                 });
                 history.push(ChatMessage::tool(tool_msg.to_string()));
+            }
+        }
+
+        // ── Loop detection: check verdict ────────────────────────
+        match loop_detector.check() {
+            DetectionVerdict::Continue => {}
+            DetectionVerdict::InjectWarning(warning) => {
+                runtime_trace::record_event(
+                    "loop_detected_warning",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some("loop pattern detected, injecting self-correction prompt"),
+                    serde_json::json!({ "iteration": iteration + 1, "warning": &warning }),
+                );
+                if let Some(ref tx) = on_delta {
+                    let _ = tx
+                        .send(format!(
+                            "{DRAFT_PROGRESS_SENTINEL}\u{26a0}\u{fe0f} Loop detected, attempting self-correction\n"
+                        ))
+                        .await;
+                }
+                loop_detection_prompt = Some(warning);
+            }
+            DetectionVerdict::HardStop(reason) => {
+                runtime_trace::record_event(
+                    "loop_detected_hard_stop",
+                    Some(channel_name),
+                    Some(provider_name),
+                    Some(model),
+                    Some(&turn_id),
+                    Some(false),
+                    Some("loop persisted after warning, stopping early"),
+                    serde_json::json!({ "iteration": iteration + 1, "reason": &reason }),
+                );
+                anyhow::bail!(
+                    "Agent stopped early due to detected loop pattern (iteration {}/{}): {}",
+                    iteration + 1,
+                    max_iterations,
+                    reason
+                );
             }
         }
     }
@@ -1929,25 +1997,34 @@ pub async fn run(
             ChatMessage::user(&enriched),
         ];
 
-        let response = run_tool_call_loop(
-            provider.as_ref(),
-            &mut history,
-            &tools_registry,
-            observer.as_ref(),
-            provider_name,
-            model_name,
-            temperature,
-            false,
-            approval_manager.as_ref(),
-            channel_name,
-            &config.multimodal,
-            config.agent.max_tool_iterations,
-            None,
-            None,
-            None,
-            &[],
-        )
-        .await?;
+        let ld_cfg = LoopDetectionConfig {
+            no_progress_threshold: config.agent.loop_detection_no_progress_threshold,
+            ping_pong_cycles: config.agent.loop_detection_ping_pong_cycles,
+            failure_streak_threshold: config.agent.loop_detection_failure_streak,
+        };
+        let response = LOOP_DETECTION_CONFIG
+            .scope(
+                ld_cfg,
+                run_tool_call_loop(
+                    provider.as_ref(),
+                    &mut history,
+                    &tools_registry,
+                    observer.as_ref(),
+                    provider_name,
+                    model_name,
+                    temperature,
+                    false,
+                    approval_manager.as_ref(),
+                    channel_name,
+                    &config.multimodal,
+                    config.agent.max_tool_iterations,
+                    None,
+                    None,
+                    None,
+                    &[],
+                ),
+            )
+            .await?;
         final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
@@ -2054,25 +2131,34 @@ pub async fn run(
 
             history.push(ChatMessage::user(&enriched));
 
-            let response = match run_tool_call_loop(
-                provider.as_ref(),
-                &mut history,
-                &tools_registry,
-                observer.as_ref(),
-                provider_name,
-                model_name,
-                temperature,
-                false,
-                approval_manager.as_ref(),
-                channel_name,
-                &config.multimodal,
-                config.agent.max_tool_iterations,
-                None,
-                None,
-                None,
-                &[],
-            )
-            .await
+            let ld_cfg = LoopDetectionConfig {
+                no_progress_threshold: config.agent.loop_detection_no_progress_threshold,
+                ping_pong_cycles: config.agent.loop_detection_ping_pong_cycles,
+                failure_streak_threshold: config.agent.loop_detection_failure_streak,
+            };
+            let response = match LOOP_DETECTION_CONFIG
+                .scope(
+                    ld_cfg,
+                    run_tool_call_loop(
+                        provider.as_ref(),
+                        &mut history,
+                        &tools_registry,
+                        observer.as_ref(),
+                        provider_name,
+                        model_name,
+                        temperature,
+                        false,
+                        approval_manager.as_ref(),
+                        channel_name,
+                        &config.multimodal,
+                        config.agent.max_tool_iterations,
+                        None,
+                        None,
+                        None,
+                        &[],
+                    ),
+                )
+                .await
             {
                 Ok(resp) => resp,
                 Err(e) => {
@@ -2084,6 +2170,15 @@ pub async fn run(
                         );
                         history.push(ChatMessage::assistant(&pause_notice));
                         eprintln!("\n{pause_notice}\n");
+                        continue;
+                    }
+                    if is_loop_detection_error(&e) {
+                        let notice =
+                            "\u{26a0}\u{fe0f} Loop pattern detected and agent stopped early. \
+                            Context preserved. Reply \"continue\" to resume, or adjust \
+                            loop_detection_* thresholds in config.";
+                        history.push(ChatMessage::assistant(notice));
+                        eprintln!("\n{notice}\n");
                         continue;
                     }
                     eprintln!("\nError: {e}\n");
