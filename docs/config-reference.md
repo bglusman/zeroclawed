@@ -175,6 +175,7 @@ Notes:
 - With `require_first_visit_approval = true`, unseen domains are denied until added to `approved_domains` (or matched by `domain_allowlist`).
 - DNS rebinding protection remains enabled: resolved local/private IPs are denied unless explicitly allowlisted.
 - Agents can inspect/update these settings at runtime via `web_access_config` (`action=get|set|check_url`).
+- In supervised mode, `web_access_config` mutations still require normal tool approval unless explicitly auto-approved.
 
 Example:
 
@@ -229,6 +230,18 @@ Operational guidance:
 - Use `domain_allowlist` for stable long-term trusted domains.
 - Use `domain_blocklist` for immediate global deny; it always overrides allow rules.
 - Keep `allow_domains` focused on private-network bypass cases only (`internal.example`, `*.svc.local`).
+
+Environment overrides:
+
+- `ZEROCLAW_URL_ACCESS_BLOCK_PRIVATE_IP` / `URL_ACCESS_BLOCK_PRIVATE_IP`
+- `ZEROCLAW_URL_ACCESS_ALLOW_LOOPBACK` / `URL_ACCESS_ALLOW_LOOPBACK`
+- `ZEROCLAW_URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL` / `URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL`
+- `ZEROCLAW_URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST` / `URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST`
+- `ZEROCLAW_URL_ACCESS_ALLOW_CIDRS` / `URL_ACCESS_ALLOW_CIDRS` (comma-separated)
+- `ZEROCLAW_URL_ACCESS_ALLOW_DOMAINS` / `URL_ACCESS_ALLOW_DOMAINS` (comma-separated)
+- `ZEROCLAW_URL_ACCESS_DOMAIN_ALLOWLIST` / `URL_ACCESS_DOMAIN_ALLOWLIST` (comma-separated)
+- `ZEROCLAW_URL_ACCESS_DOMAIN_BLOCKLIST` / `URL_ACCESS_DOMAIN_BLOCKLIST` (comma-separated)
+- `ZEROCLAW_URL_ACCESS_APPROVED_DOMAINS` / `URL_ACCESS_APPROVED_DOMAINS` (comma-separated)
 
 ## `[security.syscall_anomaly]`
 
@@ -652,6 +665,7 @@ Notes:
 - If DuckDuckGo returns `403`/`429` in your network, switch provider to `brave`, `perplexity`, `exa`, or configure `fallback_providers`.
 - `web_search` finds candidate URLs; pair it with `web_fetch` for page content extraction.
 - Agents can modify these settings at runtime via the `web_search_config` tool (`action=get|set|list_providers`).
+- In supervised mode, `web_search_config` mutations still require normal tool approval unless explicitly auto-approved.
 
 Recommended resilient profile:
 
@@ -699,6 +713,29 @@ Runtime workflow (`web_search_config`):
 ```json
 {"action":"set","country":"US","language_filter":["en"],"recency_filter":"week"}
 ```
+
+Environment overrides:
+
+- `ZEROCLAW_WEB_SEARCH_ENABLED` / `WEB_SEARCH_ENABLED`
+- `ZEROCLAW_WEB_SEARCH_PROVIDER` / `WEB_SEARCH_PROVIDER`
+- `ZEROCLAW_WEB_SEARCH_MAX_RESULTS` / `WEB_SEARCH_MAX_RESULTS`
+- `ZEROCLAW_WEB_SEARCH_TIMEOUT_SECS` / `WEB_SEARCH_TIMEOUT_SECS`
+- `ZEROCLAW_WEB_SEARCH_FALLBACK_PROVIDERS` / `WEB_SEARCH_FALLBACK_PROVIDERS` (comma-separated)
+- `ZEROCLAW_WEB_SEARCH_RETRIES_PER_PROVIDER` / `WEB_SEARCH_RETRIES_PER_PROVIDER`
+- `ZEROCLAW_WEB_SEARCH_RETRY_BACKOFF_MS` / `WEB_SEARCH_RETRY_BACKOFF_MS`
+- `ZEROCLAW_WEB_SEARCH_DOMAIN_FILTER` / `WEB_SEARCH_DOMAIN_FILTER` (comma-separated)
+- `ZEROCLAW_WEB_SEARCH_LANGUAGE_FILTER` / `WEB_SEARCH_LANGUAGE_FILTER` (comma-separated)
+- `ZEROCLAW_WEB_SEARCH_COUNTRY` / `WEB_SEARCH_COUNTRY`
+- `ZEROCLAW_WEB_SEARCH_RECENCY_FILTER` / `WEB_SEARCH_RECENCY_FILTER`
+- `ZEROCLAW_WEB_SEARCH_MAX_TOKENS` / `WEB_SEARCH_MAX_TOKENS`
+- `ZEROCLAW_WEB_SEARCH_MAX_TOKENS_PER_PAGE` / `WEB_SEARCH_MAX_TOKENS_PER_PAGE`
+- `ZEROCLAW_WEB_SEARCH_EXA_SEARCH_TYPE` / `WEB_SEARCH_EXA_SEARCH_TYPE`
+- `ZEROCLAW_WEB_SEARCH_EXA_INCLUDE_TEXT` / `WEB_SEARCH_EXA_INCLUDE_TEXT`
+- `ZEROCLAW_WEB_SEARCH_JINA_SITE_FILTERS` / `WEB_SEARCH_JINA_SITE_FILTERS` (comma-separated)
+- `ZEROCLAW_BRAVE_API_KEY` / `BRAVE_API_KEY`
+- `ZEROCLAW_PERPLEXITY_API_KEY` / `PERPLEXITY_API_KEY`
+- `ZEROCLAW_EXA_API_KEY` / `EXA_API_KEY`
+- `ZEROCLAW_JINA_API_KEY` / `JINA_API_KEY`
 
 ## `[gateway]`
 
