@@ -71,6 +71,7 @@ use crate::agent::loop_::{
     build_shell_policy_instructions, build_tool_instructions_from_specs,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
 };
+use crate::agent::session::{create_session_manager, resolve_session_id, SessionManager};
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
 use crate::identity;
@@ -94,6 +95,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Per-sender conversation history for channel messages.
 type ConversationHistoryMap = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
+static CHANNEL_SESSION_CONFIG: OnceLock<crate::config::AgentSessionConfig> = OnceLock::new();
 /// Maximum history messages to keep per sender.
 const MAX_CHANNEL_HISTORY: usize = 50;
 /// Minimum user-message length (in chars) for auto-save to memory.
@@ -270,6 +272,7 @@ struct ChannelRuntimeContext {
     max_tool_iterations: usize,
     min_relevance_score: f64,
     conversation_histories: ConversationHistoryMap,
+    session_manager: Option<Arc<dyn SessionManager + Send + Sync>>,
     provider_cache: ProviderCacheMap,
     route_overrides: RouteSelectionMap,
     api_key: Option<String>,
@@ -3006,6 +3009,9 @@ async fn process_channel_message(
     msg: traits::ChannelMessage,
     cancellation_token: CancellationToken,
 ) {
+    let sender_id = msg.sender.as_str();
+    let channel_name = msg.channel.as_str();
+    tracing::warn!(sender_id, channel_name, "process_message called");
     if cancellation_token.is_cancelled() {
         return;
     }
@@ -3099,6 +3105,50 @@ or tune thresholds in config.",
     }
 
     let history_key = conversation_history_key(&msg);
+    if let Some(manager) = ctx.session_manager.as_ref() {
+        let should_seed = {
+            let histories = ctx
+                .conversation_histories
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            !histories.contains_key(&history_key)
+        };
+
+        if should_seed {
+            let session_config = CHANNEL_SESSION_CONFIG.get().cloned().unwrap_or_default();
+            let session_id = resolve_session_id(
+                &session_config,
+                msg.sender.as_str(),
+                Some(msg.channel.as_str()),
+            );
+            tracing::warn!(session_id, "session_id resolved");
+            match manager.get_or_create(&session_id).await {
+                Ok(session) => match session.get_history().await {
+                    Ok(history) => {
+                        tracing::warn!(
+                            history_len = history.len(),
+                            "session history loaded"
+                        );
+                        let filtered: Vec<ChatMessage> = history
+                            .into_iter()
+                            .filter(|m| m.role != "system")
+                            .collect();
+                        let mut histories = ctx
+                            .conversation_histories
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner());
+                        histories.entry(history_key.clone()).or_insert(filtered);
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to load session history: {err}");
+                    }
+                },
+                Err(err) => {
+                    tracing::warn!("Failed to open session: {err}");
+                }
+            }
+        }
+    }
     // Try classification first, fall back to sender/default route
     let route = classify_message_route(ctx.as_ref(), &msg.content)
         .unwrap_or_else(|| get_route_selection(ctx.as_ref(), &history_key));
@@ -3517,6 +3567,44 @@ or tune thresholds in config.",
                 &history_key,
                 ChatMessage::assistant(&history_response),
             );
+            if let Some(manager) = ctx.session_manager.as_ref() {
+                let session_config = CHANNEL_SESSION_CONFIG.get().cloned().unwrap_or_default();
+                let session_id = resolve_session_id(
+                    &session_config,
+                    msg.sender.as_str(),
+                    Some(msg.channel.as_str()),
+                );
+                tracing::warn!(session_id, "session_id resolved");
+                match manager.get_or_create(&session_id).await {
+                    Ok(session) => {
+                        let latest = {
+                            let histories = ctx
+                                .conversation_histories
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            histories.get(&history_key).cloned().unwrap_or_default()
+                        };
+                        let filtered: Vec<ChatMessage> = latest
+                            .into_iter()
+                            .filter(|m| {
+                                m.role != "system"
+                                    && m.role != "tool"
+                                    && m.role != "tool_use"
+                                    && m.role != "tool_result"
+                            })
+                            .collect();
+                        let saved_len = filtered.len();
+                        if let Err(err) = session.update_history(filtered).await {
+                            tracing::warn!("Failed to update session history: {err}");
+                        } else {
+                            tracing::warn!(saved_len, "session history saved");
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!("Failed to open session: {err}");
+                    }
+                }
+            }
             println!(
                 "  🤖 Reply ({}ms): {}",
                 started_at.elapsed().as_millis(),
@@ -5141,6 +5229,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
         .as_ref()
         .is_some_and(|tg| tg.interrupt_on_new_message);
 
+    let _ = CHANNEL_SESSION_CONFIG.set(config.agent.session.clone());
+    let session_manager = create_session_manager(&config.agent.session, &config.workspace_dir)?
+        .map(|mgr| mgr as Arc<dyn SessionManager + Send + Sync>);
+
     let runtime_ctx = Arc::new(ChannelRuntimeContext {
         channels_by_name,
         provider: Arc::clone(&provider),
@@ -5155,6 +5247,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         max_tool_iterations: config.agent.max_tool_iterations,
         min_relevance_score: config.memory.min_relevance_score,
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        session_manager,
         provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
         route_overrides: Arc::new(Mutex::new(HashMap::new())),
         api_key: config.api_key.clone(),
@@ -5503,6 +5596,7 @@ mod tests {
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(histories)),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -5557,6 +5651,7 @@ mod tests {
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -5614,6 +5709,7 @@ mod tests {
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(histories)),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6212,6 +6308,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6289,6 +6386,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6353,6 +6451,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6431,6 +6530,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6508,6 +6608,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6577,6 +6678,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6641,6 +6743,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6714,6 +6817,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,
@@ -6815,6 +6919,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
             route_overrides: Arc::new(Mutex::new(HashMap::new())),
             api_key: None,

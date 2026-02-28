@@ -2163,6 +2163,7 @@ pub async fn process_message(
     sender_id: &str,
     channel_name: &str,
 ) -> Result<String> {
+    tracing::warn!(sender_id, channel_name, "process_message called");
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -2332,13 +2333,24 @@ pub async fn process_message(
 
     let session_manager = channel_session_manager(&config).await?;
     let session_id = resolve_session_id(&config.agent.session, sender_id, Some(channel_name));
+    tracing::warn!(session_id, "session_id resolved");
     if let Some(mgr) = session_manager {
         let session = mgr.get_or_create(&session_id).await?;
+        let stored_history = session.get_history().await?;
+        tracing::warn!(
+            history_len = stored_history.len(),
+            "session history loaded"
+        );
+        let filtered_history: Vec<ChatMessage> = stored_history
+            .into_iter()
+            .filter(|m| m.role != "system")
+            .collect();
+
         let mut history = Vec::new();
         history.push(ChatMessage::system(&system_prompt));
-        history.extend(session.get_history().await?);
+        history.extend(filtered_history);
         history.push(ChatMessage::user(&enriched));
-        let output = agent_turn(
+        let reply = agent_turn(
             provider.as_ref(),
             &mut history,
             &tools_registry,
@@ -2353,13 +2365,20 @@ pub async fn process_message(
         .await?;
         let persisted: Vec<ChatMessage> = history
             .into_iter()
-            .filter(|m| m.role != "system")
+            .filter(|m| {
+                m.role != "system"
+                    && m.role != "tool"
+                    && m.role != "tool_use"
+                    && m.role != "tool_result"
+            })
             .collect();
+        let saved_len = persisted.len();
         session
             .update_history(persisted)
             .await
             .context("Failed to update session history")?;
-        Ok(output)
+        tracing::warn!(saved_len, "session history saved");
+        Ok(reply)
     } else {
         let mut history = vec![
             ChatMessage::system(&system_prompt),
