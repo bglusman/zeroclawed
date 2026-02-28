@@ -518,6 +518,7 @@ impl std::fmt::Debug for Config {
             self.channels_config.dingtalk.is_some(),
             self.channels_config.napcat.is_some(),
             self.channels_config.qq.is_some(),
+            self.channels_config.acp.is_some(),
             self.channels_config.nostr.is_some(),
             self.channels_config.clawdtalk.is_some(),
         ]
@@ -4047,6 +4048,8 @@ impl<T: ChannelConfig> crate::config::traits::ConfigHandle for ConfigWrapper<T> 
 pub struct ChannelsConfig {
     /// Enable the CLI interactive channel. Default: `true`.
     pub cli: bool,
+    /// ACP (Agent Client Protocol) channel configuration.
+    pub acp: Option<AcpConfig>,
     /// Telegram bot channel configuration.
     pub telegram: Option<TelegramConfig>,
     /// Discord bot channel configuration.
@@ -4189,6 +4192,10 @@ impl ChannelsConfig {
                 self.nostr.is_some(),
             ),
             (
+                Box::new(ConfigWrapper::new(self.acp.as_ref())),
+                self.acp.is_some(),
+            ),
+            (
                 Box::new(ConfigWrapper::new(self.clawdtalk.as_ref())),
                 self.clawdtalk.is_some(),
             ),
@@ -4213,6 +4220,7 @@ impl Default for ChannelsConfig {
     fn default() -> Self {
         Self {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,
@@ -7048,6 +7056,10 @@ impl Config {
     /// Called after TOML deserialization and env-override application to catch
     /// obviously invalid values early instead of failing at arbitrary runtime points.
     pub fn validate(&self) -> Result<()> {
+        if let Some(acp) = &self.channels_config.acp {
+            acp.validate()?;
+        }
+
         // Gateway
         if self.gateway.host.trim().is_empty() {
             anyhow::bail!("gateway.host must not be empty");
@@ -8485,6 +8497,60 @@ fn sync_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// ACP (Agent Client Protocol) channel configuration.
+///
+/// Enables ZeroClaw to act as an ACP client, connecting to an OpenCode ACP server
+/// via `opencode acp` command for JSON-RPC 2.0 communication over stdio.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AcpConfig {
+    /// OpenCode binary path (default: "opencode").
+    #[serde(default = "default_acp_opencode_path")]
+    pub opencode_path: Option<String>,
+    /// Working directory for OpenCode process.
+    pub workdir: Option<String>,
+    /// Additional arguments to pass to `opencode acp`.
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Allowed user identifiers (empty = deny all, "*" = allow all).
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+fn default_acp_opencode_path() -> Option<String> {
+    Some("opencode".to_string())
+}
+
+impl AcpConfig {
+    fn validate(&self) -> Result<()> {
+        if self
+            .opencode_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.opencode_path must not be empty when set");
+        }
+
+        if self
+            .workdir
+            .as_deref()
+            .is_some_and(|dir| dir.trim().is_empty())
+        {
+            anyhow::bail!("channels_config.acp.workdir must not be empty when set");
+        }
+
+        Ok(())
+    }
+}
+
+impl ChannelConfig for AcpConfig {
+    fn name() -> &'static str {
+        "ACP"
+    }
+
+    fn desc() -> &'static str {
+        "Agent Client Protocol channel for OpenCode integration"
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -8996,6 +9062,7 @@ ws_url = "ws://127.0.0.1:3002"
             goal_loop: GoalLoopConfig::default(),
             channels_config: ChannelsConfig {
                 cli: true,
+                acp: None,
                 telegram: Some(TelegramConfig {
                     bot_token: "123:ABC".into(),
                     allowed_users: vec!["user1".into()],
@@ -9929,6 +9996,7 @@ allowed_users = ["@ops:matrix.org"]
     async fn channels_config_with_imessage_and_matrix() {
         let c = ChannelsConfig {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,
@@ -10210,6 +10278,7 @@ channel_id = "C123"
     async fn channels_config_with_whatsapp() {
         let c = ChannelsConfig {
             cli: true,
+            acp: None,
             telegram: None,
             discord: None,
             slack: None,

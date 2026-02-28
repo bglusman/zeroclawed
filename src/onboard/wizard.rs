@@ -381,7 +381,7 @@ fn apply_provider_update(
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
+/// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|cortex-mem`.
 /// Use `zeroclaw onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -8327,8 +8327,9 @@ mod tests {
     fn backend_key_from_choice_maps_supported_backends() {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
+        assert_eq!(backend_key_from_choice(2), "cortex-mem");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
@@ -8339,6 +8340,12 @@ mod tests {
         assert!(lucid.uses_sqlite_hygiene);
         assert!(lucid.sqlite_based);
         assert!(lucid.optional_dependency);
+
+        let cortex_mem = memory_backend_profile("cortex-mem");
+        assert!(cortex_mem.auto_save_default);
+        assert!(cortex_mem.uses_sqlite_hygiene);
+        assert!(cortex_mem.sqlite_based);
+        assert!(cortex_mem.optional_dependency);
 
         let markdown = memory_backend_profile("markdown");
         assert!(markdown.auto_save_default);

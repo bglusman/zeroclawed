@@ -15,6 +15,7 @@
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
 pub mod clawdtalk;
+pub mod acp;
 pub mod cli;
 pub mod dingtalk;
 pub mod discord;
@@ -44,6 +45,7 @@ pub mod whatsapp_storage;
 #[cfg(feature = "whatsapp-web")]
 pub mod whatsapp_web;
 
+pub use acp::AcpChannel;
 pub use clawdtalk::ClawdTalkChannel;
 pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
@@ -343,6 +345,10 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
         Some(tid) => format!("{}_{}_{}_{}", msg.channel, tid, msg.sender, msg.id),
         None => format!("{}_{}_{}", msg.channel, msg.sender, msg.id),
     }
+}
+
+fn assistant_memory_key(msg: &traits::ChannelMessage) -> String {
+    format!("assistant_resp_{}", conversation_memory_key(msg))
 }
 
 fn conversation_history_key(msg: &traits::ChannelMessage) -> String {
@@ -3745,24 +3751,19 @@ or tune thresholds in config.",
                 &history_key,
                 ChatMessage::assistant(&history_response),
             );
-            if let Some(session) = session.as_ref() {
-                let latest = {
-                    let histories = ctx
-                        .conversation_histories
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
-                    histories.get(&history_key).cloned().unwrap_or_default()
-                };
-                let filtered: Vec<ChatMessage> = latest
-                    .into_iter()
-                    .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
-                    .collect();
-                let saved_len = filtered.len();
-                if let Err(err) = session.update_history(filtered).await {
-                    tracing::warn!("Failed to update session history: {err}");
-                } else {
-                    tracing::debug!(saved_len, "session history saved");
-                }
+            if ctx.auto_save_memory
+                && delivered_response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+            {
+                let assistant_key = assistant_memory_key(&msg);
+                let _ = ctx
+                    .memory
+                    .store(
+                        &assistant_key,
+                        &delivered_response,
+                        crate::memory::MemoryCategory::Conversation,
+                        None,
+                    )
+                    .await;
             }
             println!(
                 "  🤖 Reply ({}ms): {}",
@@ -4995,6 +4996,12 @@ fn collect_configured_channels(
         });
     }
 
+    if let Some(ref acp) = config.channels_config.acp {
+        channels.push(ConfiguredChannel {
+            display_name: "ACP",
+            channel: Arc::new(AcpChannel::new(acp.clone())),
+        });
+    }
     channels
 }
 
@@ -10286,6 +10293,26 @@ BTC is currently around $65,000 based on latest tool output."#
             conversation_memory_key(&msg1),
             conversation_memory_key(&msg2)
         );
+    }
+
+    #[test]
+    fn assistant_memory_key_is_namespaced_from_user_key() {
+        let msg = traits::ChannelMessage {
+            id: "msg_abc123".into(),
+            sender: "U123".into(),
+            reply_target: "C456".into(),
+            content: "hello".into(),
+            channel: "slack".into(),
+            timestamp: 1,
+            thread_ts: None,
+        };
+
+        let user_key = conversation_memory_key(&msg);
+        let assistant_key = assistant_memory_key(&msg);
+
+        assert!(assistant_key.starts_with("assistant_resp_"));
+        assert!(assistant_key.ends_with(&user_key));
+        assert_ne!(assistant_key, user_key);
     }
 
     #[test]
