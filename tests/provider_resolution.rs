@@ -342,6 +342,8 @@ fn factory_resolves_volcengine_provider() {
 #[test]
 fn factory_resolves_siliconflow_provider() {
     assert_provider_ok("siliconflow", Some("test-key"), None);
+    assert_provider_ok("silicon-cloud", Some("test-key"), None);
+    assert_provider_ok("siliconcloud", Some("test-key"), None);
 }
 
 #[test]

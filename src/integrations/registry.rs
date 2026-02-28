@@ -1026,8 +1026,20 @@ mod tests {
             IntegrationStatus::Active
         ));
 
+        config.default_provider = Some("volcengine".to_string());
+        assert!(matches!(
+            (volcengine.status_fn)(&config),
+            IntegrationStatus::Active
+        ));
+
         config.default_provider = Some("siliconflow".to_string());
         let siliconflow = entries.iter().find(|e| e.name == "SiliconFlow").unwrap();
+        assert!(matches!(
+            (siliconflow.status_fn)(&config),
+            IntegrationStatus::Active
+        ));
+
+        config.default_provider = Some("silicon-cloud".to_string());
         assert!(matches!(
             (siliconflow.status_fn)(&config),
             IntegrationStatus::Active

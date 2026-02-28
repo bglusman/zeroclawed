@@ -7546,6 +7546,23 @@ mod tests {
     }
 
     #[test]
+    fn curated_models_for_volcengine_and_siliconflow_include_expected_defaults() {
+        let volcengine_ids: Vec<String> = curated_models_for_provider("volcengine")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert!(volcengine_ids.contains(&"doubao-1-5-pro-32k-250115".to_string()));
+        assert!(volcengine_ids.contains(&"doubao-seed-1-6-250615".to_string()));
+
+        let siliconflow_ids: Vec<String> = curated_models_for_provider("siliconflow")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert!(siliconflow_ids.contains(&"Pro/zai-org/GLM-4.7".to_string()));
+        assert!(siliconflow_ids.contains(&"Pro/deepseek-ai/DeepSeek-V3.2".to_string()));
+    }
+
+    #[test]
     fn supports_live_model_fetch_for_supported_and_unsupported_providers() {
         assert!(supports_live_model_fetch("openai"));
         assert!(supports_live_model_fetch("anthropic"));
@@ -7567,7 +7584,10 @@ mod tests {
         assert!(supports_live_model_fetch("qwen-intl"));
         assert!(supports_live_model_fetch("qwen-coding-plan"));
         assert!(supports_live_model_fetch("siliconflow"));
+        assert!(supports_live_model_fetch("silicon-cloud"));
         assert!(supports_live_model_fetch("volcengine"));
+        assert!(supports_live_model_fetch("doubao"));
+        assert!(supports_live_model_fetch("ark"));
         assert!(!supports_live_model_fetch("minimax-cn"));
         assert!(!supports_live_model_fetch("unknown-provider"));
     }
@@ -7626,6 +7646,22 @@ mod tests {
             curated_models_for_provider("bedrock"),
             curated_models_for_provider("aws-bedrock")
         );
+        assert_eq!(
+            curated_models_for_provider("volcengine"),
+            curated_models_for_provider("doubao")
+        );
+        assert_eq!(
+            curated_models_for_provider("volcengine"),
+            curated_models_for_provider("ark")
+        );
+        assert_eq!(
+            curated_models_for_provider("siliconflow"),
+            curated_models_for_provider("silicon-cloud")
+        );
+        assert_eq!(
+            curated_models_for_provider("siliconflow"),
+            curated_models_for_provider("siliconcloud")
+        );
     }
 
     #[test]
@@ -7662,6 +7698,14 @@ mod tests {
             models_endpoint_for_provider("volcengine"),
             Some("https://ark.cn-beijing.volces.com/api/v3/models")
         );
+        assert_eq!(
+            models_endpoint_for_provider("doubao"),
+            Some("https://ark.cn-beijing.volces.com/api/v3/models")
+        );
+        assert_eq!(
+            models_endpoint_for_provider("ark"),
+            Some("https://ark.cn-beijing.volces.com/api/v3/models")
+        );
     }
 
     #[test]
@@ -7684,6 +7728,10 @@ mod tests {
         );
         assert_eq!(
             models_endpoint_for_provider("siliconflow"),
+            Some("https://api.siliconflow.cn/v1/models")
+        );
+        assert_eq!(
+            models_endpoint_for_provider("silicon-cloud"),
             Some("https://api.siliconflow.cn/v1/models")
         );
         assert_eq!(
@@ -7988,6 +8036,8 @@ mod tests {
         assert_eq!(provider_env_var("volcengine"), "ARK_API_KEY");
         assert_eq!(provider_env_var("ark"), "ARK_API_KEY");
         assert_eq!(provider_env_var("siliconflow"), "SILICONFLOW_API_KEY");
+        assert_eq!(provider_env_var("silicon-cloud"), "SILICONFLOW_API_KEY");
+        assert_eq!(provider_env_var("siliconcloud"), "SILICONFLOW_API_KEY");
         assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
         assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias
