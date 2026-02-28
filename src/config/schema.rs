@@ -1538,12 +1538,28 @@ pub struct BrowserConfig {
     /// Allowed domains for `browser_open` (exact or subdomain match)
     #[serde(default)]
     pub allowed_domains: Vec<String>,
+    /// Browser for browser_open tool: "disable" | "brave" | "chrome" | "firefox" | "edge" | "msedge" | "default"
+    #[serde(default = "default_browser_open")]
+    pub browser_open: String,
     /// Browser session name (for agent-browser automation)
     #[serde(default)]
     pub session_name: Option<String>,
     /// Browser automation backend: "agent_browser" | "rust_native" | "computer_use" | "auto"
     #[serde(default = "default_browser_backend")]
     pub backend: String,
+    /// Auto backend priority order (only used when backend = "auto")
+    /// Supported values: "agent_browser", "rust_native", "computer_use"
+    #[serde(default)]
+    pub auto_backend_priority: Vec<String>,
+    /// Agent-browser executable path/name
+    #[serde(default = "default_agent_browser_command")]
+    pub agent_browser_command: String,
+    /// Additional arguments passed to agent-browser before each action command
+    #[serde(default)]
+    pub agent_browser_extra_args: Vec<String>,
+    /// Timeout in milliseconds for each agent-browser command invocation
+    #[serde(default = "default_agent_browser_timeout_ms")]
+    pub agent_browser_timeout_ms: u64,
     /// Headless mode for rust-native backend
     #[serde(default = "default_true")]
     pub native_headless: bool,
@@ -1562,6 +1578,18 @@ fn default_browser_backend() -> String {
     "agent_browser".into()
 }
 
+fn default_agent_browser_command() -> String {
+    "agent-browser".into()
+}
+
+fn default_agent_browser_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_browser_open() -> String {
+    "default".into()
+}
+
 fn default_browser_webdriver_url() -> String {
     "http://127.0.0.1:9515".into()
 }
@@ -1571,8 +1599,13 @@ impl Default for BrowserConfig {
         Self {
             enabled: false,
             allowed_domains: Vec::new(),
+            browser_open: default_browser_open(),
             session_name: None,
             backend: default_browser_backend(),
+            auto_backend_priority: Vec::new(),
+            agent_browser_command: default_agent_browser_command(),
+            agent_browser_extra_args: Vec::new(),
+            agent_browser_timeout_ms: default_agent_browser_timeout_ms(),
             native_headless: default_true(),
             native_webdriver_url: default_browser_webdriver_url(),
             native_chrome_path: None,
@@ -1701,7 +1734,8 @@ pub struct WebSearchConfig {
     /// Enable `web_search_tool` for web searches
     #[serde(default)]
     pub enabled: bool,
-    /// Search provider: "duckduckgo" (free, no API key), "brave", "firecrawl", or "tavily"
+    /// Search provider: "duckduckgo"/"ddg" (free, no API key), "brave", "firecrawl",
+    /// "tavily", "perplexity", "exa", or "jina"
     #[serde(default = "default_web_search_provider")]
     pub provider: String,
     /// Generic provider API key (used by firecrawl, tavily, and as fallback for brave).
@@ -1714,6 +1748,52 @@ pub struct WebSearchConfig {
     /// Brave Search API key (required if provider is "brave")
     #[serde(default)]
     pub brave_api_key: Option<String>,
+    /// Perplexity API key (used when provider is "perplexity")
+    #[serde(default)]
+    pub perplexity_api_key: Option<String>,
+    /// Exa API key (used when provider is "exa")
+    #[serde(default)]
+    pub exa_api_key: Option<String>,
+    /// Jina API key (optional; can raise limits for provider = "jina")
+    #[serde(default)]
+    pub jina_api_key: Option<String>,
+    /// Fallback providers attempted after primary provider fails.
+    /// Supported values: duckduckgo (or ddg), brave, firecrawl, tavily, perplexity, exa, jina
+    #[serde(default)]
+    pub fallback_providers: Vec<String>,
+    /// Retry count per provider before falling back to next provider
+    #[serde(default = "default_web_search_retries_per_provider")]
+    pub retries_per_provider: u32,
+    /// Retry backoff in milliseconds between provider retry attempts
+    #[serde(default = "default_web_search_retry_backoff_ms")]
+    pub retry_backoff_ms: u64,
+    /// Optional domain filter forwarded to providers that support it
+    #[serde(default)]
+    pub domain_filter: Vec<String>,
+    /// Optional language filter forwarded to providers that support it
+    #[serde(default)]
+    pub language_filter: Vec<String>,
+    /// Optional country filter forwarded to providers that support it (e.g. "US")
+    #[serde(default)]
+    pub country: Option<String>,
+    /// Optional recency filter forwarded to providers that support it
+    #[serde(default)]
+    pub recency_filter: Option<String>,
+    /// Optional max tokens cap used by provider-specific APIs (for example Perplexity)
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Optional per-result token cap used by provider-specific APIs
+    #[serde(default)]
+    pub max_tokens_per_page: Option<u32>,
+    /// Exa search type override: "auto" (default), "keyword", or "neural"
+    #[serde(default = "default_web_search_exa_search_type")]
+    pub exa_search_type: String,
+    /// Include textual content payloads for Exa search responses
+    #[serde(default)]
+    pub exa_include_text: bool,
+    /// Optional site filters for Jina search provider
+    #[serde(default)]
+    pub jina_site_filters: Vec<String>,
     /// Maximum results per search (1-10)
     #[serde(default = "default_web_search_max_results")]
     pub max_results: usize,
@@ -1737,6 +1817,81 @@ fn default_web_search_timeout_secs() -> u64 {
     15
 }
 
+fn default_web_search_retries_per_provider() -> u32 {
+    0
+}
+
+fn default_web_search_retry_backoff_ms() -> u64 {
+    250
+}
+
+fn default_web_search_exa_search_type() -> String {
+    "auto".into()
+}
+
+const BROWSER_OPEN_ALLOWED_VALUES: &[&str] = &[
+    "disable", "brave", "chrome", "firefox", "edge", "msedge", "default",
+];
+const BROWSER_BACKEND_ALLOWED_VALUES: &[&str] =
+    &["agent_browser", "rust_native", "computer_use", "auto"];
+const BROWSER_AUTO_BACKEND_ALLOWED_VALUES: &[&str] =
+    &["agent_browser", "rust_native", "computer_use"];
+const WEB_SEARCH_PROVIDER_ALLOWED_VALUES: &[&str] = &[
+    "duckduckgo",
+    "ddg",
+    "brave",
+    "firecrawl",
+    "tavily",
+    "perplexity",
+    "exa",
+    "jina",
+];
+const WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES: &[&str] = &["auto", "keyword", "neural"];
+
+fn normalize_browser_open_choice(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "disable" => Some("disable"),
+        "brave" => Some("brave"),
+        "chrome" => Some("chrome"),
+        "firefox" => Some("firefox"),
+        "edge" | "msedge" => Some("edge"),
+        "default" | "" => Some("default"),
+        _ => None,
+    }
+}
+
+fn normalize_browser_backend(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "agent_browser" | "agentbrowser" => Some("agent_browser"),
+        "rust_native" | "native" => Some("rust_native"),
+        "computer_use" | "computeruse" => Some("computer_use"),
+        "auto" => Some("auto"),
+        _ => None,
+    }
+}
+
+fn normalize_browser_auto_backend(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "agent_browser" | "agentbrowser" => Some("agent_browser"),
+        "rust_native" | "native" => Some("rust_native"),
+        "computer_use" | "computeruse" => Some("computer_use"),
+        _ => None,
+    }
+}
+
+fn normalize_web_search_provider(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "duckduckgo" | "ddg" => Some("duckduckgo"),
+        "brave" => Some("brave"),
+        "firecrawl" => Some("firecrawl"),
+        "tavily" => Some("tavily"),
+        "perplexity" => Some("perplexity"),
+        "exa" => Some("exa"),
+        "jina" => Some("jina"),
+        _ => None,
+    }
+}
+
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
@@ -1745,6 +1900,21 @@ impl Default for WebSearchConfig {
             api_key: None,
             api_url: None,
             brave_api_key: None,
+            perplexity_api_key: None,
+            exa_api_key: None,
+            jina_api_key: None,
+            fallback_providers: Vec::new(),
+            retries_per_provider: default_web_search_retries_per_provider(),
+            retry_backoff_ms: default_web_search_retry_backoff_ms(),
+            domain_filter: Vec::new(),
+            language_filter: Vec::new(),
+            country: None,
+            recency_filter: None,
+            max_tokens: None,
+            max_tokens_per_page: None,
+            exa_search_type: default_web_search_exa_search_type(),
+            exa_include_text: false,
+            jina_site_filters: Vec::new(),
             max_results: default_web_search_max_results(),
             timeout_secs: default_web_search_timeout_secs(),
             user_agent: default_user_agent(),
@@ -2813,6 +2983,8 @@ fn default_non_cli_excluded_tools() -> Vec<String> {
         "memory_store",
         "memory_forget",
         "proxy_config",
+        "web_search_config",
+        "web_access_config",
         "model_routing_config",
         "pushover",
         "composio",
@@ -4653,6 +4825,31 @@ pub struct UrlAccessConfig {
     /// Allow loopback host/IP access (`localhost`, `127.0.0.1`, `::1`).
     #[serde(default)]
     pub allow_loopback: bool,
+
+    /// Require explicit human confirmation before first-time access to an
+    /// unseen domain. Confirmed domains are persisted in `approved_domains`.
+    #[serde(default)]
+    pub require_first_visit_approval: bool,
+
+    /// Enforce a global domain allowlist in addition to per-tool allowlists.
+    /// When enabled, hosts must match `domain_allowlist`.
+    #[serde(default)]
+    pub enforce_domain_allowlist: bool,
+
+    /// Global trusted domain allowlist shared by all URL-based network tools.
+    /// Supports exact, `*.example.com`, and `*`.
+    #[serde(default)]
+    pub domain_allowlist: Vec<String>,
+
+    /// Global domain blocklist shared by all URL-based network tools.
+    /// Supports exact, `*.example.com`, and `*`. Takes priority over allowlists.
+    #[serde(default)]
+    pub domain_blocklist: Vec<String>,
+
+    /// Persisted first-visit approvals granted by a human operator.
+    /// Supports exact, `*.example.com`, and `*`.
+    #[serde(default)]
+    pub approved_domains: Vec<String>,
 }
 
 impl Default for UrlAccessConfig {
@@ -4662,6 +4859,11 @@ impl Default for UrlAccessConfig {
             allow_cidrs: Vec::new(),
             allow_domains: Vec::new(),
             allow_loopback: false,
+            require_first_visit_approval: false,
+            enforce_domain_allowlist: false,
+            domain_allowlist: Vec::new(),
+            domain_blocklist: Vec::new(),
+            approved_domains: Vec::new(),
         }
     }
 }
@@ -6172,6 +6374,21 @@ impl Config {
                 &mut config.web_search.brave_api_key,
                 "config.web_search.brave_api_key",
             )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.web_search.perplexity_api_key,
+                "config.web_search.perplexity_api_key",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.web_search.exa_api_key,
+                "config.web_search.exa_api_key",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.web_search.jina_api_key,
+                "config.web_search.jina_api_key",
+            )?;
 
             decrypt_optional_secret(
                 &store,
@@ -6504,6 +6721,46 @@ impl Config {
                 anyhow::bail!("security.url_access.allow_domains[{i}] must not contain whitespace");
             }
         }
+        for (i, domain) in self.security.url_access.domain_allowlist.iter().enumerate() {
+            let normalized = domain.trim();
+            if normalized.is_empty() {
+                anyhow::bail!("security.url_access.domain_allowlist[{i}] must not be empty");
+            }
+            if normalized.chars().any(char::is_whitespace) {
+                anyhow::bail!(
+                    "security.url_access.domain_allowlist[{i}] must not contain whitespace"
+                );
+            }
+        }
+        for (i, domain) in self.security.url_access.domain_blocklist.iter().enumerate() {
+            let normalized = domain.trim();
+            if normalized.is_empty() {
+                anyhow::bail!("security.url_access.domain_blocklist[{i}] must not be empty");
+            }
+            if normalized.chars().any(char::is_whitespace) {
+                anyhow::bail!(
+                    "security.url_access.domain_blocklist[{i}] must not contain whitespace"
+                );
+            }
+        }
+        for (i, domain) in self.security.url_access.approved_domains.iter().enumerate() {
+            let normalized = domain.trim();
+            if normalized.is_empty() {
+                anyhow::bail!("security.url_access.approved_domains[{i}] must not be empty");
+            }
+            if normalized.chars().any(char::is_whitespace) {
+                anyhow::bail!(
+                    "security.url_access.approved_domains[{i}] must not contain whitespace"
+                );
+            }
+        }
+        if self.security.url_access.enforce_domain_allowlist
+            && self.security.url_access.domain_allowlist.is_empty()
+        {
+            anyhow::bail!(
+                "security.url_access.enforce_domain_allowlist=true requires non-empty security.url_access.domain_allowlist"
+            );
+        }
         let built_in_roles = ["owner", "admin", "operator", "viewer", "guest"];
         let mut custom_role_names = std::collections::HashSet::new();
         for (i, role) in self.security.roles.iter().enumerate() {
@@ -6664,6 +6921,63 @@ impl Config {
             anyhow::bail!(
                 "security.perplexity_filter.symbol_ratio_threshold must be between 0.0 and 1.0"
             );
+        }
+
+        // Browser
+        if normalize_browser_open_choice(&self.browser.browser_open).is_none() {
+            anyhow::bail!(
+                "browser.browser_open must be one of: {}",
+                BROWSER_OPEN_ALLOWED_VALUES.join(", ")
+            );
+        }
+        if normalize_browser_backend(&self.browser.backend).is_none() {
+            anyhow::bail!(
+                "browser.backend must be one of: {}",
+                BROWSER_BACKEND_ALLOWED_VALUES.join(", ")
+            );
+        }
+        for (i, backend) in self.browser.auto_backend_priority.iter().enumerate() {
+            if normalize_browser_auto_backend(backend).is_none() {
+                anyhow::bail!(
+                    "browser.auto_backend_priority[{i}] must be one of: {}",
+                    BROWSER_AUTO_BACKEND_ALLOWED_VALUES.join(", ")
+                );
+            }
+        }
+
+        // Web search
+        if normalize_web_search_provider(&self.web_search.provider).is_none() {
+            anyhow::bail!(
+                "web_search.provider must be one of: {}",
+                WEB_SEARCH_PROVIDER_ALLOWED_VALUES.join(", ")
+            );
+        }
+        for (i, provider) in self.web_search.fallback_providers.iter().enumerate() {
+            if normalize_web_search_provider(provider).is_none() {
+                anyhow::bail!(
+                    "web_search.fallback_providers[{i}] must be one of: {}",
+                    WEB_SEARCH_PROVIDER_ALLOWED_VALUES.join(", ")
+                );
+            }
+        }
+        let exa_search_type = self.web_search.exa_search_type.trim().to_ascii_lowercase();
+        if !WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES.contains(&exa_search_type.as_str()) {
+            anyhow::bail!(
+                "web_search.exa_search_type must be one of: {}",
+                WEB_SEARCH_EXA_SEARCH_TYPE_ALLOWED_VALUES.join(", ")
+            );
+        }
+        if self.web_search.retries_per_provider > 5 {
+            anyhow::bail!("web_search.retries_per_provider must be between 0 and 5");
+        }
+        if self.web_search.retry_backoff_ms == 0 {
+            anyhow::bail!("web_search.retry_backoff_ms must be greater than 0");
+        }
+        if !(1..=10).contains(&self.web_search.max_results) {
+            anyhow::bail!("web_search.max_results must be between 1 and 10");
+        }
+        if self.web_search.timeout_secs == 0 {
+            anyhow::bail!("web_search.timeout_secs must be greater than 0");
         }
 
         // Scheduler
@@ -7095,6 +7409,36 @@ impl Config {
             }
         }
 
+        // Perplexity API key: ZEROCLAW_PERPLEXITY_API_KEY or PERPLEXITY_API_KEY
+        if let Ok(api_key) = std::env::var("ZEROCLAW_PERPLEXITY_API_KEY")
+            .or_else(|_| std::env::var("PERPLEXITY_API_KEY"))
+        {
+            let api_key = api_key.trim();
+            if !api_key.is_empty() {
+                self.web_search.perplexity_api_key = Some(api_key.to_string());
+            }
+        }
+
+        // Exa API key: ZEROCLAW_EXA_API_KEY or EXA_API_KEY
+        if let Ok(api_key) =
+            std::env::var("ZEROCLAW_EXA_API_KEY").or_else(|_| std::env::var("EXA_API_KEY"))
+        {
+            let api_key = api_key.trim();
+            if !api_key.is_empty() {
+                self.web_search.exa_api_key = Some(api_key.to_string());
+            }
+        }
+
+        // Jina API key: ZEROCLAW_JINA_API_KEY or JINA_API_KEY
+        if let Ok(api_key) =
+            std::env::var("ZEROCLAW_JINA_API_KEY").or_else(|_| std::env::var("JINA_API_KEY"))
+        {
+            let api_key = api_key.trim();
+            if !api_key.is_empty() {
+                self.web_search.jina_api_key = Some(api_key.to_string());
+            }
+        }
+
         // Web search max results: ZEROCLAW_WEB_SEARCH_MAX_RESULTS or WEB_SEARCH_MAX_RESULTS
         if let Ok(max_results) = std::env::var("ZEROCLAW_WEB_SEARCH_MAX_RESULTS")
             .or_else(|_| std::env::var("WEB_SEARCH_MAX_RESULTS"))
@@ -7106,6 +7450,138 @@ impl Config {
             }
         }
 
+        // Web search fallback providers (comma-separated)
+        if let Ok(fallbacks) = std::env::var("ZEROCLAW_WEB_SEARCH_FALLBACK_PROVIDERS")
+            .or_else(|_| std::env::var("WEB_SEARCH_FALLBACK_PROVIDERS"))
+        {
+            self.web_search.fallback_providers = fallbacks
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        // Web search retries per provider
+        if let Ok(retries) = std::env::var("ZEROCLAW_WEB_SEARCH_RETRIES_PER_PROVIDER")
+            .or_else(|_| std::env::var("WEB_SEARCH_RETRIES_PER_PROVIDER"))
+        {
+            if let Ok(retries) = retries.parse::<u32>() {
+                self.web_search.retries_per_provider = retries;
+            }
+        }
+
+        // Web search retry backoff (ms)
+        if let Ok(backoff_ms) = std::env::var("ZEROCLAW_WEB_SEARCH_RETRY_BACKOFF_MS")
+            .or_else(|_| std::env::var("WEB_SEARCH_RETRY_BACKOFF_MS"))
+        {
+            if let Ok(backoff_ms) = backoff_ms.parse::<u64>() {
+                if backoff_ms > 0 {
+                    self.web_search.retry_backoff_ms = backoff_ms;
+                }
+            }
+        }
+
+        // Web search domain filter
+        if let Ok(filters) = std::env::var("ZEROCLAW_WEB_SEARCH_DOMAIN_FILTER")
+            .or_else(|_| std::env::var("WEB_SEARCH_DOMAIN_FILTER"))
+        {
+            self.web_search.domain_filter = filters
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        // Web search language filter
+        if let Ok(filters) = std::env::var("ZEROCLAW_WEB_SEARCH_LANGUAGE_FILTER")
+            .or_else(|_| std::env::var("WEB_SEARCH_LANGUAGE_FILTER"))
+        {
+            self.web_search.language_filter = filters
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        // Web search country
+        if let Ok(country) = std::env::var("ZEROCLAW_WEB_SEARCH_COUNTRY")
+            .or_else(|_| std::env::var("WEB_SEARCH_COUNTRY"))
+        {
+            let country = country.trim();
+            self.web_search.country = if country.is_empty() {
+                None
+            } else {
+                Some(country.to_string())
+            };
+        }
+
+        // Web search recency filter
+        if let Ok(recency_filter) = std::env::var("ZEROCLAW_WEB_SEARCH_RECENCY_FILTER")
+            .or_else(|_| std::env::var("WEB_SEARCH_RECENCY_FILTER"))
+        {
+            let recency_filter = recency_filter.trim();
+            self.web_search.recency_filter = if recency_filter.is_empty() {
+                None
+            } else {
+                Some(recency_filter.to_string())
+            };
+        }
+
+        // Web search max tokens
+        if let Ok(max_tokens) = std::env::var("ZEROCLAW_WEB_SEARCH_MAX_TOKENS")
+            .or_else(|_| std::env::var("WEB_SEARCH_MAX_TOKENS"))
+        {
+            if let Ok(max_tokens) = max_tokens.parse::<u32>() {
+                if max_tokens > 0 {
+                    self.web_search.max_tokens = Some(max_tokens);
+                }
+            }
+        }
+
+        // Web search max tokens per page
+        if let Ok(max_tokens_per_page) = std::env::var("ZEROCLAW_WEB_SEARCH_MAX_TOKENS_PER_PAGE")
+            .or_else(|_| std::env::var("WEB_SEARCH_MAX_TOKENS_PER_PAGE"))
+        {
+            if let Ok(max_tokens_per_page) = max_tokens_per_page.parse::<u32>() {
+                if max_tokens_per_page > 0 {
+                    self.web_search.max_tokens_per_page = Some(max_tokens_per_page);
+                }
+            }
+        }
+
+        // Exa search type
+        if let Ok(search_type) = std::env::var("ZEROCLAW_WEB_SEARCH_EXA_SEARCH_TYPE")
+            .or_else(|_| std::env::var("WEB_SEARCH_EXA_SEARCH_TYPE"))
+        {
+            let search_type = search_type.trim();
+            if !search_type.is_empty() {
+                self.web_search.exa_search_type = search_type.to_string();
+            }
+        }
+
+        // Exa include text
+        if let Ok(include_text) = std::env::var("ZEROCLAW_WEB_SEARCH_EXA_INCLUDE_TEXT")
+            .or_else(|_| std::env::var("WEB_SEARCH_EXA_INCLUDE_TEXT"))
+        {
+            self.web_search.exa_include_text =
+                include_text == "1" || include_text.eq_ignore_ascii_case("true");
+        }
+
+        // Jina site filters
+        if let Ok(filters) = std::env::var("ZEROCLAW_WEB_SEARCH_JINA_SITE_FILTERS")
+            .or_else(|_| std::env::var("WEB_SEARCH_JINA_SITE_FILTERS"))
+        {
+            self.web_search.jina_site_filters = filters
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
         // Web search timeout: ZEROCLAW_WEB_SEARCH_TIMEOUT_SECS or WEB_SEARCH_TIMEOUT_SECS
         if let Ok(timeout_secs) = std::env::var("ZEROCLAW_WEB_SEARCH_TIMEOUT_SECS")
             .or_else(|_| std::env::var("WEB_SEARCH_TIMEOUT_SECS"))
@@ -7115,6 +7591,114 @@ impl Config {
                     self.web_search.timeout_secs = timeout_secs;
                 }
             }
+        }
+
+        // Shared URL-access policy toggles and lists
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_BLOCK_PRIVATE_IP")
+            .or_else(|_| std::env::var("URL_ACCESS_BLOCK_PRIVATE_IP"))
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.security.url_access.block_private_ip = true,
+                "0" | "false" | "no" | "off" => self.security.url_access.block_private_ip = false,
+                _ => {}
+            }
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_ALLOW_LOOPBACK")
+            .or_else(|_| std::env::var("URL_ACCESS_ALLOW_LOOPBACK"))
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => self.security.url_access.allow_loopback = true,
+                "0" | "false" | "no" | "off" => self.security.url_access.allow_loopback = false,
+                _ => {}
+            }
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL")
+            .or_else(|_| std::env::var("URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL"))
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => {
+                    self.security.url_access.require_first_visit_approval = true
+                }
+                "0" | "false" | "no" | "off" => {
+                    self.security.url_access.require_first_visit_approval = false
+                }
+                _ => {}
+            }
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST")
+            .or_else(|_| std::env::var("URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST"))
+        {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "1" | "true" | "yes" | "on" => {
+                    self.security.url_access.enforce_domain_allowlist = true
+                }
+                "0" | "false" | "no" | "off" => {
+                    self.security.url_access.enforce_domain_allowlist = false
+                }
+                _ => {}
+            }
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_ALLOW_CIDRS")
+            .or_else(|_| std::env::var("URL_ACCESS_ALLOW_CIDRS"))
+        {
+            self.security.url_access.allow_cidrs = value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_ALLOW_DOMAINS")
+            .or_else(|_| std::env::var("URL_ACCESS_ALLOW_DOMAINS"))
+        {
+            self.security.url_access.allow_domains = value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_DOMAIN_ALLOWLIST")
+            .or_else(|_| std::env::var("URL_ACCESS_DOMAIN_ALLOWLIST"))
+        {
+            self.security.url_access.domain_allowlist = value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_DOMAIN_BLOCKLIST")
+            .or_else(|_| std::env::var("URL_ACCESS_DOMAIN_BLOCKLIST"))
+        {
+            self.security.url_access.domain_blocklist = value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+
+        if let Ok(value) = std::env::var("ZEROCLAW_URL_ACCESS_APPROVED_DOMAINS")
+            .or_else(|_| std::env::var("URL_ACCESS_APPROVED_DOMAINS"))
+        {
+            self.security.url_access.approved_domains = value
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
         }
 
         // Storage provider key (optional backend override): ZEROCLAW_STORAGE_PROVIDER
@@ -7257,6 +7841,21 @@ impl Config {
             &store,
             &mut config_to_save.web_search.brave_api_key,
             "config.web_search.brave_api_key",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.web_search.perplexity_api_key,
+            "config.web_search.perplexity_api_key",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.web_search.exa_api_key,
+            "config.web_search.exa_api_key",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.web_search.jina_api_key,
+            "config.web_search.jina_api_key",
         )?;
 
         encrypt_optional_secret(
@@ -8328,6 +8927,9 @@ tool_dispatcher = "xml"
         config.proxy.all_proxy = Some("socks5://user:pass@proxy.internal:1080".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
         config.web_search.brave_api_key = Some("brave-credential".into());
+        config.web_search.perplexity_api_key = Some("perplexity-credential".into());
+        config.web_search.exa_api_key = Some("exa-credential".into());
+        config.web_search.jina_api_key = Some("jina-credential".into());
         config.storage.provider.config.db_url = Some("postgres://user:pw@host/db".into());
         config.reliability.api_keys = vec!["backup-credential".into()];
         config.gateway.paired_tokens = vec!["zc_0123456789abcdef".into()];
@@ -8429,6 +9031,20 @@ tool_dispatcher = "xml"
             store.decrypt(web_search_encrypted).unwrap(),
             "brave-credential"
         );
+        let perplexity_encrypted = stored.web_search.perplexity_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            perplexity_encrypted
+        ));
+        assert_eq!(
+            store.decrypt(perplexity_encrypted).unwrap(),
+            "perplexity-credential"
+        );
+        let exa_encrypted = stored.web_search.exa_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(exa_encrypted));
+        assert_eq!(store.decrypt(exa_encrypted).unwrap(), "exa-credential");
+        let jina_encrypted = stored.web_search.jina_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(jina_encrypted));
+        assert_eq!(store.decrypt(jina_encrypted).unwrap(), "jina-credential");
 
         let worker = stored.agents.get("worker").unwrap();
         let worker_encrypted = worker.api_key.as_deref().unwrap();
@@ -9341,6 +9957,10 @@ default_temperature = 0.7
         assert!(!b.enabled);
         assert!(b.allowed_domains.is_empty());
         assert_eq!(b.backend, "agent_browser");
+        assert!(b.auto_backend_priority.is_empty());
+        assert_eq!(b.agent_browser_command, "agent-browser");
+        assert!(b.agent_browser_extra_args.is_empty());
+        assert_eq!(b.agent_browser_timeout_ms, 30_000);
         assert!(b.native_headless);
         assert_eq!(b.native_webdriver_url, "http://127.0.0.1:9515");
         assert!(b.native_chrome_path.is_none());
@@ -9357,8 +9977,13 @@ default_temperature = 0.7
         let b = BrowserConfig {
             enabled: true,
             allowed_domains: vec!["example.com".into(), "docs.example.com".into()],
+            browser_open: "chrome".into(),
             session_name: None,
             backend: "auto".into(),
+            auto_backend_priority: vec!["rust_native".into(), "agent_browser".into()],
+            agent_browser_command: "/usr/local/bin/agent-browser".into(),
+            agent_browser_extra_args: vec!["--sandbox".into(), "--trace".into()],
+            agent_browser_timeout_ms: 45_000,
             native_headless: false,
             native_webdriver_url: "http://localhost:4444".into(),
             native_chrome_path: Some("/usr/bin/chromium".into()),
@@ -9378,6 +10003,16 @@ default_temperature = 0.7
         assert_eq!(parsed.allowed_domains.len(), 2);
         assert_eq!(parsed.allowed_domains[0], "example.com");
         assert_eq!(parsed.backend, "auto");
+        assert_eq!(
+            parsed.auto_backend_priority,
+            vec!["rust_native".to_string(), "agent_browser".to_string()]
+        );
+        assert_eq!(parsed.agent_browser_command, "/usr/local/bin/agent-browser");
+        assert_eq!(
+            parsed.agent_browser_extra_args,
+            vec!["--sandbox".to_string(), "--trace".to_string()]
+        );
+        assert_eq!(parsed.agent_browser_timeout_ms, 45_000);
         assert!(!parsed.native_headless);
         assert_eq!(parsed.native_webdriver_url, "http://localhost:4444");
         assert_eq!(
@@ -9406,6 +10041,130 @@ default_temperature = 0.7
         let parsed: Config = toml::from_str(minimal).unwrap();
         assert!(!parsed.browser.enabled);
         assert!(parsed.browser.allowed_domains.is_empty());
+    }
+
+    #[test]
+    async fn web_search_config_default_extended_fields() {
+        let ws = WebSearchConfig::default();
+        assert_eq!(ws.provider, "duckduckgo");
+        assert!(ws.fallback_providers.is_empty());
+        assert_eq!(ws.retries_per_provider, 0);
+        assert_eq!(ws.retry_backoff_ms, 250);
+        assert!(ws.domain_filter.is_empty());
+        assert!(ws.language_filter.is_empty());
+        assert!(ws.country.is_none());
+        assert!(ws.recency_filter.is_none());
+        assert!(ws.max_tokens.is_none());
+        assert!(ws.max_tokens_per_page.is_none());
+        assert_eq!(ws.exa_search_type, "auto");
+        assert!(!ws.exa_include_text);
+        assert!(ws.jina_site_filters.is_empty());
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_browser_open_value() {
+        let mut config = Config::default();
+        config.browser.browser_open = "safari".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.browser_open validation failure");
+        assert!(error.to_string().contains("browser.browser_open"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_browser_backend_value() {
+        let mut config = Config::default();
+        config.browser.backend = "playwright".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.backend validation failure");
+        assert!(error.to_string().contains("browser.backend"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_invalid_auto_backend_priority_value() {
+        let mut config = Config::default();
+        config.browser.backend = "auto".into();
+        config.browser.auto_backend_priority = vec!["auto".into()];
+
+        let error = config
+            .validate()
+            .expect_err("expected browser.auto_backend_priority validation failure");
+        assert!(error
+            .to_string()
+            .contains("browser.auto_backend_priority[0]"));
+    }
+
+    #[test]
+    async fn config_validate_accepts_web_search_ddg_alias() {
+        let mut config = Config::default();
+        config.web_search.provider = "ddg".into();
+        config.web_search.fallback_providers = vec!["jina".into()];
+
+        config
+            .validate()
+            .expect("ddg alias should be accepted for web_search.provider");
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_web_search_provider() {
+        let mut config = Config::default();
+        config.web_search.provider = "serpapi".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.provider validation failure");
+        assert!(error.to_string().contains("web_search.provider"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_unknown_web_search_fallback_provider() {
+        let mut config = Config::default();
+        config.web_search.fallback_providers = vec!["serpapi".into()];
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.fallback_providers validation failure");
+        assert!(error
+            .to_string()
+            .contains("web_search.fallback_providers[0]"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_invalid_web_search_exa_search_type() {
+        let mut config = Config::default();
+        config.web_search.exa_search_type = "semantic".into();
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.exa_search_type validation failure");
+        assert!(error.to_string().contains("web_search.exa_search_type"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_web_search_out_of_range_values() {
+        let mut config = Config::default();
+        config.web_search.max_results = 11;
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.max_results validation failure");
+        assert!(error.to_string().contains("web_search.max_results"));
+    }
+
+    #[test]
+    async fn config_validate_rejects_web_search_excessive_retries() {
+        let mut config = Config::default();
+        config.web_search.retries_per_provider = 6;
+
+        let error = config
+            .validate()
+            .expect_err("expected web_search.retries_per_provider validation failure");
+        assert!(error
+            .to_string()
+            .contains("web_search.retries_per_provider"));
     }
 
     // ── Environment variable overrides (Docker support) ─────────
@@ -10450,7 +11209,22 @@ default_model = "legacy-model"
         std::env::set_var("WEB_SEARCH_PROVIDER", "brave");
         std::env::set_var("WEB_SEARCH_MAX_RESULTS", "7");
         std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "20");
+        std::env::set_var("WEB_SEARCH_FALLBACK_PROVIDERS", "tavily,firecrawl");
+        std::env::set_var("WEB_SEARCH_RETRIES_PER_PROVIDER", "2");
+        std::env::set_var("WEB_SEARCH_RETRY_BACKOFF_MS", "400");
+        std::env::set_var("WEB_SEARCH_DOMAIN_FILTER", "docs.rs,github.com");
+        std::env::set_var("WEB_SEARCH_LANGUAGE_FILTER", "en,zh");
+        std::env::set_var("WEB_SEARCH_COUNTRY", "US");
+        std::env::set_var("WEB_SEARCH_RECENCY_FILTER", "day");
+        std::env::set_var("WEB_SEARCH_MAX_TOKENS", "4096");
+        std::env::set_var("WEB_SEARCH_MAX_TOKENS_PER_PAGE", "1024");
+        std::env::set_var("WEB_SEARCH_EXA_SEARCH_TYPE", "neural");
+        std::env::set_var("WEB_SEARCH_EXA_INCLUDE_TEXT", "true");
+        std::env::set_var("WEB_SEARCH_JINA_SITE_FILTERS", "arxiv.org,openai.com");
         std::env::set_var("BRAVE_API_KEY", "brave-test-key");
+        std::env::set_var("PERPLEXITY_API_KEY", "perplexity-test-key");
+        std::env::set_var("EXA_API_KEY", "exa-test-key");
+        std::env::set_var("JINA_API_KEY", "jina-test-key");
 
         config.apply_env_overrides();
 
@@ -10459,15 +11233,66 @@ default_model = "legacy-model"
         assert_eq!(config.web_search.max_results, 7);
         assert_eq!(config.web_search.timeout_secs, 20);
         assert_eq!(
+            config.web_search.fallback_providers,
+            vec!["tavily".to_string(), "firecrawl".to_string()]
+        );
+        assert_eq!(config.web_search.retries_per_provider, 2);
+        assert_eq!(config.web_search.retry_backoff_ms, 400);
+        assert_eq!(
+            config.web_search.domain_filter,
+            vec!["docs.rs".to_string(), "github.com".to_string()]
+        );
+        assert_eq!(
+            config.web_search.language_filter,
+            vec!["en".to_string(), "zh".to_string()]
+        );
+        assert_eq!(config.web_search.country.as_deref(), Some("US"));
+        assert_eq!(config.web_search.recency_filter.as_deref(), Some("day"));
+        assert_eq!(config.web_search.max_tokens, Some(4096));
+        assert_eq!(config.web_search.max_tokens_per_page, Some(1024));
+        assert_eq!(config.web_search.exa_search_type, "neural");
+        assert!(config.web_search.exa_include_text);
+        assert_eq!(
+            config.web_search.jina_site_filters,
+            vec!["arxiv.org".to_string(), "openai.com".to_string()]
+        );
+        assert_eq!(
             config.web_search.brave_api_key.as_deref(),
             Some("brave-test-key")
+        );
+        assert_eq!(
+            config.web_search.perplexity_api_key.as_deref(),
+            Some("perplexity-test-key")
+        );
+        assert_eq!(
+            config.web_search.exa_api_key.as_deref(),
+            Some("exa-test-key")
+        );
+        assert_eq!(
+            config.web_search.jina_api_key.as_deref(),
+            Some("jina-test-key")
         );
 
         std::env::remove_var("WEB_SEARCH_ENABLED");
         std::env::remove_var("WEB_SEARCH_PROVIDER");
         std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
         std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+        std::env::remove_var("WEB_SEARCH_FALLBACK_PROVIDERS");
+        std::env::remove_var("WEB_SEARCH_RETRIES_PER_PROVIDER");
+        std::env::remove_var("WEB_SEARCH_RETRY_BACKOFF_MS");
+        std::env::remove_var("WEB_SEARCH_DOMAIN_FILTER");
+        std::env::remove_var("WEB_SEARCH_LANGUAGE_FILTER");
+        std::env::remove_var("WEB_SEARCH_COUNTRY");
+        std::env::remove_var("WEB_SEARCH_RECENCY_FILTER");
+        std::env::remove_var("WEB_SEARCH_MAX_TOKENS");
+        std::env::remove_var("WEB_SEARCH_MAX_TOKENS_PER_PAGE");
+        std::env::remove_var("WEB_SEARCH_EXA_SEARCH_TYPE");
+        std::env::remove_var("WEB_SEARCH_EXA_INCLUDE_TEXT");
+        std::env::remove_var("WEB_SEARCH_JINA_SITE_FILTERS");
         std::env::remove_var("BRAVE_API_KEY");
+        std::env::remove_var("PERPLEXITY_API_KEY");
+        std::env::remove_var("EXA_API_KEY");
+        std::env::remove_var("JINA_API_KEY");
     }
 
     #[test]
@@ -10487,6 +11312,44 @@ default_model = "legacy-model"
 
         std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
         std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+    }
+
+    #[test]
+    async fn env_override_url_access_policy() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+
+        std::env::set_var("URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL", "true");
+        std::env::set_var("URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST", "1");
+        std::env::set_var("URL_ACCESS_DOMAIN_ALLOWLIST", "docs.rs,github.com");
+        std::env::set_var(
+            "URL_ACCESS_DOMAIN_BLOCKLIST",
+            "evil.example,*.tracking.local",
+        );
+        std::env::set_var("URL_ACCESS_APPROVED_DOMAINS", "rust-lang.org");
+
+        config.apply_env_overrides();
+
+        assert!(config.security.url_access.require_first_visit_approval);
+        assert!(config.security.url_access.enforce_domain_allowlist);
+        assert_eq!(
+            config.security.url_access.domain_allowlist,
+            vec!["docs.rs".to_string(), "github.com".to_string()]
+        );
+        assert_eq!(
+            config.security.url_access.domain_blocklist,
+            vec!["evil.example".to_string(), "*.tracking.local".to_string()]
+        );
+        assert_eq!(
+            config.security.url_access.approved_domains,
+            vec!["rust-lang.org".to_string()]
+        );
+
+        std::env::remove_var("URL_ACCESS_REQUIRE_FIRST_VISIT_APPROVAL");
+        std::env::remove_var("URL_ACCESS_ENFORCE_DOMAIN_ALLOWLIST");
+        std::env::remove_var("URL_ACCESS_DOMAIN_ALLOWLIST");
+        std::env::remove_var("URL_ACCESS_DOMAIN_BLOCKLIST");
+        std::env::remove_var("URL_ACCESS_APPROVED_DOMAINS");
     }
 
     #[test]
@@ -11113,6 +11976,11 @@ default_temperature = 0.7
         assert!(parsed.security.url_access.allow_cidrs.is_empty());
         assert!(parsed.security.url_access.allow_domains.is_empty());
         assert!(!parsed.security.url_access.allow_loopback);
+        assert!(!parsed.security.url_access.require_first_visit_approval);
+        assert!(!parsed.security.url_access.enforce_domain_allowlist);
+        assert!(parsed.security.url_access.domain_allowlist.is_empty());
+        assert!(parsed.security.url_access.domain_blocklist.is_empty());
+        assert!(parsed.security.url_access.approved_domains.is_empty());
         assert!(!parsed.security.perplexity_filter.enable_perplexity_filter);
     }
 
@@ -11234,6 +12102,54 @@ symbol_ratio_threshold = 0.25
         assert!(err
             .to_string()
             .contains("security.url_access.allow_domains"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_blank_url_access_domain_allowlist_entry() {
+        let mut config = Config::default();
+        config.security.url_access.domain_allowlist = vec!["  ".into()];
+        let err = config
+            .validate()
+            .expect_err("expected invalid URL domain_allowlist entry");
+        assert!(err
+            .to_string()
+            .contains("security.url_access.domain_allowlist"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_blank_url_access_domain_blocklist_entry() {
+        let mut config = Config::default();
+        config.security.url_access.domain_blocklist = vec!["  ".into()];
+        let err = config
+            .validate()
+            .expect_err("expected invalid URL domain_blocklist entry");
+        assert!(err
+            .to_string()
+            .contains("security.url_access.domain_blocklist"));
+    }
+
+    #[test]
+    async fn security_validation_rejects_blank_url_access_approved_domain_entry() {
+        let mut config = Config::default();
+        config.security.url_access.approved_domains = vec!["  ".into()];
+        let err = config
+            .validate()
+            .expect_err("expected invalid URL approved_domains entry");
+        assert!(err
+            .to_string()
+            .contains("security.url_access.approved_domains"));
+    }
+
+    #[test]
+    async fn security_validation_requires_allowlist_when_enforcement_enabled() {
+        let mut config = Config::default();
+        config.security.url_access.enforce_domain_allowlist = true;
+        let err = config
+            .validate()
+            .expect_err("expected allowlist enforcement validation failure");
+        assert!(err
+            .to_string()
+            .contains("security.url_access.enforce_domain_allowlist"));
     }
 
     #[test]

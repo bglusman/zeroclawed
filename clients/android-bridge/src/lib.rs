@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! ZeroClaw Android Bridge
 //!
 //! This crate provides UniFFI bindings for ZeroClaw to be used from Kotlin/Android.
