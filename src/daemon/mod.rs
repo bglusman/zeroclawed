@@ -245,7 +245,9 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
                             }
                         }
                     } else {
-                        tracing::debug!("Heartbeat returned NO_REPLY sentinel; skipping delivery");
+                        tracing::debug!(
+                            "Heartbeat returned sentinel (NO_REPLY/HEARTBEAT_OK); skipping delivery"
+                        );
                     }
                 }
                 Err(e) => {
@@ -258,13 +260,22 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
 }
 
 fn heartbeat_announcement_text(output: &str) -> Option<String> {
-    if crate::cron::scheduler::is_no_reply_sentinel(output) {
+    if crate::cron::scheduler::is_no_reply_sentinel(output) || is_heartbeat_ok_sentinel(output) {
         return None;
     }
     if output.trim().is_empty() {
         return Some("heartbeat task executed".to_string());
     }
     Some(output.to_string())
+}
+
+fn is_heartbeat_ok_sentinel(output: &str) -> bool {
+    const HEARTBEAT_OK: &str = "HEARTBEAT_OK";
+    output
+        .trim()
+        .get(..HEARTBEAT_OK.len())
+        .map(|prefix| prefix.eq_ignore_ascii_case(HEARTBEAT_OK))
+        .unwrap_or(false)
 }
 
 fn heartbeat_tasks_for_tick(
@@ -565,6 +576,16 @@ mod tests {
     #[test]
     fn heartbeat_announcement_text_skips_no_reply_sentinel() {
         assert!(heartbeat_announcement_text(" NO_reply ").is_none());
+    }
+
+    #[test]
+    fn heartbeat_announcement_text_skips_heartbeat_ok_sentinel() {
+        assert!(heartbeat_announcement_text(" heartbeat_ok ").is_none());
+    }
+
+    #[test]
+    fn heartbeat_announcement_text_skips_heartbeat_ok_prefix_case_insensitive() {
+        assert!(heartbeat_announcement_text(" heArTbEaT_oK - all clear ").is_none());
     }
 
     #[test]
