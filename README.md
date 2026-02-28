@@ -46,7 +46,7 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 </p>
 
 <p align="center">
-  <strong>Fast, small, and fully autonomous AI assistant infrastructure</strong><br />
+  <strong>Fast, small, and fully autonomous Operating System</strong><br />
   Deploy anywhere. Swap anything.
 </p>
 
