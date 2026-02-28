@@ -289,6 +289,20 @@ pub(crate) struct NonCliApprovalContext {
 tokio::task_local! {
     static TOOL_LOOP_NON_CLI_APPROVAL_CONTEXT: Option<NonCliApprovalContext>;
     static LOOP_DETECTION_CONFIG: LoopDetectionConfig;
+    static SAFETY_HEARTBEAT_CONFIG: Option<SafetyHeartbeatConfig>;
+}
+
+/// Configuration for periodic safety-constraint re-injection (heartbeat).
+#[derive(Clone)]
+pub(crate) struct SafetyHeartbeatConfig {
+    /// Pre-rendered security policy summary text.
+    pub body: String,
+    /// Inject a heartbeat every `interval` tool iterations (0 = disabled).
+    pub interval: usize,
+}
+
+fn should_inject_safety_heartbeat(counter: usize, interval: usize) -> bool {
+    interval > 0 && counter > 0 && counter % interval == 0
 }
 
 /// Extract a short hint from tool call arguments for progress display.
@@ -686,33 +700,37 @@ pub(crate) async fn run_tool_call_loop_with_non_cli_approval_context(
     on_delta: Option<tokio::sync::mpsc::Sender<String>>,
     hooks: Option<&crate::hooks::HookRunner>,
     excluded_tools: &[String],
+    safety_heartbeat: Option<SafetyHeartbeatConfig>,
 ) -> Result<String> {
     let reply_target = non_cli_approval_context
         .as_ref()
         .map(|ctx| ctx.reply_target.clone());
 
-    TOOL_LOOP_NON_CLI_APPROVAL_CONTEXT
+    SAFETY_HEARTBEAT_CONFIG
         .scope(
-            non_cli_approval_context,
-            TOOL_LOOP_REPLY_TARGET.scope(
-                reply_target,
-                run_tool_call_loop(
-                    provider,
-                    history,
-                    tools_registry,
-                    observer,
-                    provider_name,
-                    model,
-                    temperature,
-                    silent,
-                    approval,
-                    channel_name,
-                    multimodal_config,
-                    max_tool_iterations,
-                    cancellation_token,
-                    on_delta,
-                    hooks,
-                    excluded_tools,
+            safety_heartbeat,
+            TOOL_LOOP_NON_CLI_APPROVAL_CONTEXT.scope(
+                non_cli_approval_context,
+                TOOL_LOOP_REPLY_TARGET.scope(
+                    reply_target,
+                    run_tool_call_loop(
+                        provider,
+                        history,
+                        tools_registry,
+                        observer,
+                        provider_name,
+                        model,
+                        temperature,
+                        silent,
+                        approval,
+                        channel_name,
+                        multimodal_config,
+                        max_tool_iterations,
+                        cancellation_token,
+                        on_delta,
+                        hooks,
+                        excluded_tools,
+                    ),
                 ),
             ),
         )
@@ -787,6 +805,10 @@ pub(crate) async fn run_tool_call_loop(
         .unwrap_or_default();
     let mut loop_detector = LoopDetector::new(ld_config);
     let mut loop_detection_prompt: Option<String> = None;
+    let heartbeat_config = SAFETY_HEARTBEAT_CONFIG
+        .try_with(Clone::clone)
+        .ok()
+        .flatten();
     let bypass_non_cli_approval_for_turn =
         approval.is_some_and(|mgr| channel_name != "cli" && mgr.consume_non_cli_allow_all_once());
     if bypass_non_cli_approval_for_turn {
@@ -832,6 +854,19 @@ pub(crate) async fn run_tool_call_loop(
         }
         if let Some(prompt) = loop_detection_prompt.take() {
             request_messages.push(ChatMessage::user(prompt));
+        }
+
+        // ── Safety heartbeat: periodic security-constraint re-injection ──
+        if let Some(ref hb) = heartbeat_config {
+            if should_inject_safety_heartbeat(iteration, hb.interval) {
+                let reminder = format!(
+                    "[Safety Heartbeat — round {}/{}]\n{}",
+                    iteration + 1,
+                    max_iterations,
+                    hb.body
+                );
+                request_messages.push(ChatMessage::user(reminder));
+            }
         }
 
         // ── Progress: LLM thinking ────────────────────────────
@@ -2027,26 +2062,37 @@ pub async fn run(
             ping_pong_cycles: config.agent.loop_detection_ping_pong_cycles,
             failure_streak_threshold: config.agent.loop_detection_failure_streak,
         };
-        let response = LOOP_DETECTION_CONFIG
+        let hb_cfg = if config.agent.safety_heartbeat_interval > 0 {
+            Some(SafetyHeartbeatConfig {
+                body: security.summary_for_heartbeat(),
+                interval: config.agent.safety_heartbeat_interval,
+            })
+        } else {
+            None
+        };
+        let response = SAFETY_HEARTBEAT_CONFIG
             .scope(
-                ld_cfg,
-                run_tool_call_loop(
-                    provider.as_ref(),
-                    &mut history,
-                    &tools_registry,
-                    observer.as_ref(),
-                    provider_name,
-                    model_name,
-                    temperature,
-                    false,
-                    approval_manager.as_ref(),
-                    channel_name,
-                    &config.multimodal,
-                    config.agent.max_tool_iterations,
-                    None,
-                    None,
-                    None,
-                    &[],
+                hb_cfg,
+                LOOP_DETECTION_CONFIG.scope(
+                    ld_cfg,
+                    run_tool_call_loop(
+                        provider.as_ref(),
+                        &mut history,
+                        &tools_registry,
+                        observer.as_ref(),
+                        provider_name,
+                        model_name,
+                        temperature,
+                        false,
+                        approval_manager.as_ref(),
+                        channel_name,
+                        &config.multimodal,
+                        config.agent.max_tool_iterations,
+                        None,
+                        None,
+                        None,
+                        &[],
+                    ),
                 ),
             )
             .await?;
@@ -2060,6 +2106,7 @@ pub async fn run(
 
         // Persistent conversation history across turns
         let mut history = vec![ChatMessage::system(&system_prompt)];
+        let mut interactive_turn: usize = 0;
         // Reusable readline editor for UTF-8 input support
         let mut rl = Editor::with_config(
             RlConfig::builder()
@@ -2110,6 +2157,7 @@ pub async fn run(
                     rl.clear_history()?;
                     history.clear();
                     history.push(ChatMessage::system(&system_prompt));
+                    interactive_turn = 0;
                     // Clear conversation and daily memory
                     let mut cleared = 0;
                     for category in [MemoryCategory::Conversation, MemoryCategory::Daily] {
@@ -2155,32 +2203,57 @@ pub async fn run(
             };
 
             history.push(ChatMessage::user(&enriched));
+            interactive_turn += 1;
+
+            // Inject interactive safety heartbeat at configured turn intervals
+            if should_inject_safety_heartbeat(
+                interactive_turn,
+                config.agent.safety_heartbeat_turn_interval,
+            ) {
+                let reminder = format!(
+                    "[Safety Heartbeat — turn {}]\n{}",
+                    interactive_turn,
+                    security.summary_for_heartbeat()
+                );
+                history.push(ChatMessage::user(reminder));
+            }
 
             let ld_cfg = LoopDetectionConfig {
                 no_progress_threshold: config.agent.loop_detection_no_progress_threshold,
                 ping_pong_cycles: config.agent.loop_detection_ping_pong_cycles,
                 failure_streak_threshold: config.agent.loop_detection_failure_streak,
             };
-            let response = match LOOP_DETECTION_CONFIG
+            let hb_cfg = if config.agent.safety_heartbeat_interval > 0 {
+                Some(SafetyHeartbeatConfig {
+                    body: security.summary_for_heartbeat(),
+                    interval: config.agent.safety_heartbeat_interval,
+                })
+            } else {
+                None
+            };
+            let response = match SAFETY_HEARTBEAT_CONFIG
                 .scope(
-                    ld_cfg,
-                    run_tool_call_loop(
-                        provider.as_ref(),
-                        &mut history,
-                        &tools_registry,
-                        observer.as_ref(),
-                        provider_name,
-                        model_name,
-                        temperature,
-                        false,
-                        approval_manager.as_ref(),
-                        channel_name,
-                        &config.multimodal,
-                        config.agent.max_tool_iterations,
-                        None,
-                        None,
-                        None,
-                        &[],
+                    hb_cfg,
+                    LOOP_DETECTION_CONFIG.scope(
+                        ld_cfg,
+                        run_tool_call_loop(
+                            provider.as_ref(),
+                            &mut history,
+                            &tools_registry,
+                            observer.as_ref(),
+                            provider_name,
+                            model_name,
+                            temperature,
+                            false,
+                            approval_manager.as_ref(),
+                            channel_name,
+                            &config.multimodal,
+                            config.agent.max_tool_iterations,
+                            None,
+                            None,
+                            None,
+                            &[],
+                        ),
                     ),
                 )
                 .await
@@ -2436,19 +2509,31 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         ChatMessage::user(&enriched),
     ];
 
-    agent_turn(
-        provider.as_ref(),
-        &mut history,
-        &tools_registry,
-        observer.as_ref(),
-        provider_name,
-        &model_name,
-        config.default_temperature,
-        true,
-        &config.multimodal,
-        config.agent.max_tool_iterations,
-    )
-    .await
+    let hb_cfg = if config.agent.safety_heartbeat_interval > 0 {
+        Some(SafetyHeartbeatConfig {
+            body: security.summary_for_heartbeat(),
+            interval: config.agent.safety_heartbeat_interval,
+        })
+    } else {
+        None
+    };
+    SAFETY_HEARTBEAT_CONFIG
+        .scope(
+            hb_cfg,
+            agent_turn(
+                provider.as_ref(),
+                &mut history,
+                &tools_registry,
+                observer.as_ref(),
+                provider_name,
+                &model_name,
+                config.default_temperature,
+                true,
+                &config.multimodal,
+                config.agent.max_tool_iterations,
+            ),
+        )
+        .await
 }
 
 #[cfg(test)]
@@ -2541,6 +2626,36 @@ mod tests {
         maybe_inject_cron_add_delivery("cron_add", &mut feishu_args, "feishu", Some("oc_yyy"));
         assert_eq!(feishu_args["delivery"]["channel"], "feishu");
         assert_eq!(feishu_args["delivery"]["to"], "oc_yyy");
+    }
+
+    #[test]
+    fn safety_heartbeat_interval_zero_disables_injection() {
+        for counter in [0, 1, 2, 10, 100] {
+            assert!(
+                !should_inject_safety_heartbeat(counter, 0),
+                "counter={counter} should not inject when interval=0"
+            );
+        }
+    }
+
+    #[test]
+    fn safety_heartbeat_interval_one_injects_every_non_initial_step() {
+        assert!(!should_inject_safety_heartbeat(0, 1));
+        for counter in 1..=6 {
+            assert!(
+                should_inject_safety_heartbeat(counter, 1),
+                "counter={counter} should inject when interval=1"
+            );
+        }
+    }
+
+    #[test]
+    fn safety_heartbeat_injects_only_on_exact_multiples() {
+        let interval = 3;
+        let injected: Vec<usize> = (0..=10)
+            .filter(|counter| should_inject_safety_heartbeat(*counter, interval))
+            .collect();
+        assert_eq!(injected, vec![3, 6, 9]);
     }
 
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
@@ -3277,6 +3392,7 @@ mod tests {
             None,
             None,
             &[],
+            None,
         )
         .await
         .expect("tool loop should continue after non-cli approval");
