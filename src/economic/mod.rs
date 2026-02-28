@@ -67,6 +67,7 @@
 //! output_price_per_million = 15.0
 //! ```
 
+pub mod classifier;
 pub mod costs;
 pub mod status;
 pub mod tracker;
@@ -79,3 +80,6 @@ pub use costs::{
 };
 pub use status::SurvivalStatus;
 pub use tracker::{EconomicConfig, EconomicSummary, EconomicTracker};
+pub use classifier::{
+    ClassificationResult, Occupation, OccupationCategory, TaskClassifier,
+};
