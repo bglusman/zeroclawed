@@ -311,6 +311,14 @@ pub struct ProviderConfig {
     pub reasoning_level: Option<String>,
     /// Optional transport override for providers that support multiple transports.
     /// Supported values: "auto", "websocket", "sse".
+    ///
+    /// Resolution order:
+    /// 1) `model_routes[].transport` (route-specific)
+    /// 2) `provider.transport`
+    /// 3) env overrides (`PROVIDER_TRANSPORT`, `ZEROCLAW_PROVIDER_TRANSPORT`, `ZEROCLAW_CODEX_TRANSPORT`)
+    /// 4) runtime default (`auto`, WebSocket-first with SSE fallback for OpenAI Codex)
+    ///
+    /// Existing configs that omit `provider.transport` remain valid and fall back to defaults.
     #[serde(default)]
     pub transport: Option<String>,
 }
@@ -3199,8 +3207,12 @@ pub struct ModelRouteConfig {
     /// Optional API key override for this route's provider
     #[serde(default)]
     pub api_key: Option<String>,
-    /// Optional provider transport override for this route.
+    /// Optional route-specific transport override for this route.
     /// Supported values: "auto", "websocket", "sse".
+    ///
+    /// When `model_routes[].transport` is unset, the route inherits `provider.transport`.
+    /// If both are unset, runtime defaults are used (`auto` for OpenAI Codex).
+    /// Existing configs without this field remain valid.
     #[serde(default)]
     pub transport: Option<String>,
 }

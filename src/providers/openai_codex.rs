@@ -9,6 +9,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::time::timeout;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{
@@ -29,6 +31,9 @@ const CODEX_PROVIDER_TRANSPORT_ENV: &str = "ZEROCLAW_PROVIDER_TRANSPORT";
 const CODEX_RESPONSES_WEBSOCKET_ENV_LEGACY: &str = "ZEROCLAW_RESPONSES_WEBSOCKET";
 const DEFAULT_CODEX_INSTRUCTIONS: &str =
     "You are ZeroClaw, a concise and helpful coding assistant.";
+const CODEX_WS_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+const CODEX_WS_SEND_TIMEOUT: Duration = Duration::from_secs(15);
+const CODEX_WS_READ_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CodexTransport {
@@ -714,16 +719,50 @@ impl OpenAiCodexProvider {
             "parallel_tool_calls": request.parallel_tool_calls,
         });
 
-        let (mut ws_stream, _) = connect_async(ws_request).await?;
-        ws_stream
-            .send(WsMessage::Text(serde_json::to_string(&payload)?.into()))
-            .await?;
+        let (mut ws_stream, _) = timeout(CODEX_WS_CONNECT_TIMEOUT, connect_async(ws_request))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "OpenAI Codex websocket connect timed out after {}s",
+                    CODEX_WS_CONNECT_TIMEOUT.as_secs()
+                )
+            })??;
+        timeout(
+            CODEX_WS_SEND_TIMEOUT,
+            ws_stream.send(WsMessage::Text(serde_json::to_string(&payload)?.into())),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "OpenAI Codex websocket send timed out after {}s",
+                CODEX_WS_SEND_TIMEOUT.as_secs()
+            )
+        })??;
 
         let mut saw_delta = false;
         let mut delta_accumulator = String::new();
         let mut fallback_text: Option<String> = None;
+        let mut timed_out = false;
 
-        while let Some(frame) = ws_stream.next().await {
+        loop {
+            let frame = match timeout(CODEX_WS_READ_TIMEOUT, ws_stream.next()).await {
+                Ok(frame) => frame,
+                Err(_) => {
+                    let _ = ws_stream.close(None).await;
+                    if saw_delta || fallback_text.is_some() {
+                        timed_out = true;
+                        break;
+                    }
+                    anyhow::bail!(
+                        "OpenAI Codex websocket stream timed out after {}s waiting for events",
+                        CODEX_WS_READ_TIMEOUT.as_secs()
+                    );
+                }
+            };
+
+            let Some(frame) = frame else {
+                break;
+            };
             let frame = frame?;
             let event: Value = match frame {
                 WsMessage::Text(text) => serde_json::from_str(text.as_ref())?,
@@ -785,6 +824,9 @@ impl OpenAiCodexProvider {
         }
         if let Some(text) = fallback_text {
             return Ok(text);
+        }
+        if timed_out {
+            anyhow::bail!("No response from OpenAI Codex websocket stream before timeout");
         }
 
         anyhow::bail!("No response from OpenAI Codex websocket stream");

@@ -395,7 +395,7 @@ Notes:
 - Transport override precedence for OpenAI Codex:
   1. `[[model_routes]].transport` (route-specific)
   2. `provider.transport`
-  3. `ZEROCLAW_CODEX_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT`
+  3. `PROVIDER_TRANSPORT` / `ZEROCLAW_CODEX_TRANSPORT` / `ZEROCLAW_PROVIDER_TRANSPORT`
   4. legacy `ZEROCLAW_RESPONSES_WEBSOCKET` (boolean)
 
 ## `[skills]`

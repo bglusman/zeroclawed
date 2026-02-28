@@ -1552,19 +1552,8 @@ pub fn create_routed_provider_with_options(
         }
     }
 
-    // Build route table
-    let routes: Vec<(String, router::Route)> = model_routes
-        .iter()
-        .map(|r| {
-            (
-                r.hint.clone(),
-                router::Route {
-                    provider_name: r.provider.clone(),
-                    model: r.model.clone(),
-                },
-            )
-        })
-        .collect();
+    // Keep only successfully initialized routed providers and preserve
+    // their provider-id bindings (e.g. "<provider>#<hint>").
 
     Ok(Box::new(
         router::RouterProvider::new(providers, routes, default_model.to_string())

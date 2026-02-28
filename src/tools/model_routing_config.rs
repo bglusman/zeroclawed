@@ -217,6 +217,7 @@ impl ModelRoutingConfigTool {
             "hint": route.hint,
             "provider": route.provider,
             "model": route.model,
+            "transport": route.transport,
             "api_key_configured": has_provider_credential(&route.provider, route.api_key.as_deref()),
             "classification": classification,
         })
@@ -429,6 +430,7 @@ impl ModelRoutingConfigTool {
         let provider = Self::parse_non_empty_string(args, "provider")?;
         let model = Self::parse_non_empty_string(args, "model")?;
         let api_key_update = Self::parse_optional_string_update(args, "api_key")?;
+        let transport_update = Self::parse_optional_string_update(args, "transport")?;
 
         let keywords_update = if let Some(raw) = args.get("keywords") {
             Some(Self::parse_string_list(raw, "keywords")?)
@@ -476,6 +478,12 @@ impl ModelRoutingConfigTool {
         match api_key_update {
             MaybeSet::Set(api_key) => next_route.api_key = Some(api_key),
             MaybeSet::Null => next_route.api_key = None,
+            MaybeSet::Unset => {}
+        }
+
+        match transport_update {
+            MaybeSet::Set(transport) => next_route.transport = Some(transport),
+            MaybeSet::Null => next_route.transport = None,
             MaybeSet::Unset => {}
         }
 
@@ -783,6 +791,10 @@ impl Tool for ModelRoutingConfigTool {
                     "type": ["string", "null"],
                     "description": "Optional API key override for scenario route or delegate agent"
                 },
+                "transport": {
+                    "type": ["string", "null"],
+                    "description": "Optional route transport override for upsert_scenario (auto, websocket, sse)"
+                },
                 "keywords": {
                     "description": "Classification keywords for upsert_scenario (string or string array)",
                     "oneOf": [
@@ -1005,6 +1017,7 @@ mod tests {
                 "hint": "coding",
                 "provider": "openai",
                 "model": "gpt-5.3-codex",
+                "transport": "websocket",
                 "classification_enabled": true,
                 "keywords": ["code", "bug", "refactor"],
                 "patterns": ["```"],
@@ -1026,6 +1039,7 @@ mod tests {
             item["hint"] == json!("coding")
                 && item["provider"] == json!("openai")
                 && item["model"] == json!("gpt-5.3-codex")
+                && item["transport"] == json!("websocket")
         }));
     }
 
