@@ -127,6 +127,12 @@ Use the built-in checker to validate linker/toolchain setup before long builds:
 # From repo root
 scripts/android/termux_source_build_check.sh --target aarch64-linux-android
 
+# Force Termux-native diagnostics
+scripts/android/termux_source_build_check.sh --target aarch64-linux-android --mode termux-native
+
+# Force desktop NDK-cross diagnostics
+scripts/android/termux_source_build_check.sh --target aarch64-linux-android --mode ndk-cross
+
 # Run an actual cargo check after environment validation
 scripts/android/termux_source_build_check.sh --target aarch64-linux-android --run-cargo-check
 ```
