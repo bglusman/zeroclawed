@@ -256,7 +256,7 @@ impl EconomicTracker {
     /// End tracking for current task and save consolidated record.
     pub fn end_task(&self) -> Result<()> {
         let mut state = self.state.lock();
-        
+
         if state.task.task_id.is_some() {
             self.save_task_record_inner(&state)?;
             state.daily.last_task_end = Some(Utc::now());
@@ -908,7 +908,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let mut config = test_config();
         config.initial_balance = 100.0;
-        
+
         let tracker = EconomicTracker::new(
             "test-agent",
             config,
@@ -976,13 +976,13 @@ mod tests {
         tracker.initialize().unwrap();
 
         tracker.start_task("task-1", None);
-        
+
         // Search API
         tracker.track_flat_api_call(0.001, "tavily_search");
-        
+
         // OCR API
         tracker.track_api_call(1000, 1.0, "ocr_reader");
-        
+
         // Other API
         tracker.track_flat_api_call(0.01, "some_api");
 

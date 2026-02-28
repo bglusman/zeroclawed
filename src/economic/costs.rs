@@ -223,7 +223,7 @@ pub struct BalanceRecord {
     pub token_cost_delta: f64,
     /// Work income delta for this period
     pub work_income_delta: f64,
-    /// Trading profit delta for this period  
+    /// Trading profit delta for this period
     pub trading_profit_delta: f64,
     /// Cumulative total token cost
     pub total_token_cost: f64,
