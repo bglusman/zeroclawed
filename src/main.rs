@@ -59,9 +59,7 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
-mod rag {
-    pub use zeroclaw::rag::*;
-}
+mod rag;
 mod config;
 mod coordination;
 mod cost;
@@ -858,7 +856,7 @@ async fn main() -> Result<()> {
         }?;
         // Auto-start channels if user said yes during wizard
         if std::env::var("ZEROCLAW_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
-            channels::start_channels(config).await?;
+            Box::pin(channels::start_channels(config)).await?;
         }
         return Ok(());
     }
@@ -919,7 +917,7 @@ async fn main() -> Result<()> {
             // Single-shot mode (-m) runs non-interactively: no TTY approval prompt,
             // so tools are not denied by a stdin read returning EOF.
             let interactive = message.is_none();
-            agent::run(
+            Box::pin(agent::run(
                 config,
                 message,
                 provider,
@@ -927,7 +925,7 @@ async fn main() -> Result<()> {
                 temperature,
                 peripheral,
                 interactive,
-            )
+            ))
             .await
             .map(|_| ())
         }
@@ -1166,8 +1164,8 @@ async fn main() -> Result<()> {
         },
 
         Commands::Channel { channel_command } => match channel_command {
-            ChannelCommands::Start => channels::start_channels(config).await,
-            ChannelCommands::Doctor => channels::doctor_channels(config).await,
+            ChannelCommands::Start => Box::pin(channels::start_channels(config)).await,
+            ChannelCommands::Doctor => Box::pin(channels::doctor_channels(config)).await,
             other => channels::handle_command(other, &config).await,
         },
 

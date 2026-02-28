@@ -115,7 +115,9 @@ impl TaskClassifier {
 
     /// Load all 44 BLS occupations with wage data
     fn load_occupations() -> Vec<Occupation> {
-        use OccupationCategory::*;
+        use OccupationCategory::{
+            BusinessFinance, HealthcareSocialServices, LegalMediaOperations, TechnologyEngineering,
+        };
 
         vec![
             // Technology & Engineering
@@ -732,11 +734,11 @@ impl TaskClassifier {
         };
 
         // Scale by instruction length
-        let length_factor = (word_count as f64 / 20.0).max(0.5).min(2.0);
+        let length_factor = (word_count as f64 / 20.0).clamp(0.5, 2.0);
         let hours = base_hours * length_factor;
 
         // Clamp to valid range
-        hours.max(0.25).min(40.0)
+        hours.clamp(0.25, 40.0)
     }
 
     /// Get all occupations

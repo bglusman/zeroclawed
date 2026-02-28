@@ -39,7 +39,8 @@ pub mod traits;
 #[allow(unused_imports)]
 pub use traits::{
     ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider, ProviderCapabilityError,
-    ToolCall, ToolResultMessage,
+    is_user_or_assistant_role, ToolCall, ToolResultMessage, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL,
+    ROLE_USER,
 };
 
 use crate::auth::AuthService;

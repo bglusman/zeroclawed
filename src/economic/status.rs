@@ -9,12 +9,13 @@ use std::fmt;
 /// Survival status based on balance percentage relative to initial capital.
 ///
 /// Mirrors the ClawWork LiveBench agent survival states.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SurvivalStatus {
     /// Balance > 80% of initial - Agent is profitable and healthy
     Thriving,
     /// Balance 40-80% of initial - Agent is maintaining stability
+    #[default]
     Stable,
     /// Balance 10-40% of initial - Agent is losing money, needs attention
     Struggling,
@@ -97,12 +98,6 @@ impl fmt::Display for SurvivalStatus {
             Self::Bankrupt => "Bankrupt",
         };
         write!(f, "{}", status)
-    }
-}
-
-impl Default for SurvivalStatus {
-    fn default() -> Self {
-        Self::Stable
     }
 }
 
