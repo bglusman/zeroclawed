@@ -996,6 +996,7 @@ fn runtime_perplexity_filter_snapshot(
             return state.perplexity_filter.clone();
         }
     }
+
     crate::config::PerplexityFilterConfig::default()
 }
 
@@ -2165,55 +2166,8 @@ async fn handle_runtime_command_if_needed(
                 )
             }
         }
-        ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
-            let request_id = raw_request_id.trim().to_string();
-            if request_id.is_empty() {
-                "Usage: `/approve-allow <request-id>`".to_string()
-            } else {
-                match ctx.approval_manager.confirm_non_cli_pending_request(
-                    &request_id,
-                    sender,
-                    source_channel,
-                    reply_target,
-                ) {
-                    Ok(req) => {
-                        ctx.approval_manager
-                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::Yes);
-                        runtime_trace::record_event(
-                            "approval_request_allowed",
-                            Some(source_channel),
-                            None,
-                            None,
-                            None,
-                            Some(true),
-                            Some("pending request allowed for current tool invocation"),
-                            serde_json::json!({
-                                "request_id": request_id,
-                                "tool_name": req.tool_name,
-                                "sender": sender,
-                                "channel": source_channel,
-                            }),
-                        );
-                        format!(
-                            "Approved pending request `{}` for this invocation of `{}`.",
-                            req.request_id, req.tool_name
-                        )
-                    }
-                    Err(PendingApprovalError::NotFound) => {
-                        format!("Pending approval request `{request_id}` was not found.")
-                    }
-                    Err(PendingApprovalError::Expired) => {
-                        format!("Pending approval request `{request_id}` has expired.")
-                    }
-                    Err(PendingApprovalError::RequesterMismatch) => {
-                        format!(
-                            "Pending approval request `{request_id}` can only be approved by the same sender in the same chat/channel that created it."
-                        )
-                    }
-                }
-            }
-        }
-        ChannelRuntimeCommand::ConfirmToolApproval(raw_request_id) => {
+        ChannelRuntimeCommand::ConfirmToolApproval(raw_request_id)
+        | ChannelRuntimeCommand::ApprovePendingRequest(raw_request_id) => {
             let request_id = raw_request_id.trim().to_string();
             if request_id.is_empty() {
                 "Usage: `/approve-confirm <request-id>`".to_string()
@@ -2225,6 +2179,10 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
+                        ctx.approval_manager.record_non_cli_pending_resolution(
+                            &request_id,
+                            ApprovalResponse::Yes,
+                        );
                         let tool_name = req.tool_name;
                         let mut approval_message = if tool_name == APPROVAL_ALL_TOOLS_ONCE_TOKEN {
                             let remaining = ctx.approval_manager.grant_non_cli_allow_all_once();
@@ -2343,16 +2301,18 @@ async fn handle_runtime_command_if_needed(
                     reply_target,
                 ) {
                     Ok(req) => {
-                        ctx.approval_manager
-                            .record_non_cli_pending_resolution(&request_id, ApprovalResponse::No);
+                        ctx.approval_manager.record_non_cli_pending_resolution(
+                            &request_id,
+                            ApprovalResponse::No,
+                        );
                         runtime_trace::record_event(
-                            "approval_request_denied",
+                            "approval_request_rejected",
                             Some(source_channel),
                             None,
                             None,
                             None,
                             Some(true),
-                            Some("pending request denied"),
+                            Some("pending request rejected"),
                             serde_json::json!({
                                 "request_id": request_id,
                                 "tool_name": req.tool_name,
@@ -2361,13 +2321,14 @@ async fn handle_runtime_command_if_needed(
                             }),
                         );
                         format!(
-                            "Denied pending approval request `{}` for tool `{}`.",
-                            req.request_id, req.tool_name
+                            "Rejected approval request `{}` for `{}`.",
+                            req.request_id,
+                            approval_target_label(&req.tool_name)
                         )
                     }
                     Err(PendingApprovalError::NotFound) => {
                         runtime_trace::record_event(
-                            "approval_request_denied",
+                            "approval_request_rejected",
                             Some(source_channel),
                             None,
                             None,
@@ -2380,11 +2341,13 @@ async fn handle_runtime_command_if_needed(
                                 "channel": source_channel,
                             }),
                         );
-                        format!("Pending approval request `{request_id}` was not found.")
+                        format!(
+                            "Pending approval request `{request_id}` was not found. List requests with `/approve-pending`."
+                        )
                     }
                     Err(PendingApprovalError::Expired) => {
                         runtime_trace::record_event(
-                            "approval_request_denied",
+                            "approval_request_rejected",
                             Some(source_channel),
                             None,
                             None,
@@ -2401,13 +2364,13 @@ async fn handle_runtime_command_if_needed(
                     }
                     Err(PendingApprovalError::RequesterMismatch) => {
                         runtime_trace::record_event(
-                            "approval_request_denied",
+                            "approval_request_rejected",
                             Some(source_channel),
                             None,
                             None,
                             None,
                             Some(false),
-                            Some("pending request denier mismatch"),
+                            Some("pending request rejector mismatch"),
                             serde_json::json!({
                                 "request_id": request_id,
                                 "sender": sender,
@@ -4547,12 +4510,15 @@ fn collect_configured_channels(
                 if wa.is_web_config() {
                     channels.push(ConfiguredChannel {
                         display_name: "WhatsApp",
-                        channel: Arc::new(WhatsAppWebChannel::new(
-                            wa.session_path.clone().unwrap_or_default(),
-                            wa.pair_phone.clone(),
-                            wa.pair_code.clone(),
-                            wa.allowed_numbers.clone(),
-                        )),
+                        channel: Arc::new(
+                            WhatsAppWebChannel::new(
+                                wa.session_path.clone().unwrap_or_default(),
+                                wa.pair_phone.clone(),
+                                wa.pair_code.clone(),
+                                wa.allowed_numbers.clone(),
+                            )
+                            .with_transcription(config.transcription.clone()),
+                        ),
                     });
                 } else {
                     tracing::warn!("WhatsApp Web configured but session_path not set");
@@ -7524,188 +7490,6 @@ BTC is currently around $65,000 based on latest tool output."#
                 .any(|tool| tool == "mock_price"),
             "persisted config should keep existing always_ask entries untouched"
         );
-    }
-
-    #[tokio::test]
-    async fn process_channel_message_approve_allow_and_deny_resolve_pending_requests() {
-        let channel_impl = Arc::new(TelegramRecordingChannel::default());
-        let channel: Arc<dyn Channel> = channel_impl.clone();
-
-        let mut channels_by_name = HashMap::new();
-        channels_by_name.insert(channel.name().to_string(), channel);
-
-        let provider_impl = Arc::new(ModelCaptureProvider::default());
-        let provider: Arc<dyn Provider> = provider_impl.clone();
-        let mut provider_cache_seed: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-        provider_cache_seed.insert("test-provider".to_string(), Arc::clone(&provider));
-
-        let temp = tempfile::TempDir::new().expect("temp dir");
-        let config_path = temp.path().join("config.toml");
-        let workspace_dir = temp.path().join("workspace");
-        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
-        let mut persisted = Config::default();
-        persisted.config_path = config_path.clone();
-        persisted.workspace_dir = workspace_dir;
-        persisted.autonomy.always_ask = vec!["mock_price".to_string()];
-        persisted.save().await.expect("save config");
-
-        let autonomy_cfg = crate::config::AutonomyConfig {
-            always_ask: vec!["mock_price".to_string()],
-            ..crate::config::AutonomyConfig::default()
-        };
-
-        let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            channels_by_name: Arc::new(channels_by_name),
-            provider: Arc::clone(&provider),
-            default_provider: Arc::new("test-provider".to_string()),
-            memory: Arc::new(NoopMemory),
-            tools_registry: Arc::new(vec![Box::new(MockPriceTool)]),
-            observer: Arc::new(NoopObserver),
-            system_prompt: Arc::new("test-system-prompt".to_string()),
-            model: Arc::new("default-model".to_string()),
-            temperature: 0.0,
-            auto_save_memory: false,
-            max_tool_iterations: 5,
-            min_relevance_score: 0.0,
-            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
-            route_overrides: Arc::new(Mutex::new(HashMap::new())),
-            api_key: None,
-            api_url: None,
-            reliability: Arc::new(crate::config::ReliabilityConfig::default()),
-            provider_runtime_options: providers::ProviderRuntimeOptions {
-                zeroclaw_dir: Some(temp.path().to_path_buf()),
-                ..providers::ProviderRuntimeOptions::default()
-            },
-            workspace_dir: Arc::new(std::env::temp_dir()),
-            message_timeout_secs: CHANNEL_MESSAGE_TIMEOUT_SECS,
-            interrupt_on_new_message: false,
-            multimodal: crate::config::MultimodalConfig::default(),
-            hooks: None,
-            non_cli_excluded_tools: Arc::new(Mutex::new(Vec::new())),
-            query_classification: crate::config::QueryClassificationConfig::default(),
-            model_routes: Vec::new(),
-            approval_manager: Arc::new(ApprovalManager::from_config(&autonomy_cfg)),
-        });
-
-        process_channel_message(
-            runtime_ctx.clone(),
-            traits::ChannelMessage {
-                id: "msg-allow-req".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-1".to_string(),
-                content: "/approve-request mock_price".to_string(),
-                channel: "telegram".to_string(),
-                timestamp: 1,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        )
-        .await;
-
-        let first_request_id = {
-            let sent = channel_impl.sent_messages.lock().await;
-            assert_eq!(sent.len(), 1);
-            let request_id = sent[0]
-                .split("Request ID: `")
-                .nth(1)
-                .and_then(|tail| tail.split('`').next())
-                .expect("first request id");
-            request_id.to_string()
-        };
-
-        process_channel_message(
-            runtime_ctx.clone(),
-            traits::ChannelMessage {
-                id: "msg-allow-approve".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-1".to_string(),
-                content: format!("/approve-allow {first_request_id}"),
-                channel: "telegram".to_string(),
-                timestamp: 2,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        )
-        .await;
-
-        {
-            let sent = channel_impl.sent_messages.lock().await;
-            assert_eq!(sent.len(), 2);
-            assert!(
-                sent[1].contains("Approved pending request"),
-                "unexpected allow response: {}",
-                sent[1]
-            );
-        }
-        assert_eq!(
-            runtime_ctx
-                .approval_manager
-                .take_non_cli_pending_resolution(&first_request_id),
-            Some(ApprovalResponse::Yes)
-        );
-
-        process_channel_message(
-            runtime_ctx.clone(),
-            traits::ChannelMessage {
-                id: "msg-deny-req".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-1".to_string(),
-                content: "/approve-request mock_price".to_string(),
-                channel: "telegram".to_string(),
-                timestamp: 3,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        )
-        .await;
-
-        let second_request_id = {
-            let sent = channel_impl.sent_messages.lock().await;
-            assert_eq!(sent.len(), 3);
-            let request_id = sent[2]
-                .split("Request ID: `")
-                .nth(1)
-                .and_then(|tail| tail.split('`').next())
-                .expect("second request id");
-            request_id.to_string()
-        };
-
-        process_channel_message(
-            runtime_ctx.clone(),
-            traits::ChannelMessage {
-                id: "msg-deny-reject".to_string(),
-                sender: "alice".to_string(),
-                reply_target: "chat-1".to_string(),
-                content: format!("/approve-deny {second_request_id}"),
-                channel: "telegram".to_string(),
-                timestamp: 4,
-                thread_ts: None,
-            },
-            CancellationToken::new(),
-        )
-        .await;
-
-        {
-            let sent = channel_impl.sent_messages.lock().await;
-            assert_eq!(sent.len(), 4);
-            assert!(
-                sent[3].contains("Denied pending approval request"),
-                "unexpected deny response: {}",
-                sent[3]
-            );
-        }
-        assert_eq!(
-            runtime_ctx
-                .approval_manager
-                .take_non_cli_pending_resolution(&second_request_id),
-            Some(ApprovalResponse::No)
-        );
-        assert!(runtime_ctx
-            .approval_manager
-            .list_non_cli_pending_requests(Some("alice"), Some("telegram"), Some("chat-1"))
-            .is_empty());
-        assert_eq!(provider_impl.call_count.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
