@@ -325,14 +325,15 @@ fn extract_ws_bearer_token(headers: &HeaderMap, query_token: Option<&str>) -> Op
         }
     }
 
-    let offered = headers
+    if let Some(offered) = headers
         .get(header::SEC_WEBSOCKET_PROTOCOL)
-        .and_then(|value| value.to_str().ok())?;
-
-    for protocol in offered.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        if let Some(token) = protocol.strip_prefix("bearer.") {
-            if !token.trim().is_empty() {
-                return Some(token.trim().to_string());
+        .and_then(|value| value.to_str().ok())
+    {
+        for protocol in offered.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(token) = protocol.strip_prefix("bearer.") {
+                if !token.trim().is_empty() {
+                    return Some(token.trim().to_string());
+                }
             }
         }
     }
