@@ -1694,7 +1694,7 @@ pub(super) fn parse_structured_tool_calls(
         // Fail closed for truncated/invalid JSON payloads that look like native
         // structured tool-call arguments. This prevents executing partial args.
         if (raw_arguments.starts_with('{') || raw_arguments.starts_with('['))
-            && serde_json::from_str::<serde_json::Value>(&call.arguments).is_err()
+            && serde_json::from_str::<serde_json::Value>(raw_arguments).is_err()
         {
             result.invalid_json_arguments += 1;
             tracing::warn!(
