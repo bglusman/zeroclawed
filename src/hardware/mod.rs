@@ -3,6 +3,7 @@
 //! See `docs/hardware-peripherals-design.md` for the full design.
 
 pub mod device;
+pub mod gpio;
 pub mod protocol;
 pub mod registry;
 pub mod transport;
@@ -32,6 +33,8 @@ pub use device::{
     Device, DeviceCapabilities, DeviceContext, DeviceKind, DeviceRegistry, DeviceRuntime,
     NO_HW_DEVICES_SUMMARY,
 };
+#[allow(unused_imports)]
+pub use gpio::{gpio_tools, GpioReadTool, GpioWriteTool};
 #[allow(unused_imports)]
 pub use protocol::{ZcCommand, ZcResponse};
 #[allow(unused_imports)]
