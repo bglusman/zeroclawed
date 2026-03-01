@@ -2050,8 +2050,7 @@ pub async fn run(
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
-    let hooks = crate::hooks::HookRunner::from_config(&config.hooks)
-        .map(std::sync::Arc::new);
+    let hooks = crate::hooks::HookRunner::from_config(&config.hooks).map(std::sync::Arc::new);
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {

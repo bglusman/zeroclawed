@@ -71,8 +71,7 @@ fn registry_cell() -> &'static RwLock<PluginRegistry> {
 }
 
 /// Whether `initialize_from_config` has completed at least once.
-static INITIALIZED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn initialize_from_config(config: &PluginsConfig) -> Result<()> {
     if INITIALIZED.load(std::sync::atomic::Ordering::Acquire) {
