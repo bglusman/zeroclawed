@@ -150,9 +150,6 @@ pub fn validate_manifest(manifest: &PluginManifest) -> anyhow::Result<()> {
     if manifest.module_path.trim().is_empty() {
         anyhow::bail!("plugin module_path cannot be empty");
     }
-    if manifest.module_path.trim().is_empty() {
-        anyhow::bail!("plugin module_path cannot be empty");
-    }
     let mut declared_wit_packages = HashSet::new();
     for wit_pkg in &manifest.wit_packages {
         let (package, major) = parse_wit_package_version(wit_pkg)?;
