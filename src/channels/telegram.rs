@@ -433,7 +433,13 @@ fn parse_attachment_markers(message: &str) -> (String, Vec<TelegramAttachment>) 
         });
 
         if let Some(attachment) = parsed {
-            attachments.push(attachment);
+            // Skip duplicate targets — LLMs sometimes emit repeated markers in one reply.
+            if !attachments
+                .iter()
+                .any(|a: &TelegramAttachment| a.target == attachment.target)
+            {
+                attachments.push(attachment);
+            }
         } else {
             cleaned.push_str(&message[open..=close]);
         }
@@ -3812,6 +3818,17 @@ mod tests {
         assert_eq!(attachments[0].target, "/tmp/a.png");
         assert_eq!(attachments[1].kind, TelegramAttachmentKind::Document);
         assert_eq!(attachments[1].target, "https://example.com/a.pdf");
+    }
+
+    #[test]
+    fn parse_attachment_markers_deduplicates_duplicate_targets() {
+        let message = "twice [IMAGE:/tmp/a.png] then again [IMAGE:/tmp/a.png] end";
+        let (cleaned, attachments) = parse_attachment_markers(message);
+
+        assert_eq!(cleaned, "twice  then again  end");
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].kind, TelegramAttachmentKind::Image);
+        assert_eq!(attachments[0].target, "/tmp/a.png");
     }
 
     #[test]
