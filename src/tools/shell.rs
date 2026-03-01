@@ -745,7 +745,10 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(
-            result.error.as_deref().map(|msg| !msg.trim().is_empty()) == Some(true),
+            result
+                .error
+                .as_deref()
+                .is_some_and(|msg| !msg.trim().is_empty()),
             "expected non-empty stderr in error field"
         );
     }
