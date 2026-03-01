@@ -21,11 +21,10 @@ env:
 
 jobs:
   contributor-tier-issues:
+    # Only run for opened/reopened events to avoid duplicate runs with labeled-routes job
     if: >-
       (github.event_name == 'issues' &&
-      (github.event.action == 'opened' || github.event.action == 'reopened' || github.event.action == 'labeled' || github.event.action == 'unlabeled')) ||
-      (github.event_name == 'pull_request_target' &&
-      (github.event.action == 'labeled' || github.event.action == 'unlabeled'))
+      (github.event.action == 'opened' || github.event.action == 'reopened'))
     runs-on: ubuntu-22.04
     permissions:
       contents: read
