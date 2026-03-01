@@ -19,6 +19,13 @@ const ABI_PROVIDER_CHAT_FN: &str = "zeroclaw_provider_chat";
 const ABI_ALLOC_FN: &str = "alloc";
 const ABI_DEALLOC_FN: &str = "dealloc";
 const MAX_WASM_PAYLOAD_BYTES_FALLBACK: usize = 4 * 1024 * 1024;
+type WasmAbiModule = (
+    Store<()>,
+    Instance,
+    Memory,
+    TypedFunc<i32, i32>,
+    TypedFunc<(i32, i32), ()>,
+);
 
 #[derive(Debug, Default)]
 pub struct PluginRuntime;
@@ -96,15 +103,7 @@ struct ProviderPluginResponse {
     error: Option<String>,
 }
 
-fn instantiate_module(
-    module_path: &str,
-) -> Result<(
-    Store<()>,
-    Instance,
-    Memory,
-    TypedFunc<i32, i32>,
-    TypedFunc<(i32, i32), ()>,
-)> {
+fn instantiate_module(module_path: &str) -> Result<WasmAbiModule> {
     let engine = Engine::default();
     let module = Module::from_file(&engine, module_path)
         .with_context(|| format!("failed to load wasm module {module_path}"))?;
@@ -525,8 +524,8 @@ description = "{tool} description"
         let len: u32 = 0x0000_0100;
         let packed = ((u64::from(ptr)) << 32) | u64::from(len);
         let (decoded_ptr, decoded_len) = unpack_ptr_len(packed as i64).expect("unpack");
-        assert_eq!(decoded_ptr as u32, ptr);
-        assert_eq!(decoded_len as u32, len);
+        assert_eq!(u32::try_from(decoded_ptr).expect("ptr fits in u32"), ptr);
+        assert_eq!(u32::try_from(decoded_len).expect("len fits in u32"), len);
     }
 
     #[test]
