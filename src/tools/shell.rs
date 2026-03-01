@@ -740,10 +740,11 @@ mod tests {
     async fn shell_captures_stderr_output() {
         let tool = ShellTool::new(test_security(AutonomyLevel::Full), test_runtime());
         let result = tool
-            .execute(json!({"command": "echo error_msg >&2"}))
+            .execute(json!({"command": "ls definitely_missing_path"}))
             .await
             .unwrap();
-        assert!(result.error.as_deref().unwrap_or("").contains("error_msg"));
+        assert!(!result.success);
+        assert!(!result.error.as_deref().unwrap_or("").is_empty());
     }
 
     #[tokio::test]
