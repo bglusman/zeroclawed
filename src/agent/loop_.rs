@@ -4693,6 +4693,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_tool_call_loop_executes_valid_native_tool_call_with_max_tokens_stop_reason() {
+        let provider = ScriptedProvider::from_scripted_responses(vec![
+            ChatResponse {
+                text: Some(String::new()),
+                tool_calls: vec![ToolCall {
+                    id: "call_valid".to_string(),
+                    name: "count_tool".to_string(),
+                    arguments: "{\"value\":\"from_valid_native\"}".to_string(),
+                }],
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::MaxTokens),
+                raw_stop_reason: Some("length".to_string()),
+            },
+            ChatResponse {
+                text: Some("done after valid native tool".to_string()),
+                tool_calls: Vec::new(),
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::EndTurn),
+                raw_stop_reason: Some("stop".to_string()),
+            },
+        ])
+        .with_native_tool_support();
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run native call"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            6,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("valid native tool calls must execute even when stop_reason is max_tokens");
+
+        assert_eq!(result, "done after valid native tool");
+        assert_eq!(
+            invocations.load(Ordering::SeqCst),
+            1,
+            "valid native tool call should execute exactly once"
+        );
+        assert!(
+            history.iter().any(|msg| {
+                msg.role == "tool" && msg.content.contains("\"tool_call_id\":\"call_valid\"")
+            }),
+            "tool history should preserve valid native tool_call_id"
+        );
+    }
+
+    #[tokio::test]
     async fn run_tool_call_loop_continues_when_stop_reason_is_max_tokens() {
         let provider = ScriptedProvider::from_scripted_responses(vec![
             ChatResponse {
