@@ -2792,7 +2792,10 @@ mod tests {
 
     #[tokio::test]
     async fn metrics_endpoint_renders_prometheus_output() {
-        let prom = Arc::new(crate::observability::PrometheusObserver::new());
+        let prom = Arc::new(
+            crate::observability::PrometheusObserver::new()
+                .expect("prometheus observer should initialize in tests"),
+        );
         crate::observability::Observer::record_event(
             prom.as_ref(),
             &crate::observability::ObserverEvent::HeartbeatTick,
