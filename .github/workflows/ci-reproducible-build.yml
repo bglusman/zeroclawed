@@ -8,6 +8,7 @@ on:
             - "Cargo.lock"
             - "src/**"
             - "crates/**"
+            - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/reproducible_build_check.sh"
             - ".github/workflows/ci-reproducible-build.yml"
     pull_request:
@@ -17,6 +18,7 @@ on:
             - "Cargo.lock"
             - "src/**"
             - "crates/**"
+            - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/reproducible_build_check.sh"
             - ".github/workflows/ci-reproducible-build.yml"
     schedule:
@@ -60,6 +62,10 @@ jobs:
               uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
+
+            - name: Ensure cargo component
+              shell: bash
+              run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
 
             - name: Run reproducible build check
               shell: bash
