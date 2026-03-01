@@ -15,6 +15,7 @@ on:
             - ".github/security/unsafe-audit-governance.json"
             - "scripts/ci/install_gitleaks.sh"
             - "scripts/ci/install_syft.sh"
+            - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/deny_policy_guard.py"
             - "scripts/ci/secrets_governance_guard.py"
@@ -38,6 +39,7 @@ on:
             - ".github/security/unsafe-audit-governance.json"
             - "scripts/ci/install_gitleaks.sh"
             - "scripts/ci/install_syft.sh"
+            - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/deny_policy_guard.py"
             - "scripts/ci/secrets_governance_guard.py"
@@ -97,6 +99,10 @@ jobs:
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
+            - name: Ensure C toolchain
+              shell: bash
+              run: bash ./scripts/ci/ensure_c_toolchain.sh
+
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
@@ -119,6 +125,11 @@ jobs:
             CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/target
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - name: Ensure C toolchain
+              shell: bash
+              run: bash ./scripts/ci/ensure_c_toolchain.sh
+
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
@@ -206,6 +217,11 @@ jobs:
             CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/target
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - name: Ensure C toolchain
+              shell: bash
+              run: bash ./scripts/ci/ensure_c_toolchain.sh
+
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
@@ -481,7 +497,7 @@ jobs:
 
     unsafe-debt:
         name: Unsafe Debt Audit
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -620,7 +636,7 @@ jobs:
         name: Security Required Gate
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
         needs: [audit, deny, security-regressions, secrets, sbom, unsafe-debt]
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         steps:
             - name: Enforce security gate
               shell: bash
