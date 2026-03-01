@@ -731,14 +731,17 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     }
 
     // Wrap observer with broadcast capability for SSE
-    // Use cost-tracking observer when cost tracking is enabled
+    // Use cost-tracking observer when cost tracking is enabled.
+    // Wrap it in ObserverBridge so plugin hooks can observe a stable interface.
     let base_observer = crate::observability::create_observer_with_cost_tracking(
         &config.observability,
         cost_tracker.clone(),
         &config.cost,
     );
-    let broadcast_observer: Arc<dyn crate::observability::Observer> =
-        Arc::new(sse::BroadcastObserver::new(base_observer, event_tx.clone()));
+    let bridged_observer = crate::plugins::bridge::observer::ObserverBridge::new_box(base_observer);
+    let broadcast_observer: Arc<dyn crate::observability::Observer> = Arc::new(
+        sse::BroadcastObserver::new(Box::new(bridged_observer), event_tx.clone()),
+    );
 
     let state = AppState {
         config: config_state,
