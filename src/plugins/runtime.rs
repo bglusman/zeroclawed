@@ -218,30 +218,45 @@ async fn call_wasm_json_limited(
     payload: String,
 ) -> Result<String> {
     let limits = current_limits();
-    let permit = {
-        let sem = semaphore_cell()
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
-        sem.acquire_owned()
-            .await
-            .context("plugin concurrency limiter closed")?
-    };
+    let semaphore = semaphore_cell()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     let max_by_config = usize::try_from(limits.memory_limit_bytes).unwrap_or(usize::MAX);
     let max_payload = max_by_config.min(MAX_WASM_PAYLOAD_BYTES_FALLBACK);
     if payload.len() > max_payload {
         anyhow::bail!("plugin payload exceeds configured memory limit");
     }
 
-    let handle = tokio::task::spawn_blocking(move || {
-        let _permit = permit;
+    run_blocking_with_timeout(semaphore, limits.invoke_timeout_ms, move || {
         call_wasm_json(&module_path, fn_name, &payload)
-    });
-    let result = timeout(Duration::from_millis(limits.invoke_timeout_ms), handle)
+    })
+    .await
+}
+
+async fn run_blocking_with_timeout<T, F>(
+    semaphore: Arc<Semaphore>,
+    timeout_ms: u64,
+    work: F,
+) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    let _permit = semaphore
+        .acquire_owned()
         .await
-        .context("plugin invocation timed out")?
-        .context("plugin blocking task join failed")??;
-    Ok(result)
+        .context("plugin concurrency limiter closed")?;
+    let mut handle = tokio::task::spawn_blocking(work);
+    match timeout(Duration::from_millis(timeout_ms), &mut handle).await {
+        Ok(result) => result.context("plugin blocking task join failed")?,
+        Err(_) => {
+            // Best-effort cancellation: spawn_blocking tasks may still run if already executing,
+            // but releasing the permit here prevents permanent limiter starvation.
+            handle.abort();
+            anyhow::bail!("plugin invocation timed out");
+        }
+    }
 }
 
 pub async fn execute_plugin_tool(tool_name: &str, args: &Value) -> Result<ToolResult> {
@@ -549,5 +564,26 @@ description = "{tool} description"
         let reg_b = current_registry();
         assert!(reg_b.has_provider("reload-provider-b-for-runtime-test"));
         assert!(!reg_b.has_provider("reload-provider-a-for-runtime-test"));
+    }
+
+    #[tokio::test]
+    async fn timeout_path_releases_semaphore_permit() {
+        let semaphore = Arc::new(Semaphore::new(1));
+        let slow_result =
+            run_blocking_with_timeout(semaphore.clone(), 10, || -> anyhow::Result<&'static str> {
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                Ok("slow")
+            })
+            .await;
+        assert!(slow_result.is_err());
+        assert_eq!(semaphore.available_permits(), 1);
+
+        let fast_result =
+            run_blocking_with_timeout(semaphore, 50, || -> anyhow::Result<&'static str> {
+                Ok("fast")
+            })
+            .await
+            .expect("fast run should succeed");
+        assert_eq!(fast_result, "fast");
     }
 }

@@ -6,29 +6,28 @@ This document describes the current experimental plugin runtime for ZeroClaw.
 
 Current implementation supports:
 
-- plugin manifest discovery from `[plugins].dirs`
+- plugin manifest discovery from `[plugins].load_paths`
 - plugin-declared tool registration into tool specs
 - plugin-declared provider registration into provider factory resolution
 - host-side WASM invocation bridge for tool/provider calls
-- optional hot-reload via manifest fingerprint checks
+- manifest fingerprint tracking scaffolding (hot-reload toggle is not yet exposed in schema)
 
 ## Config
 
 ```toml
 [plugins]
 enabled = true
-dirs = ["plugins"]
-hot_reload = true
-allow_capabilities = []
-deny_capabilities = []
-
-[plugins.limits]
-invoke_timeout_ms = 2000
-memory_limit_bytes = 67108864
-max_concurrency = 8
+load_paths = ["plugins"]
+allow = []
+deny = []
 ```
 
 Defaults are deny-by-default and disabled-by-default.
+Execution limits are currently conservative fixed defaults in runtime code:
+
+- `invoke_timeout_ms = 2000`
+- `memory_limit_bytes = 67108864`
+- `max_concurrency = 8`
 
 ## Manifest Files
 
@@ -116,12 +115,9 @@ If `error` is non-null, host treats the call as failed.
 
 ## Hot Reload
 
-When `[plugins].hot_reload = true`, registry access checks manifest file fingerprints. If a change
-is detected:
-
-1. Rebuild registry from current manifest files.
-2. Atomically swap active registry on success.
-3. Keep previous registry on failure.
+Manifest fingerprints are tracked internally, but the config schema does not currently expose a
+`[plugins].hot_reload` toggle. Runtime hot-reload remains disabled by default until that schema
+support is added.
 
 ## Observer Bridge
 

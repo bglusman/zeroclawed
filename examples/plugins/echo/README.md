@@ -19,8 +19,7 @@ wat2wasm examples/plugins/echo/echo.wat -o examples/plugins/echo/echo.wasm
 ```toml
 [plugins]
 enabled = true
-dirs = ["examples/plugins/echo"]
-hot_reload = true
+load_paths = ["examples/plugins/echo"]
 ```
 
 ## ABI exports required
