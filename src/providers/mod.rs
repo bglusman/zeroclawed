@@ -1071,16 +1071,17 @@ fn create_provider_with_url_and_options(
             )?))
         }
         // ── Primary providers (custom implementations) ───────
-        "openrouter" => Ok(Box::new(openrouter::OpenRouterProvider::new_with_max_tokens(
-            key,
-            options.max_tokens_override,
-        ))),
+        "openrouter" => Ok(Box::new(
+            openrouter::OpenRouterProvider::new_with_max_tokens(key, options.max_tokens_override),
+        )),
         "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new(key))),
-        "openai" => Ok(Box::new(openai::OpenAiProvider::with_base_url_and_max_tokens(
-            api_url,
-            key,
-            options.max_tokens_override,
-        ))),
+        "openai" => Ok(Box::new(
+            openai::OpenAiProvider::with_base_url_and_max_tokens(
+                api_url,
+                key,
+                options.max_tokens_override,
+            ),
+        )),
         // Ollama uses api_url for custom base URL (e.g. remote Ollama instance)
         "ollama" => Ok(Box::new(ollama::OllamaProvider::new_with_reasoning(
             api_url,
@@ -1216,7 +1217,10 @@ fn create_provider_with_url_and_options(
 
         // ── Extended ecosystem (community favorites) ─────────
         "groq" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Groq", "https://api.groq.com/openai/v1", key, AuthStyle::Bearer,
+            "Groq",
+            "https://api.groq.com/openai/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
         "mistral" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Mistral", "https://api.mistral.ai/v1", key, AuthStyle::Bearer,
@@ -1231,7 +1235,16 @@ fn create_provider_with_url_and_options(
             "Together AI", "https://api.together.xyz", key, AuthStyle::Bearer,
         ))),
         "fireworks" | "fireworks-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Fireworks AI", "https://api.fireworks.ai/inference/v1", key, AuthStyle::Bearer,
+            "Fireworks AI",
+            "https://api.fireworks.ai/inference/v1",
+            key,
+            AuthStyle::Bearer,
+        ))),
+        "novita" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Novita AI",
+            "https://api.novita.ai/openai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "perplexity" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Perplexity", "https://api.perplexity.ai", key, AuthStyle::Bearer,
