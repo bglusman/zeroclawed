@@ -1599,10 +1599,17 @@ pub(crate) async fn run_tool_call_loop(
                 // Fall back to text-based parsing (XML tags, markdown blocks,
                 // GLM format) only if the provider returned no native calls —
                 // this ensures we support both native and prompt-guided models.
-                let mut calls = parse_structured_tool_calls(&native_calls);
+                let structured_parse = parse_structured_tool_calls(&native_calls);
+                let invalid_native_tool_json_count = structured_parse.invalid_json_arguments;
+                let mut calls = structured_parse.calls;
+                if invalid_native_tool_json_count > 0 {
+                    // Safety policy: when native tool-call args are partially truncated
+                    // or malformed, do not execute any parsed subset in this turn.
+                    calls.clear();
+                }
                 let mut parsed_text = String::new();
 
-                if calls.is_empty() {
+                if invalid_native_tool_json_count == 0 && calls.is_empty() {
                     let (fallback_text, fallback_calls) = parse_tool_calls(&response_text);
                     if !fallback_text.is_empty() {
                         parsed_text = fallback_text;
@@ -1610,7 +1617,12 @@ pub(crate) async fn run_tool_call_loop(
                     calls = fallback_calls;
                 }
 
-                let parse_issue = detect_tool_call_parse_issue(&response_text, &calls);
+                let mut parse_issue = detect_tool_call_parse_issue(&response_text, &calls);
+                if parse_issue.is_none() && invalid_native_tool_json_count > 0 {
+                    parse_issue = Some(format!(
+                        "provider returned {invalid_native_tool_json_count} native tool call(s) with invalid JSON arguments"
+                    ));
+                }
                 if let Some(parse_issue) = parse_issue.as_deref() {
                     runtime_trace::record_event(
                         "tool_call_parse_issue",
@@ -1622,6 +1634,7 @@ pub(crate) async fn run_tool_call_loop(
                         Some(parse_issue),
                         serde_json::json!({
                             "iteration": iteration + 1,
+                            "invalid_native_tool_json_count": invalid_native_tool_json_count,
                             "response_excerpt": truncate_with_ellipsis(
                                 &scrub_credentials(&response_text),
                                 600
@@ -4497,6 +4510,197 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_tool_call_loop_retries_when_native_tool_args_are_truncated_json() {
+        let provider = ScriptedProvider::from_scripted_responses(vec![
+            ChatResponse {
+                text: Some(String::new()),
+                tool_calls: vec![ToolCall {
+                    id: "call_bad".to_string(),
+                    name: "count_tool".to_string(),
+                    arguments: "{\"value\":\"truncated\"".to_string(),
+                }],
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::MaxTokens),
+                raw_stop_reason: Some("length".to_string()),
+            },
+            ChatResponse {
+                text: Some(String::new()),
+                tool_calls: vec![ToolCall {
+                    id: "call_good".to_string(),
+                    name: "count_tool".to_string(),
+                    arguments: "{\"value\":\"fixed\"}".to_string(),
+                }],
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::ToolCall),
+                raw_stop_reason: Some("tool_calls".to_string()),
+            },
+            ChatResponse {
+                text: Some("done after native retry".to_string()),
+                tool_calls: Vec::new(),
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::EndTurn),
+                raw_stop_reason: Some("stop".to_string()),
+            },
+        ])
+        .with_native_tool_support();
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run native call"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            6,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("truncated native arguments should trigger safe retry");
+
+        assert_eq!(result, "done after native retry");
+        assert_eq!(
+            invocations.load(Ordering::SeqCst),
+            1,
+            "only the repaired native tool call should execute"
+        );
+        assert!(
+            history.iter().any(|msg| {
+                msg.role == "tool" && msg.content.contains("\"tool_call_id\":\"call_good\"")
+            }),
+            "tool history should include only the repaired tool_call_id"
+        );
+        assert!(
+            history.iter().all(|msg| {
+                !(msg.role == "tool" && msg.content.contains("\"tool_call_id\":\"call_bad\""))
+            }),
+            "invalid truncated native call must not execute"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_ignores_text_fallback_when_native_tool_args_are_truncated_json() {
+        let provider = ScriptedProvider::from_scripted_responses(vec![
+            ChatResponse {
+                text: Some(
+                    r#"<tool_call>
+{"name":"count_tool","arguments":{"value":"from_text_fallback"}}
+</tool_call>"#
+                        .to_string(),
+                ),
+                tool_calls: vec![ToolCall {
+                    id: "call_bad".to_string(),
+                    name: "count_tool".to_string(),
+                    arguments: "{\"value\":\"truncated\"".to_string(),
+                }],
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::MaxTokens),
+                raw_stop_reason: Some("length".to_string()),
+            },
+            ChatResponse {
+                text: Some(String::new()),
+                tool_calls: vec![ToolCall {
+                    id: "call_good".to_string(),
+                    name: "count_tool".to_string(),
+                    arguments: "{\"value\":\"from_native_fixed\"}".to_string(),
+                }],
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::ToolCall),
+                raw_stop_reason: Some("tool_calls".to_string()),
+            },
+            ChatResponse {
+                text: Some("done after safe retry".to_string()),
+                tool_calls: Vec::new(),
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::EndTurn),
+                raw_stop_reason: Some("stop".to_string()),
+            },
+        ])
+        .with_native_tool_support();
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let tools_registry: Vec<Box<dyn Tool>> = vec![Box::new(CountingTool::new(
+            "count_tool",
+            Arc::clone(&invocations),
+        ))];
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("run native call"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            6,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("invalid native args should force retry without text fallback execution");
+
+        assert_eq!(result, "done after safe retry");
+        assert_eq!(
+            invocations.load(Ordering::SeqCst),
+            1,
+            "only repaired native call should execute after retry"
+        );
+        assert!(
+            history
+                .iter()
+                .all(|msg| !msg.content.contains("counted:from_text_fallback")),
+            "text fallback tool call must not execute when native JSON args are invalid"
+        );
+        assert!(
+            history
+                .iter()
+                .any(|msg| msg.content.contains("counted:from_native_fixed")),
+            "repaired native call should execute after retry"
+        );
+    }
+
+    #[tokio::test]
     async fn run_tool_call_loop_continues_when_stop_reason_is_max_tokens() {
         let provider = ScriptedProvider::from_scripted_responses(vec![
             ChatResponse {
@@ -5990,12 +6194,28 @@ Done."#;
             arguments: "ls -la".to_string(),
         }];
         let parsed = parse_structured_tool_calls(&calls);
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].name, "shell");
+        assert_eq!(parsed.invalid_json_arguments, 0);
+        assert_eq!(parsed.calls.len(), 1);
+        assert_eq!(parsed.calls[0].name, "shell");
         assert_eq!(
-            parsed[0].arguments.get("command").and_then(|v| v.as_str()),
+            parsed.calls[0]
+                .arguments
+                .get("command")
+                .and_then(|v| v.as_str()),
             Some("ls -la")
         );
+    }
+
+    #[test]
+    fn parse_structured_tool_calls_skips_truncated_json_payloads() {
+        let calls = vec![ToolCall {
+            id: "call_bad".to_string(),
+            name: "count_tool".to_string(),
+            arguments: "{\"value\":\"unterminated\"".to_string(),
+        }];
+        let parsed = parse_structured_tool_calls(&calls);
+        assert_eq!(parsed.calls.len(), 0);
+        assert_eq!(parsed.invalid_json_arguments, 1);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
