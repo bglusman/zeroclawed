@@ -37,11 +37,7 @@ pub fn apply_time_decay(entries: &mut [MemoryEntry], half_life_days: f64) {
             Err(_) => continue,
         };
 
-        let age_days = now
-            .signed_duration_since(ts)
-            .num_seconds()
-            .max(0) as f64
-            / 86_400.0;
+        let age_days = now.signed_duration_since(ts).num_seconds().max(0) as f64 / 86_400.0;
 
         let decay_factor = (-age_days / half_life * std::f64::consts::LN_2).exp();
         entry.score = Some(score * decay_factor);
