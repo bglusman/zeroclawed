@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::channels::traits::ChannelMessage;
+use crate::plugins::traits::PluginCapability;
 use crate::providers::traits::{ChatMessage, ChatResponse};
 use crate::tools::traits::ToolResult;
 
@@ -26,6 +27,11 @@ pub trait HookHandler: Send + Sync {
     fn name(&self) -> &str;
     fn priority(&self) -> i32 {
         0
+    }
+    /// Capabilities granted to this hook handler.
+    /// Handlers without `ModifyToolResults` cannot modify tool results.
+    fn capabilities(&self) -> &[PluginCapability] {
+        &[]
     }
 
     // --- Void hooks (parallel, fire-and-forget) ---
