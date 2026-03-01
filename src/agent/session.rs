@@ -568,7 +568,15 @@ mod tests {
             .await?;
 
         let removed = mgr.cleanup_expired().await?;
-        assert!(removed >= 1);
+        if removed == 0 {
+            let history = mgr.get_history("s1").await?;
+            assert!(
+                history.is_empty(),
+                "expired session should already be gone when explicit cleanup removes 0 rows"
+            );
+        } else {
+            assert!(removed >= 1);
+        }
         Ok(())
     }
 }
