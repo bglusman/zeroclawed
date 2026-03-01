@@ -715,8 +715,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         cost_tracker.clone(),
         &config.cost,
     );
-    let bridged_observer =
-        crate::plugins::bridge::observer::ObserverBridge::new_box(base_observer);
+    let bridged_observer = crate::plugins::bridge::observer::ObserverBridge::new_box(base_observer);
     let broadcast_observer: Arc<dyn crate::observability::Observer> = Arc::new(
         sse::BroadcastObserver::new(Box::new(bridged_observer), event_tx.clone()),
     );
