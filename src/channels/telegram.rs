@@ -3158,6 +3158,7 @@ impl Channel for TelegramChannel {
             "text": format!(
                 "Approval required for tool `{tool_name}`.\nRequest ID: `{request_id}`\nArgs: `{args_preview}`",
             ),
+            "parse_mode": "Markdown",
             "reply_markup": {
                 "inline_keyboard": [[
                     {
