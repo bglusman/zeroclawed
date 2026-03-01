@@ -88,7 +88,7 @@ env:
 jobs:
     audit:
         name: Security Audit
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 45
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -162,7 +162,7 @@ jobs:
 
     security-regressions:
         name: Security Regression Tests
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -182,7 +182,7 @@ jobs:
 
     secrets:
         name: Secrets Governance (Gitleaks)
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
