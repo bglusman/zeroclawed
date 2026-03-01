@@ -172,9 +172,7 @@ impl AwsCredentials {
             .to_string();
         let secret_access_key = creds_json["SecretAccessKey"]
             .as_str()
-            .ok_or_else(|| {
-                anyhow::anyhow!("Missing SecretAccessKey in ECS credential response")
-            })?
+            .ok_or_else(|| anyhow::anyhow!("Missing SecretAccessKey in ECS credential response"))?
             .to_string();
         let session_token = creds_json["Token"].as_str().map(|s| s.to_string());
 
@@ -285,7 +283,6 @@ impl CachedCredentials {
         *guard = Some((fresh, Instant::now()));
         Ok(cloned)
     }
-
 }
 
 /// Derive the SigV4 signing key via HMAC chain.
@@ -1795,7 +1792,9 @@ mod tests {
 
     #[tokio::test]
     async fn chat_fails_without_credentials() {
-        let provider = BedrockProvider { credentials: CachedCredentials::new(None) };
+        let provider = BedrockProvider {
+            credentials: CachedCredentials::new(None),
+        };
         let result = provider
             .chat_with_system(None, "hello", "anthropic.claude-sonnet-4-6", 0.7)
             .await;
@@ -2091,14 +2090,18 @@ mod tests {
 
     #[tokio::test]
     async fn warmup_without_credentials_is_noop() {
-        let provider = BedrockProvider { credentials: CachedCredentials::new(None) };
+        let provider = BedrockProvider {
+            credentials: CachedCredentials::new(None),
+        };
         let result = provider.warmup().await;
         assert!(result.is_ok());
     }
 
     #[test]
     fn capabilities_reports_native_tool_calling() {
-        let provider = BedrockProvider { credentials: CachedCredentials::new(None) };
+        let provider = BedrockProvider {
+            credentials: CachedCredentials::new(None),
+        };
         let caps = provider.capabilities();
         assert!(caps.native_tool_calling);
     }
@@ -2152,7 +2155,9 @@ mod tests {
 
     #[test]
     fn supports_streaming_returns_true() {
-        let provider = BedrockProvider { credentials: CachedCredentials::new(None) };
+        let provider = BedrockProvider {
+            credentials: CachedCredentials::new(None),
+        };
         assert!(provider.supports_streaming());
     }
 

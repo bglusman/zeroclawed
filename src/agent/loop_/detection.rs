@@ -396,15 +396,15 @@ mod tests {
         // Chinese chars are 3 bytes each, so 1366 chars = 4098 bytes
         let cjk_text: String = "文".repeat(1366); // 4098 bytes
         assert!(cjk_text.len() > super::OUTPUT_HASH_PREFIX_BYTES);
-        
+
         // This should NOT panic
         let hash1 = super::hash_output(&cjk_text);
-        
+
         // Different content should produce different hash
         let cjk_text2: String = "字".repeat(1366);
         let hash2 = super::hash_output(&cjk_text2);
         assert_ne!(hash1, hash2);
-        
+
         // Mixed ASCII + CJK at boundary
         let mixed = "a".repeat(4094) + "文文"; // 4094 + 6 = 4100 bytes, boundary at 4096
         let hash3 = super::hash_output(&mixed);

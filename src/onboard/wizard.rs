@@ -3324,9 +3324,8 @@ fn prompt_allowed_domains_for_tool(tool_name: &str) -> Result<Vec<String>> {
                     anyhow::bail!(
                         "Custom domain list cannot be empty. Use 'Allow all public domains (*)' if that is intended."
                     )
-                } else {
-                    Ok(domains)
                 }
+                Ok(domains)
             }
         };
     }

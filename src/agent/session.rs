@@ -8,8 +8,8 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use std::sync::{LazyLock, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -60,7 +60,9 @@ pub fn shared_session_manager(
     let key = format!("{}:{session_config:?}", workspace_dir.display());
 
     {
-        let map = SHARED_SESSION_MANAGERS.lock().unwrap_or_else(|e| e.into_inner());
+        let map = SHARED_SESSION_MANAGERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(mgr) = map.get(&key) {
             return Ok(Some(mgr.clone()));
         }
@@ -68,7 +70,9 @@ pub fn shared_session_manager(
 
     let mgr_opt = create_session_manager(session_config, workspace_dir)?;
     if let Some(mgr) = mgr_opt.as_ref() {
-        let mut map = SHARED_SESSION_MANAGERS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut map = SHARED_SESSION_MANAGERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         map.insert(key, mgr.clone());
     }
     Ok(mgr_opt)
@@ -351,14 +355,15 @@ impl SessionManager for SqliteSessionManager {
 
         tokio::task::spawn_blocking(move || {
             let conn = conn.lock();
-            let mut stmt = conn.prepare(
-                "SELECT history_json FROM agent_sessions WHERE session_id = ?1",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT history_json FROM agent_sessions WHERE session_id = ?1")?;
             let mut rows = stmt.query(params![session_id])?;
             if let Some(row) = rows.next()? {
                 let json: String = row.get(0)?;
-                let mut history: Vec<ChatMessage> = serde_json::from_str(&json)
-                    .with_context(|| format!("Failed to parse session history for session_id={session_id}"))?;
+                let mut history: Vec<ChatMessage> =
+                    serde_json::from_str(&json).with_context(|| {
+                        format!("Failed to parse session history for session_id={session_id}")
+                    })?;
                 trim_non_system(&mut history, max_messages);
                 return Ok(history);
             }

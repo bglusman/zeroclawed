@@ -98,12 +98,20 @@ mod tests {
             CortexMemMemory::new_with_command_for_test(tmp.path(), sqlite, "missing-cortex-cli");
 
         memory
-            .store("cortex_key", "local first", MemoryCategory::Conversation, None)
+            .store(
+                "cortex_key",
+                "local first",
+                MemoryCategory::Conversation,
+                None,
+            )
             .await
             .unwrap();
 
         let stored = memory.get("cortex_key").await.unwrap();
-        assert!(stored.is_some(), "expected local sqlite entry to be present");
+        assert!(
+            stored.is_some(),
+            "expected local sqlite entry to be present"
+        );
         assert_eq!(stored.unwrap().content, "local first");
     }
 }

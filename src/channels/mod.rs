@@ -15,9 +15,9 @@
 //! [`start_channels`]. See `AGENTS.md` §7.2 for the full change playbook.
 
 pub(crate) mod ack_reaction;
+pub mod acp;
 pub mod bluebubbles;
 pub mod clawdtalk;
-pub mod acp;
 pub mod cli;
 pub mod dingtalk;
 pub mod discord;
@@ -104,8 +104,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Per-sender conversation history for channel messages.
 type ConversationHistoryMap = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
-type ConversationLockMap =
-    Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
+type ConversationLockMap = Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
 /// Maximum history messages to keep per sender.
 const MAX_CHANNEL_HISTORY: usize = 50;
 /// Minimum user-message length (in chars) for auto-save to memory.
@@ -3346,11 +3345,10 @@ or tune thresholds in config.",
             match session.get_history().await {
                 Ok(history) => {
                     tracing::debug!(history_len = history.len(), "session history loaded");
-                    let filtered: Vec<ChatMessage> =
-                        history
-                            .into_iter()
-                            .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
-                            .collect();
+                    let filtered: Vec<ChatMessage> = history
+                        .into_iter()
+                        .filter(|m| crate::providers::is_user_or_assistant_role(m.role.as_str()))
+                        .collect();
                     let mut histories = ctx
                         .conversation_histories
                         .lock()
