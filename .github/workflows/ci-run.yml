@@ -66,6 +66,7 @@ jobs:
             - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
               with:
                   prefix-key: ci-run-check
+                  cache-bin: false
             - name: Run rust quality gate
               run: ./scripts/ci/rust_quality_gate.sh
             - name: Run strict lint delta gate
@@ -90,6 +91,7 @@ jobs:
             - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
               with:
                   prefix-key: ci-run-check
+                  cache-bin: false
             - name: Run tests with flake detection
               shell: bash
               env:
@@ -158,6 +160,7 @@ jobs:
               with:
                   prefix-key: ci-run-build
                   cache-targets: true
+                  cache-bin: false
             - name: Build binary (smoke check)
               env:
                   CARGO_BUILD_JOBS: 2

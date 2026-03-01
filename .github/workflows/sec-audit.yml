@@ -175,6 +175,7 @@ jobs:
             - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
               with:
                   prefix-key: sec-audit-security-regressions
+                  cache-bin: false
             - name: Run security regression suite
               shell: bash
               run: ./scripts/ci/security_regression_tests.sh
