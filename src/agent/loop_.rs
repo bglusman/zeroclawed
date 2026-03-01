@@ -1462,7 +1462,7 @@ pub(crate) async fn run_tool_call_loop(
             .await?
         };
 
-        for ((idx, call), outcome) in executable_indices
+        for ((idx, call), mut outcome) in executable_indices
             .iter()
             .zip(executable_calls.iter())
             .zip(executed_outcomes.into_iter())
@@ -2050,21 +2050,8 @@ pub async fn run(
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
-    let hooks: Option<std::sync::Arc<crate::hooks::HookRunner>> = if config.hooks.enabled {
-        let mut runner = crate::hooks::HookRunner::new();
-        if config.hooks.builtin.boot_script {
-            runner.register(Box::new(crate::hooks::builtin::BootScriptHook));
-        }
-        if config.hooks.builtin.command_logger {
-            runner.register(Box::new(crate::hooks::builtin::CommandLoggerHook::new()));
-        }
-        if config.hooks.builtin.session_memory {
-            runner.register(Box::new(crate::hooks::builtin::SessionMemoryHook));
-        }
-        Some(std::sync::Arc::new(runner))
-    } else {
-        None
-    };
+    let hooks = crate::hooks::HookRunner::from_config(&config.hooks)
+        .map(std::sync::Arc::new);
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
