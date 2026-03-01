@@ -50,7 +50,7 @@ jobs:
         name: Lint Gate (Format + Clippy + Strict Delta)
         needs: [changes]
         if: needs.changes.outputs.rust_changed == 'true'
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 40
         env:
             CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
@@ -84,7 +84,7 @@ jobs:
         name: Test
         needs: [changes]
         if: needs.changes.outputs.rust_changed == 'true'
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 60
         env:
             CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
@@ -157,7 +157,7 @@ jobs:
         name: Build (Smoke)
         needs: [changes]
         if: needs.changes.outputs.rust_changed == 'true'
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 35
         env:
             CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo

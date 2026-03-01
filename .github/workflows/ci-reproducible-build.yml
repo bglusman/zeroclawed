@@ -54,7 +54,7 @@ env:
 jobs:
     reproducibility:
         name: Reproducible Build Probe
-        runs-on: [self-hosted, aws-india, Linux]
+        runs-on: ubuntu-22.04
         timeout-minutes: 45
         env:
             CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
