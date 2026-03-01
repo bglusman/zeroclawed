@@ -1569,6 +1569,14 @@ pub(crate) async fn run_tool_call_loop(
                     );
                 }
 
+                if matches!(stop_reason, Some(NormalizedStopReason::MaxTokens))
+                    && !native_calls.is_empty()
+                {
+                    anyhow::bail!(
+                        "provider returned native tool calls with max-token truncation; refusing to execute potentially partial tool-call payload"
+                    );
+                }
+
                 if continuation_attempts > 0
                     && matches!(stop_reason, Some(NormalizedStopReason::MaxTokens))
                     && native_calls.is_empty()
@@ -4688,6 +4696,57 @@ mod tests {
         assert!(
             capped_output.starts_with('A'),
             "capped output should preserve earlier text before continuation chunk"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_errors_on_truncated_native_tool_calls() {
+        let provider = ScriptedProvider::from_scripted_responses(vec![ChatResponse {
+            text: Some(String::new()),
+            tool_calls: vec![ToolCall {
+                id: "tc-1".to_string(),
+                name: "shell".to_string(),
+                arguments: r#"{"command":"echo"#.to_string(),
+            }],
+            usage: None,
+            reasoning_content: None,
+            quota_metadata: None,
+            stop_reason: Some(NormalizedStopReason::MaxTokens),
+            raw_stop_reason: Some("length".to_string()),
+        }]);
+        let tools_registry: Vec<Box<dyn Tool>> = Vec::new();
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("invoke shell"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await;
+
+        let error = result.expect_err("truncated native tool calls should fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("native tool calls with max-token truncation"),
+            "error should clearly explain why execution was refused"
         );
     }
 
