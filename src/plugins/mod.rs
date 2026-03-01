@@ -37,6 +37,7 @@
 //! enabled = true
 //! ```
 
+pub mod bridge;
 pub mod discovery;
 pub mod loader;
 pub mod manifest;

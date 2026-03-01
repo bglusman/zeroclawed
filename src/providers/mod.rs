@@ -86,6 +86,29 @@ const SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
 const STEPFUN_BASE_URL: &str = "https://api.stepfun.com/v1";
 const VERCEL_AI_GATEWAY_BASE_URL: &str = "https://ai-gateway.vercel.sh/v1";
 
+struct PluginProvider {
+    name: String,
+}
+
+#[async_trait::async_trait]
+impl Provider for PluginProvider {
+    async fn chat_with_system(
+        &self,
+        system_prompt: Option<&str>,
+        message: &str,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<String> {
+        plugins::runtime::execute_plugin_provider_chat(
+            &self.name,
+            system_prompt,
+            message,
+            model,
+            temperature,
+        )
+        .await
+    }
+}
 pub(crate) fn is_minimax_intl_alias(name: &str) -> bool {
     matches!(
         name,
@@ -1493,10 +1516,9 @@ fn create_provider_with_url_and_options(
         _ => {
             let registry = plugins::runtime::current_registry();
             if registry.has_provider(name) {
-                anyhow::bail!(
-                    "Plugin providers are not yet supported (requires Part 2). Provider '{}' cannot be used.",
-                    name
-                );
+                return Ok(Box::new(PluginProvider {
+                    name: name.to_string(),
+                }));
             }
             anyhow::bail!(
                 "Unknown provider: {name}. Check README for supported providers or run `zeroclaw onboard --interactive` to reconfigure.\n\
@@ -2881,6 +2903,36 @@ mod tests {
             ),
             Ok(_) => panic!("Expected error for unsupported anthropic-custom URL scheme"),
         }
+    }
+
+    #[test]
+    fn factory_plugin_provider_from_manifest_registry() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let manifest_path = dir.path().join("demo.plugin.toml");
+        std::fs::write(
+            &manifest_path,
+            r#"
+id = "provider-demo"
+version = "1.0.0"
+module_path = "plugins/provider-demo.wasm"
+wit_packages = ["zeroclaw:providers@1.0.0"]
+providers = ["demo-plugin-provider"]
+"#,
+        )
+        .expect("write manifest");
+
+        let cfg = crate::config::PluginsConfig {
+            enabled: true,
+            load_paths: vec![dir.path().to_string_lossy().to_string()],
+            ..crate::config::PluginsConfig::default()
+        };
+        crate::plugins::runtime::initialize_from_config(&cfg)
+            .expect("plugin runtime should initialize");
+
+        assert!(
+            create_provider("demo-plugin-provider", None).is_ok(),
+            "manifest-declared plugin provider should resolve from factory"
+        );
     }
 
     // ── Error cases ──────────────────────────────────────────
