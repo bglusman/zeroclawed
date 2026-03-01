@@ -127,7 +127,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 
 - Keep merge-blocking checks deterministic and reproducible (`--locked` where applicable).
 - Keep merge-queue compatibility explicit by supporting `merge_group` on required workflows (`ci-run`, `sec-audit`, and `sec-codeql`).
-- Keep PRs mapped to Linear issue keys (`RMN-*`/`CDV-*`/`COM-*`) via PR intake checks.
+- Keep PRs mapped to Linear issue keys (`RMN-*`/`CDV-*`/`COM-*`) when available for traceability (recommended by PR intake checks, non-blocking).
 - Keep `deny.toml` advisory ignore entries in object form with explicit reasons (enforced by `deny_policy_guard.py`).
 - Keep deny ignore governance metadata current in `.github/security/deny-ignore-governance.json` (owner/reason/expiry/ticket enforced by `deny_policy_guard.py`).
 - Keep gitleaks allowlist governance metadata current in `.github/security/gitleaks-allowlist-governance.json` (owner/reason/expiry/ticket enforced by `secrets_governance_guard.py`).
