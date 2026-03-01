@@ -91,9 +91,9 @@ jobs:
         runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         env:
-            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
-            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
-            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
+            CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
+            RUSTUP_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/rustup
+            CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/target
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -114,9 +114,9 @@ jobs:
         runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         env:
-            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
-            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
-            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
+            CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
+            RUSTUP_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/rustup
+            CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/target
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -201,9 +201,9 @@ jobs:
         runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 30
         env:
-            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
-            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
-            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
+            CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/cargo
+            RUSTUP_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/rustup
+            CARGO_TARGET_DIR: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/target
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
