@@ -88,8 +88,12 @@ env:
 jobs:
     audit:
         name: Security Audit
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
+        env:
+            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
+            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
+            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -107,8 +111,12 @@ jobs:
 
     deny:
         name: License & Supply Chain
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
+        env:
+            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
+            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
+            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -135,18 +143,22 @@ jobs:
               run: |
                   set -euo pipefail
                   version="0.19.0"
-                  install_root="${RUNNER_TEMP}/cargo-install"
-                  bin_dir="${install_root}/bin"
-                  mkdir -p "${bin_dir}"
-                  cargo_deny_bin=""
-                  if command -v cargo-deny >/dev/null 2>&1 && cargo-deny --version | grep -q "${version}"; then
-                    cargo_deny_bin="$(command -v cargo-deny)"
-                  else
-                    cargo install cargo-deny --locked --version "${version}" --root "${install_root}"
-                    cargo_deny_bin="${bin_dir}/cargo-deny"
-                  fi
-                  echo "${bin_dir}" >> "${GITHUB_PATH}"
-                  "${cargo_deny_bin}" --version
+                  arch="$(uname -m)"
+                  case "${arch}" in
+                    x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
+                    aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
+                    *)
+                      echo "Unsupported runner architecture for cargo-deny: ${arch}" >&2
+                      exit 1
+                      ;;
+                  esac
+                  install_dir="${RUNNER_TEMP}/cargo-deny-${version}"
+                  mkdir -p "${install_dir}"
+                  curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+                    "https://github.com/EmbarkStudios/cargo-deny/releases/download/${version}/cargo-deny-${version}-${target}.tar.gz" \
+                    | tar -xz -C "${install_dir}" --strip-components=1
+                  echo "${install_dir}" >> "${GITHUB_PATH}"
+                  "${install_dir}/cargo-deny" --version
 
             - name: Run cargo-deny checks
               shell: bash
@@ -186,8 +198,12 @@ jobs:
 
     security-regressions:
         name: Security Regression Tests
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 30
+        env:
+            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
+            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
+            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
@@ -205,7 +221,7 @@ jobs:
 
     secrets:
         name: Secrets Governance (Gitleaks)
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -400,7 +416,7 @@ jobs:
 
     sbom:
         name: SBOM Snapshot
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -465,7 +481,7 @@ jobs:
 
     unsafe-debt:
         name: Unsafe Debt Audit
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -604,7 +620,7 @@ jobs:
         name: Security Required Gate
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
         needs: [audit, deny, security-regressions, secrets, sbom, unsafe-debt]
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         steps:
             - name: Enforce security gate
               shell: bash

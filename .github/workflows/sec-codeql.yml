@@ -45,8 +45,12 @@ env:
 jobs:
     codeql:
         name: CodeQL Analysis
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 60
+        env:
+            CARGO_HOME: ${{ runner.temp }}/cargo-${{ github.job }}
+            RUSTUP_HOME: ${{ runner.temp }}/rustup-${{ github.job }}
+            CARGO_TARGET_DIR: ${{ runner.temp }}/target-${{ github.job }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
