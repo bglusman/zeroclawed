@@ -107,12 +107,27 @@ impl McpTransportConn for StdioTransport {
                 error: None,
             });
         }
-        let resp_line = timeout(Duration::from_secs(RECV_TIMEOUT_SECS), self.recv_raw())
-            .await
-            .context("timeout waiting for MCP response")??;
-        let resp: JsonRpcResponse = serde_json::from_str(&resp_line)
-            .with_context(|| format!("invalid JSON-RPC response: {}", resp_line))?;
-        Ok(resp)
+        let deadline = std::time::Instant::now() + Duration::from_secs(RECV_TIMEOUT_SECS);
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                bail!("timeout waiting for MCP response");
+            }
+            let resp_line = timeout(remaining, self.recv_raw())
+                .await
+                .context("timeout waiting for MCP response")??;
+            let resp: JsonRpcResponse = serde_json::from_str(&resp_line)
+                .with_context(|| format!("invalid JSON-RPC response: {}", resp_line))?;
+            if resp.id.is_none() {
+                // Server-sent notification (e.g. `notifications/initialized`) — skip and
+                // keep waiting for the actual response to our request.
+                tracing::debug!(
+                    "MCP stdio: skipping server notification while waiting for response"
+                );
+                continue;
+            }
+            return Ok(resp);
+        }
     }
 
     async fn close(&mut self) -> Result<()> {
