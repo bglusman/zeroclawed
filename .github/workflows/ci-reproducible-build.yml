@@ -52,7 +52,7 @@ env:
 jobs:
     reproducibility:
         name: Reproducible Build Probe
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 45
         steps:
             - name: Checkout

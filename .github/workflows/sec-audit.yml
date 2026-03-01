@@ -88,7 +88,7 @@ env:
 jobs:
     audit:
         name: Security Audit
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 45
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -162,7 +162,7 @@ jobs:
 
     security-regressions:
         name: Security Regression Tests
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 30
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -181,7 +181,7 @@ jobs:
 
     secrets:
         name: Secrets Governance (Gitleaks)
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -376,7 +376,7 @@ jobs:
 
     sbom:
         name: SBOM Snapshot
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -441,7 +441,7 @@ jobs:
 
     unsafe-debt:
         name: Unsafe Debt Audit
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -580,7 +580,7 @@ jobs:
         name: Security Required Gate
         if: always() && (github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group')
         needs: [audit, deny, security-regressions, secrets, sbom, unsafe-debt]
-        runs-on: [self-hosted, aws-india]
+        runs-on: [self-hosted, aws-india, Linux]
         steps:
             - name: Enforce security gate
               shell: bash
