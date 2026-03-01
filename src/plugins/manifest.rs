@@ -333,7 +333,10 @@ id = "  "
     fn manifest_rejects_empty_module_path() {
         let manifest = PluginManifest {
             id: "demo".into(),
-            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            version: Some("1.0.0".into()),
+            config_schema: None,
             capabilities: vec![],
             module_path: "   ".into(),
             wit_packages: vec!["zeroclaw:hooks@1.0.0".into()],
@@ -347,7 +350,10 @@ id = "  "
     fn manifest_rejects_capability_without_matching_wit_package() {
         let manifest = PluginManifest {
             id: "demo".into(),
-            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            version: Some("1.0.0".into()),
+            config_schema: None,
             capabilities: vec![PluginCapability::Tools],
             module_path: "plugins/demo.wasm".into(),
             wit_packages: vec!["zeroclaw:hooks@1.0.0".into()],
@@ -361,7 +367,10 @@ id = "  "
     fn manifest_rejects_modify_tool_results_without_hooks_capability() {
         let manifest = PluginManifest {
             id: "demo".into(),
-            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            version: Some("1.0.0".into()),
+            config_schema: None,
             capabilities: vec![PluginCapability::ModifyToolResults],
             module_path: "plugins/demo.wasm".into(),
             wit_packages: vec!["zeroclaw:hooks@1.0.0".into()],
@@ -375,7 +384,10 @@ id = "  "
     fn manifest_rejects_tools_without_tools_wit_package() {
         let manifest = PluginManifest {
             id: "demo".into(),
-            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            version: Some("1.0.0".into()),
+            config_schema: None,
             capabilities: vec![],
             module_path: "plugins/demo.wasm".into(),
             wit_packages: vec!["zeroclaw:hooks@1.0.0".into()],
