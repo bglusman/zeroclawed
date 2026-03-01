@@ -96,6 +96,8 @@ impl Provider for ScriptedProvider {
                 usage: None,
                 reasoning_content: None,
                 quota_metadata: None,
+                stop_reason: None,
+                raw_stop_reason: None,
             });
         }
         Ok(guard.remove(0))
@@ -334,6 +336,8 @@ fn tool_response(calls: Vec<ToolCall>) -> ChatResponse {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     }
 }
 
@@ -345,6 +349,8 @@ fn text_response(text: &str) -> ChatResponse {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     }
 }
 
@@ -358,6 +364,8 @@ fn xml_tool_response(name: &str, args: &str) -> ChatResponse {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     }
 }
 
@@ -754,6 +762,8 @@ async fn turn_handles_empty_text_response() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     }]));
 
     let mut agent = build_agent_with(provider, vec![], Box::new(NativeToolDispatcher));
@@ -770,6 +780,8 @@ async fn turn_handles_none_text_response() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     }]));
 
     let mut agent = build_agent_with(provider, vec![], Box::new(NativeToolDispatcher));
@@ -796,6 +808,8 @@ async fn turn_preserves_text_alongside_tool_calls() {
             usage: None,
             reasoning_content: None,
             quota_metadata: None,
+            stop_reason: None,
+            raw_stop_reason: None,
         },
         text_response("Here are the results"),
     ]));
@@ -1035,6 +1049,8 @@ async fn native_dispatcher_handles_stringified_arguments() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     };
 
     let (_, calls) = dispatcher.parse_response(&response);
@@ -1063,6 +1079,8 @@ fn xml_dispatcher_handles_nested_json() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     };
 
     let dispatcher = XmlToolDispatcher;
@@ -1083,6 +1101,8 @@ fn xml_dispatcher_handles_empty_tool_call_tag() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     };
 
     let dispatcher = XmlToolDispatcher;
@@ -1099,6 +1119,8 @@ fn xml_dispatcher_handles_unclosed_tool_call() {
         usage: None,
         reasoning_content: None,
         quota_metadata: None,
+        stop_reason: None,
+        raw_stop_reason: None,
     };
 
     let dispatcher = XmlToolDispatcher;
