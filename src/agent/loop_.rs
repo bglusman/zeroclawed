@@ -1485,11 +1485,30 @@ pub(crate) async fn run_tool_call_loop(
 
             // ── Hook: after_tool_call (void) ─────────────────
             if let Some(hooks) = hooks {
-                let tool_result_obj = crate::tools::ToolResult {
+                let mut tool_result_obj = crate::tools::ToolResult {
                     success: outcome.success,
                     output: outcome.output.clone(),
                     error: None,
                 };
+                match hooks
+                    .run_tool_result_persist(call.name.clone(), tool_result_obj.clone())
+                    .await
+                {
+                    crate::hooks::HookResult::Continue(next) => {
+                        tool_result_obj = next;
+                        outcome.success = tool_result_obj.success;
+                        outcome.output = tool_result_obj.output.clone();
+                        outcome.error_reason = tool_result_obj.error.clone();
+                    }
+                    crate::hooks::HookResult::Cancel(reason) => {
+                        outcome.success = false;
+                        outcome.error_reason = Some(scrub_credentials(&reason));
+                        outcome.output = format!("Tool result blocked by hook: {reason}");
+                        tool_result_obj.success = false;
+                        tool_result_obj.error = Some(reason);
+                        tool_result_obj.output = outcome.output.clone();
+                    }
+                }
                 hooks
                     .fire_after_tool_call(&call.name, &tool_result_obj, outcome.duration)
                     .await;
@@ -2027,6 +2046,22 @@ pub async fn run(
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
+    let hooks: Option<std::sync::Arc<crate::hooks::HookRunner>> = if config.hooks.enabled {
+        let mut runner = crate::hooks::HookRunner::new();
+        if config.hooks.builtin.boot_script {
+            runner.register(Box::new(crate::hooks::builtin::BootScriptHook));
+        }
+        if config.hooks.builtin.command_logger {
+            runner.register(Box::new(crate::hooks::builtin::CommandLoggerHook::new()));
+        }
+        if config.hooks.builtin.session_memory {
+            runner.register(Box::new(crate::hooks::builtin::SessionMemoryHook));
+        }
+        Some(std::sync::Arc::new(runner))
+    } else {
+        None
+    };
+
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
         Some(ApprovalManager::from_config(&config.autonomy))
@@ -2103,7 +2138,7 @@ pub async fn run(
                         config.agent.max_tool_iterations,
                         None,
                         None,
-                        hooks,
+                        hooks.as_deref(),
                         &[],
                     ),
                 ),
@@ -2280,7 +2315,7 @@ pub async fn run(
                             config.agent.max_tool_iterations,
                             None,
                             None,
-                            hooks,
+                            hooks.as_deref(),
                             &[],
                         ),
                     ),
@@ -2340,6 +2375,7 @@ pub async fn run(
                 provider.as_ref(),
                 &model_name,
                 config.agent.max_history_messages,
+                hooks.as_deref(),
             )
             .await
             {

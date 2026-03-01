@@ -66,6 +66,7 @@ pub(super) async fn auto_compact_history(
     provider: &dyn Provider,
     model: &str,
     max_history: usize,
+    hooks: Option<&crate::hooks::HookRunner>,
 ) -> Result<bool> {
     let has_system = history.first().map_or(false, |m| m.role == "system");
     let non_system_count = if has_system {
@@ -91,6 +92,17 @@ pub(super) async fn auto_compact_history(
         compact_end += 1;
     }
     let to_compact: Vec<ChatMessage> = history[start..compact_end].to_vec();
+    let to_compact = if let Some(hooks) = hooks {
+        match hooks.run_before_compaction(to_compact).await {
+            crate::hooks::HookResult::Continue(messages) => messages,
+            crate::hooks::HookResult::Cancel(reason) => {
+                tracing::info!(%reason, "history compaction cancelled by hook");
+                return Ok(false);
+            }
+        }
+    } else {
+        to_compact
+    };
     let transcript = build_compaction_transcript(&to_compact);
 
     let summarizer_system = "You are a conversation compaction engine. Summarize older chat history into concise context for future turns. Preserve: user preferences, commitments, decisions, unresolved tasks, key facts. Omit: filler, repeated chit-chat, verbose tool logs. Output plain text bullet points only.";
@@ -109,6 +121,17 @@ pub(super) async fn auto_compact_history(
         });
 
     let summary = truncate_with_ellipsis(&summary_raw, COMPACTION_MAX_SUMMARY_CHARS);
+    let summary = if let Some(hooks) = hooks {
+        match hooks.run_after_compaction(summary).await {
+            crate::hooks::HookResult::Continue(next_summary) => next_summary,
+            crate::hooks::HookResult::Cancel(reason) => {
+                tracing::info!(%reason, "post-compaction summary cancelled by hook");
+                return Ok(false);
+            }
+        }
+    } else {
+        summary
+    };
     apply_compaction_summary(history, start, compact_end, &summary);
 
     Ok(true)
