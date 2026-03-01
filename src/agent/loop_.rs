@@ -1419,11 +1419,12 @@ pub(crate) async fn run_tool_call_loop(
                 let mut continuation_attempts = 0usize;
                 let mut continuation_termination_reason: Option<&'static str> = None;
                 let mut continuation_error: Option<String> = None;
+                let mut output_chars = response_text.chars().count();
 
                 while matches!(stop_reason, Some(NormalizedStopReason::MaxTokens))
                     && native_calls.is_empty()
                     && continuation_attempts < MAX_TOKENS_CONTINUATION_MAX_ATTEMPTS
-                    && response_text.chars().count() < MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS
+                    && output_chars < MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS
                 {
                     continuation_attempts += 1;
                     runtime_trace::record_event(
@@ -1437,7 +1438,7 @@ pub(crate) async fn run_tool_call_loop(
                         serde_json::json!({
                             "iteration": iteration + 1,
                             "attempt": continuation_attempts,
-                            "output_chars": response_text.chars().count(),
+                            "output_chars": output_chars,
                             "max_output_chars": MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS,
                         }),
                     );
@@ -1482,7 +1483,20 @@ pub(crate) async fn run_tool_call_loop(
                     }
 
                     let next_text = continuation_resp.text_or_empty().to_string();
-                    response_text = merge_continuation_text(&response_text, &next_text);
+                    let merged_text = merge_continuation_text(&response_text, &next_text);
+                    let merged_chars = merged_text.chars().count();
+                    if merged_chars > MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS {
+                        response_text = merged_text
+                            .chars()
+                            .take(MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS)
+                            .collect();
+                        output_chars = MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS;
+                        stop_reason = Some(NormalizedStopReason::MaxTokens);
+                        continuation_termination_reason = Some("output_cap");
+                        break;
+                    }
+                    response_text = merged_text;
+                    output_chars = merged_chars;
 
                     if continuation_resp.reasoning_content.is_some() {
                         reasoning_content = continuation_resp.reasoning_content.clone();
@@ -1515,9 +1529,7 @@ pub(crate) async fn run_tool_call_loop(
                 if continuation_attempts > 0 && continuation_termination_reason.is_none() {
                     continuation_termination_reason =
                         if matches!(stop_reason, Some(NormalizedStopReason::MaxTokens)) {
-                            if response_text.chars().count()
-                                >= MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS
-                            {
+                            if output_chars >= MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS {
                                 Some("output_cap")
                             } else {
                                 Some("retry_limit")
@@ -1540,7 +1552,7 @@ pub(crate) async fn run_tool_call_loop(
                             "iteration": iteration + 1,
                             "attempts": continuation_attempts,
                             "terminal_reason": terminal_reason,
-                            "output_chars": response_text.chars().count(),
+                            "output_chars": output_chars,
                         }),
                     );
                 }
@@ -4595,6 +4607,75 @@ mod tests {
         assert!(
             result.contains("Response may be truncated due to continuation limits"),
             "result should include truncation notice when continuation cap is hit"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_clamps_continuation_output_to_hard_cap() {
+        let oversized_chunk = "B".repeat(MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS);
+        let provider = ScriptedProvider::from_scripted_responses(vec![
+            ChatResponse {
+                text: Some("A".to_string()),
+                tool_calls: Vec::new(),
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::MaxTokens),
+                raw_stop_reason: Some("length".to_string()),
+            },
+            ChatResponse {
+                text: Some(oversized_chunk),
+                tool_calls: Vec::new(),
+                usage: None,
+                reasoning_content: None,
+                quota_metadata: None,
+                stop_reason: Some(NormalizedStopReason::EndTurn),
+                raw_stop_reason: Some("stop".to_string()),
+            },
+        ]);
+
+        let tools_registry: Vec<Box<dyn Tool>> = Vec::new();
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("long output"),
+        ];
+        let observer = NoopObserver;
+
+        let result = run_tool_call_loop(
+            &provider,
+            &mut history,
+            &tools_registry,
+            &observer,
+            "mock-provider",
+            "mock-model",
+            0.0,
+            true,
+            None,
+            "cli",
+            &crate::config::MultimodalConfig::default(),
+            4,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("continuation should clamp oversized merge");
+
+        assert!(
+            result.ends_with(MAX_TOKENS_CONTINUATION_NOTICE),
+            "hard-cap truncation should append continuation notice"
+        );
+        let capped_output = result
+            .strip_suffix(MAX_TOKENS_CONTINUATION_NOTICE)
+            .expect("result should end with continuation notice");
+        assert_eq!(
+            capped_output.chars().count(),
+            MAX_TOKENS_CONTINUATION_MAX_OUTPUT_CHARS
+        );
+        assert!(
+            capped_output.starts_with('A'),
+            "capped output should preserve earlier text before continuation chunk"
         );
     }
 
