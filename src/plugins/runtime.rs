@@ -304,7 +304,7 @@ fn registry_cell() -> &'static RwLock<RuntimeState> {
     CELL.get_or_init(|| RwLock::new(RuntimeState::default()))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct RuntimeState {
     registry: PluginRegistry,
     hot_reload: bool,
@@ -374,7 +374,7 @@ fn maybe_hot_reload() {
     let Some(config) = config else {
         return;
     };
-    let current_fingerprints = collect_manifest_fingerprints(&config.dirs);
+    let current_fingerprints = collect_manifest_fingerprints(&config.load_paths);
     if current_fingerprints == previous_fingerprints {
         return;
     }
@@ -415,12 +415,13 @@ pub fn initialize_from_config(config: &PluginsConfig) -> Result<()> {
 
     let runtime = PluginRuntime::new();
     let registry = runtime.load_registry_from_config(config)?;
-    let fingerprints = collect_manifest_fingerprints(&config.dirs);
+    let fingerprints = collect_manifest_fingerprints(&config.load_paths);
     let mut guard = registry_cell()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     guard.registry = registry;
-    guard.hot_reload = config.hot_reload;
+    // Keep hot-reload disabled by default until schema-level controls are added.
+    guard.hot_reload = false;
     guard.config = Some(config.clone());
     guard.fingerprints = fingerprints;
     {
@@ -429,14 +430,15 @@ pub fn initialize_from_config(config: &PluginsConfig) -> Result<()> {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *fp_guard = Some(fingerprint);
     }
+    // Use conservative defaults until plugins.limits is exposed in config schema.
     guard.limits = PluginExecutionLimits {
-        invoke_timeout_ms: config.limits.invoke_timeout_ms,
-        memory_limit_bytes: config.limits.memory_limit_bytes,
+        invoke_timeout_ms: 2_000,
+        memory_limit_bytes: 64 * 1024 * 1024,
     };
     let mut sem_guard = semaphore_cell()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *sem_guard = Arc::new(Semaphore::new(config.limits.max_concurrency.max(1)));
+    *sem_guard = Arc::new(Semaphore::new(8));
     Ok(())
 }
 

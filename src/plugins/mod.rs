@@ -38,6 +38,7 @@
 //! ```
 
 pub mod discovery;
+pub mod bridge;
 pub mod loader;
 pub mod manifest;
 pub mod registry;
