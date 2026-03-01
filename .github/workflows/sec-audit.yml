@@ -135,22 +135,18 @@ jobs:
               run: |
                   set -euo pipefail
                   version="0.19.0"
-                  arch="$(uname -m)"
-                  case "${arch}" in
-                    x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
-                    aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
-                    *)
-                      echo "Unsupported runner architecture for cargo-deny: ${arch}" >&2
-                      exit 1
-                      ;;
-                  esac
-                  install_dir="${RUNNER_TEMP}/cargo-deny"
-                  mkdir -p "${install_dir}"
-                  curl --proto '=https' --tlsv1.2 -fsSL \
-                    "https://github.com/EmbarkStudios/cargo-deny/releases/download/${version}/cargo-deny-${version}-${target}.tar.gz" \
-                    | tar -xz -C "${install_dir}" --strip-components=1
-                  echo "${install_dir}" >> "${GITHUB_PATH}"
-                  "${install_dir}/cargo-deny" --version
+                  install_root="${RUNNER_TEMP}/cargo-install"
+                  bin_dir="${install_root}/bin"
+                  mkdir -p "${bin_dir}"
+                  cargo_deny_bin=""
+                  if command -v cargo-deny >/dev/null 2>&1 && cargo-deny --version | grep -q "${version}"; then
+                    cargo_deny_bin="$(command -v cargo-deny)"
+                  else
+                    cargo install cargo-deny --locked --version "${version}" --root "${install_root}"
+                    cargo_deny_bin="${bin_dir}/cargo-deny"
+                  fi
+                  echo "${bin_dir}" >> "${GITHUB_PATH}"
+                  "${cargo_deny_bin}" --version
 
             - name: Run cargo-deny checks
               shell: bash
