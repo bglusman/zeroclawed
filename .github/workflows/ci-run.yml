@@ -167,6 +167,10 @@ jobs:
                   CI_SMOKE_BUILD_ATTEMPTS: 3
               run: bash scripts/ci/smoke_build_retry.sh
             - name: Check binary size
+              env:
+                  BINARY_SIZE_HARD_LIMIT_MB: 28
+                  BINARY_SIZE_ADVISORY_MB: 20
+                  BINARY_SIZE_TARGET_MB: 5
               run: bash scripts/ci/check_binary_size.sh target/release-fast/zeroclaw
 
     docs-only:
