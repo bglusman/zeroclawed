@@ -2473,7 +2473,9 @@ mod tests {
     fn checklist_default_forbidden_paths_comprehensive() {
         let p = SecurityPolicy::default();
         // Must contain all critical system dirs
-        for dir in ["/etc", "/root", "/proc", "/sys", "/dev", "/var", "/tmp", "/mnt"] {
+        for dir in [
+            "/etc", "/root", "/proc", "/sys", "/dev", "/var", "/tmp", "/mnt",
+        ] {
             assert!(
                 p.forbidden_paths.iter().any(|f| f == dir),
                 "Default forbidden_paths must include {dir}"
