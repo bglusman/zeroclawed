@@ -44,6 +44,7 @@ pub use traits::{
 };
 
 use crate::auth::AuthService;
+use crate::plugins;
 use compatible::{AuthStyle, CompatibleApiMode, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
 use serde::Deserialize;
@@ -1364,11 +1365,20 @@ fn create_provider_with_url_and_options(
             )))
         }
 
-        _ => anyhow::bail!(
-            "Unknown provider: {name}. Check README for supported providers or run `zeroclaw onboard --interactive` to reconfigure.\n\
-             Tip: Use \"custom:https://your-api.com\" for OpenAI-compatible endpoints.\n\
-             Tip: Use \"anthropic-custom:https://your-api.com\" for Anthropic-compatible endpoints."
-        ),
+        _ => {
+            let registry = plugins::runtime::current_registry();
+            if registry.has_provider(name) {
+                anyhow::bail!(
+                    "Plugin providers are not yet supported (requires Part 2). Provider '{}' cannot be used.",
+                    name
+                );
+            }
+            anyhow::bail!(
+                "Unknown provider: {name}. Check README for supported providers or run `zeroclaw onboard --interactive` to reconfigure.\n\
+                 Tip: Use \"custom:https://your-api.com\" for OpenAI-compatible endpoints.\n\
+                 Tip: Use \"anthropic-custom:https://your-api.com\" for Anthropic-compatible endpoints."
+            )
+        }
     }
 }
 

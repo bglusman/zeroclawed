@@ -291,6 +291,11 @@ mod tests {
             version: Some("0.1.0".into()),
             description: None,
             config_schema: None,
+            capabilities: vec![],
+            module_path: String::new(),
+            wit_packages: vec![],
+            tools: vec![],
+            providers: vec![],
         }
     }
 

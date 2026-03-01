@@ -5135,6 +5135,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
     // Ensure stale channel handles are never reused across restarts.
     clear_live_channels();
 
+    if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
+        tracing::warn!("plugin registry initialization skipped: {error}");
+    }
+
     let provider_name = resolved_default_provider(&config);
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,

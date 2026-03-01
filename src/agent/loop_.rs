@@ -1777,6 +1777,10 @@ pub async fn run(
     interactive: bool,
     hooks: Option<&crate::hooks::HookRunner>,
 ) -> Result<String> {
+    if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
+        tracing::warn!("plugin registry initialization skipped: {error}");
+    }
+
     // ── Wire up agnostic subsystems ──────────────────────────────
     let base_observer = observability::create_observer(&config.observability);
     let observer: Arc<dyn Observer> = Arc::from(base_observer);
@@ -2412,6 +2416,9 @@ pub async fn process_message_with_session(
     message: &str,
     session_id: Option<&str>,
 ) -> Result<String> {
+    if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
+        tracing::warn!("plugin registry initialization skipped: {error}");
+    }
     let observer: Arc<dyn Observer> =
         Arc::from(observability::create_observer(&config.observability));
     let runtime: Arc<dyn runtime::RuntimeAdapter> =
