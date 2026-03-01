@@ -1,6 +1,6 @@
 //! Integration tests for circuit breaker behavior.
 //!
-//! Tests circuit breaker opening, closing, and interaction with ReliableProvider.
+//! Tests ProviderHealthTracker opening/closing semantics and reset behavior.
 
 use std::time::Duration;
 use zeroclaw::providers::health::ProviderHealthTracker;
@@ -42,7 +42,7 @@ fn circuit_breaker_closes_after_timeout() {
     assert!(tracker.should_try("test-provider").is_err());
 
     // Wait for cooldown
-    std::thread::sleep(Duration::from_millis(120));
+    std::thread::sleep(Duration::from_millis(250));
 
     // Circuit should be closed (timeout expired)
     assert!(

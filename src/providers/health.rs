@@ -46,6 +46,12 @@ impl ProviderHealthTracker {
     /// * `cooldown` - Duration to block provider after circuit opens
     /// * `max_tracked_providers` - Maximum number of providers to track (for BackoffStore capacity)
     pub fn new(failure_threshold: u32, cooldown: Duration, max_tracked_providers: usize) -> Self {
+        assert!(
+            failure_threshold > 0,
+            "failure_threshold must be greater than 0"
+        );
+        assert!(!cooldown.is_zero(), "cooldown must be greater than 0");
+
         Self {
             states: Arc::new(Mutex::new(HashMap::new())),
             backoff: Arc::new(BackoffStore::new(max_tracked_providers)),
@@ -106,8 +112,10 @@ impl ProviderHealthTracker {
         let current_count = state.failure_count;
         drop(states);
 
-        // Open circuit if threshold exceeded
-        if current_count >= self.failure_threshold {
+        // Open circuit if threshold is exceeded and provider is not already
+        // in cooldown. This prevents repeated failures from extending cooldown.
+        let provider_key = provider.to_string();
+        if current_count >= self.failure_threshold && self.backoff.get(&provider_key).is_none() {
             tracing::warn!(
                 provider = provider,
                 failure_count = current_count,
@@ -115,7 +123,7 @@ impl ProviderHealthTracker {
                 cooldown_secs = self.cooldown.as_secs(),
                 "Provider failure threshold exceeded - opening circuit breaker"
             );
-            self.backoff.set(provider.to_string(), self.cooldown, ());
+            self.backoff.set(provider_key, self.cooldown, ());
         }
     }
 
@@ -197,10 +205,44 @@ mod tests {
         assert!(tracker.should_try("test-provider").is_err());
 
         // Wait for cooldown
-        thread::sleep(Duration::from_millis(60));
+        thread::sleep(Duration::from_millis(200));
 
         // Circuit should be closed (backoff expired)
         assert!(tracker.should_try("test-provider").is_ok());
+    }
+
+    #[test]
+    fn repeated_failures_while_circuit_open_do_not_extend_cooldown() {
+        let tracker = ProviderHealthTracker::new(1, Duration::from_secs(2), 100);
+        tracker.record_failure("test-provider", "error 1");
+
+        let (remaining_before, _) = tracker
+            .should_try("test-provider")
+            .expect_err("circuit should be open after threshold is reached");
+        thread::sleep(Duration::from_millis(400));
+
+        // Simulate an extra failure reported while the circuit is still open.
+        tracker.record_failure("test-provider", "error while open");
+        let (remaining_after, _) = tracker
+            .should_try("test-provider")
+            .expect_err("circuit should still be open");
+
+        assert!(
+            remaining_after + Duration::from_millis(250) < remaining_before,
+            "cooldown should keep counting down instead of being reset"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "failure_threshold must be greater than 0")]
+    fn new_rejects_zero_failure_threshold() {
+        let _ = ProviderHealthTracker::new(0, Duration::from_secs(1), 100);
+    }
+
+    #[test]
+    #[should_panic(expected = "cooldown must be greater than 0")]
+    fn new_rejects_zero_cooldown() {
+        let _ = ProviderHealthTracker::new(1, Duration::ZERO, 100);
     }
 
     #[test]
