@@ -712,8 +712,8 @@ When using `credential_profile`, do not also set the same header key in `args.he
 | Key | Default | Purpose |
 |---|---|---|
 | `enabled` | `false` | Enable `web_fetch` for page-to-text extraction |
-| `provider` | `fast_html2md` | Fetch/render backend: `fast_html2md`, `nanohtml2text`, `firecrawl` |
-| `api_key` | unset | API key for provider backends that require it (e.g. `firecrawl`) |
+| `provider` | `fast_html2md` | Fetch/render backend: `fast_html2md`, `nanohtml2text`, `firecrawl`, `tavily` |
+| `api_key` | unset | API key for provider backends that require it (e.g. `firecrawl`, `tavily`) |
 | `api_url` | unset | Optional API URL override (self-hosted/alternate endpoint) |
 | `allowed_domains` | `["*"]` | Domain allowlist (`"*"` allows all public domains) |
 | `blocked_domains` | `[]` | Denylist applied before allowlist |
