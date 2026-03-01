@@ -5349,6 +5349,12 @@ pub struct WatiConfig {
     /// WATI API base URL (default: https://live-mt-server.wati.io).
     #[serde(default = "default_wati_api_url")]
     pub api_url: String,
+    /// Shared secret for WATI webhook authentication.
+    ///
+    /// Supports `X-Hub-Signature-256` HMAC verification and Bearer-token fallback.
+    /// Can also be set via `ZEROCLAW_WATI_WEBHOOK_SECRET`.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
     /// Tenant ID for multi-channel setups (optional).
     #[serde(default)]
     pub tenant_id: Option<String>,
@@ -6939,6 +6945,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.linq.signing_secret",
         )?;
     }
+    if let Some(ref mut wati) = channels.wati {
+        decrypt_secret(
+            store,
+            &mut wati.api_token,
+            "config.channels_config.wati.api_token",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut wati.webhook_secret,
+            "config.channels_config.wati.webhook_secret",
+        )?;
+    }
     if let Some(ref mut github) = channels.github {
         decrypt_secret(
             store,
@@ -7130,6 +7148,18 @@ fn encrypt_channel_secrets(
             store,
             &mut linq.signing_secret,
             "config.channels_config.linq.signing_secret",
+        )?;
+    }
+    if let Some(ref mut wati) = channels.wati {
+        encrypt_secret(
+            store,
+            &mut wati.api_token,
+            "config.channels_config.wati.api_token",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut wati.webhook_secret,
+            "config.channels_config.wati.webhook_secret",
         )?;
     }
     if let Some(ref mut github) = channels.github {

@@ -355,6 +355,8 @@ pub struct AppState {
     /// Nextcloud Talk webhook secret for signature verification
     pub nextcloud_talk_webhook_secret: Option<Arc<str>>,
     pub wati: Option<Arc<WatiChannel>>,
+    /// WATI webhook secret for signature/bearer verification
+    pub wati_webhook_secret: Option<Arc<str>>,
     pub qq: Option<Arc<QQChannel>>,
     pub qq_webhook_enabled: bool,
     /// Observability backend for metrics scraping
@@ -578,6 +580,25 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
                 wati_cfg.allowed_numbers.clone(),
             ))
         });
+    // WATI webhook secret for signature verification
+    // Priority: environment variable > config file
+    let wati_webhook_secret: Option<Arc<str>> = std::env::var("ZEROCLAW_WATI_WEBHOOK_SECRET")
+        .ok()
+        .and_then(|secret| {
+            let secret = secret.trim();
+            (!secret.is_empty()).then(|| secret.to_owned())
+        })
+        .or_else(|| {
+            config.channels_config.wati.as_ref().and_then(|wati_cfg| {
+                wati_cfg
+                    .webhook_secret
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|secret| !secret.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+        })
+        .map(Arc::from);
 
     // QQ channel (if configured)
     let qq_channel: Option<Arc<QQChannel>> = config.channels_config.qq.as_ref().map(|qq_cfg| {
@@ -764,6 +785,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         nextcloud_talk: nextcloud_talk_channel,
         nextcloud_talk_webhook_secret,
         wati: wati_channel,
+        wati_webhook_secret,
         qq: qq_channel,
         qq_webhook_enabled,
         observer: broadcast_observer,
@@ -1879,6 +1901,54 @@ pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header
     hmac::verify(&key, body, &expected).is_ok()
 }
 
+/// Verify WATI webhook signature (`X-Hub-Signature-256`).
+/// Accepts either `sha256=<hex>` or raw hex digest formats.
+pub fn verify_wati_signature(webhook_secret: &str, body: &[u8], signature_header: &str) -> bool {
+    use ring::hmac;
+
+    let signature = signature_header.trim();
+    let hex_sig = signature.strip_prefix("sha256=").unwrap_or(signature);
+    if hex_sig.is_empty() {
+        return false;
+    }
+
+    let Ok(expected) = hex::decode(hex_sig) else {
+        return false;
+    };
+
+    let key = hmac::Key::new(hmac::HMAC_SHA256, webhook_secret.as_bytes());
+    hmac::verify(&key, body, &expected).is_ok()
+}
+
+fn verify_wati_webhook_auth(secret: &str, headers: &HeaderMap, body: &[u8]) -> bool {
+    let signature = [
+        "X-Hub-Signature-256",
+        "X-Wati-Signature",
+        "X-Webhook-Signature",
+    ]
+    .iter()
+    .find_map(|name| {
+        headers
+            .get(*name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    });
+    if let Some(signature) = signature {
+        if verify_wati_signature(secret, body, signature) {
+            return true;
+        }
+    }
+
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    bearer.is_some_and(|token| constant_time_eq(token, secret))
+}
+
 /// POST /whatsapp — incoming message webhook
 async fn handle_whatsapp_message(
     State(state): State<AppState>,
@@ -2404,13 +2474,65 @@ pub struct WatiVerifyQuery {
 }
 
 /// POST /wati — incoming WATI WhatsApp message webhook
-async fn handle_wati_webhook(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+async fn handle_wati_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
     let Some(ref wati) = state.wati else {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "WATI not configured"})),
         );
     };
+
+    let Some(ref webhook_secret) = state.wati_webhook_secret else {
+        tracing::error!("WATI webhook secret not configured; refusing inbound webhook");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": "WATI webhook secret not configured"})),
+        );
+    };
+
+    if !verify_wati_webhook_auth(webhook_secret, &headers, &body) {
+        let signature = [
+            "X-Hub-Signature-256",
+            "X-Wati-Signature",
+            "X-Webhook-Signature",
+        ]
+        .iter()
+        .find_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+        let bearer = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        tracing::warn!(
+            "WATI webhook authentication failed (signature: {}, bearer: {})",
+            if signature.is_some() {
+                "invalid"
+            } else {
+                "missing"
+            },
+            if bearer.is_some() {
+                "invalid"
+            } else {
+                "missing"
+            }
+        );
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "Invalid webhook authentication"})),
+        );
+    }
 
     // Parse JSON body
     let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
@@ -2815,6 +2937,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -2876,6 +2999,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer,
@@ -2920,6 +3044,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -2965,6 +3090,7 @@ mod tests {
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3479,6 +3605,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3552,6 +3679,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3606,6 +3734,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3661,6 +3790,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3725,6 +3855,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3782,6 +3913,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3845,6 +3977,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3902,6 +4035,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -3989,6 +4123,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4046,6 +4181,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4108,6 +4244,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4149,6 +4286,15 @@ Reminder set successfully."#;
         hex::encode(mac.finalize().into_bytes())
     }
 
+    fn compute_wati_signature_header(secret: &str, body: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body.as_bytes());
+        format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+    }
+
     fn compute_github_signature_header(secret: &str, body: &str) -> String {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
@@ -4156,6 +4302,349 @@ Reminder set successfully."#;
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body.as_bytes());
         format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
+    }
+
+    #[test]
+    fn verify_wati_signature_accepts_prefixed_and_raw_hex() {
+        let secret = "wati-secret";
+        let body = r#"{"event":"message"}"#;
+        let prefixed = compute_wati_signature_header(secret, body);
+        let raw = prefixed.trim_start_matches("sha256=");
+
+        assert!(verify_wati_signature(secret, body.as_bytes(), &prefixed));
+        assert!(verify_wati_signature(secret, body.as_bytes(), raw));
+        assert!(!verify_wati_signature(
+            "different-secret",
+            body.as_bytes(),
+            &prefixed
+        ));
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_returns_not_found_when_not_configured() {
+        let provider: Arc<dyn Provider> = Arc::new(MockProvider::default());
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            wati_webhook_secret: None,
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_wati_webhook(State(state), HeaderMap::new(), Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_returns_internal_server_error_when_secret_missing() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: None,
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_wati_webhook(State(state), HeaderMap::new(), Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_rejects_missing_auth_headers() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from("wati-secret")),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let response = handle_wati_webhook(State(state), HeaderMap::new(), Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_rejects_invalid_signature() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+        let body = "{}";
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from("wati-secret")),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Hub-Signature-256",
+            HeaderValue::from_static("sha256=deadbeef"),
+        );
+
+        let response = handle_wati_webhook(State(state), headers, Bytes::from(body))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_accepts_valid_signature() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+        let secret = "wati-secret";
+        let body = "{}";
+        let signature = compute_wati_signature_header(secret, body);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from(secret)),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Hub-Signature-256",
+            HeaderValue::from_str(&signature).unwrap(),
+        );
+
+        let response = handle_wati_webhook(State(state), headers, Bytes::from(body))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_accepts_valid_bearer_token() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+        let secret = "wati-secret";
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from(secret)),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer wati-secret"),
+        );
+
+        let response = handle_wati_webhook(State(state), headers, Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -4184,6 +4673,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4239,6 +4729,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4305,6 +4796,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4376,6 +4868,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4437,6 +4930,7 @@ Reminder set successfully."#;
             nextcloud_talk: Some(channel),
             nextcloud_talk_webhook_secret: Some(Arc::from(secret)),
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4491,6 +4985,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: None,
             qq_webhook_enabled: false,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -4544,6 +5039,7 @@ Reminder set successfully."#;
             nextcloud_talk: None,
             nextcloud_talk_webhook_secret: None,
             wati: None,
+            wati_webhook_secret: None,
             qq: Some(qq),
             qq_webhook_enabled: true,
             observer: Arc::new(crate::observability::NoopObserver),

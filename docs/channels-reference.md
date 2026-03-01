@@ -544,6 +544,28 @@ Notes:
 allowed_contacts = ["*"]
 ```
 
+### 4.20 WATI
+
+```toml
+[channels_config.wati]
+api_token = "wati-api-token"
+api_url = "https://live-mt-server.wati.io"  # optional
+webhook_secret = "required-shared-secret"
+tenant_id = "tenant-id"                      # optional
+allowed_numbers = ["*"]                      # optional, "*" = allow all
+```
+
+Notes:
+
+- Inbound webhook endpoint: `POST /wati`.
+- WATI webhook auth is fail-closed:
+  - `500` when `webhook_secret` is not configured.
+  - `401` when signature/bearer auth is missing or invalid.
+- Accepted auth methods:
+  - `X-Hub-Signature-256` HMAC-SHA256 (`sha256=<hex>` or raw hex)
+  - `Authorization: Bearer <webhook_secret>` fallback
+- `ZEROCLAW_WATI_WEBHOOK_SECRET` overrides `webhook_secret` when set.
+
 ### 4.18 ACP
 
 ACP (Agent Client Protocol) enables ZeroClaw to act as a client for OpenCode ACP server,
