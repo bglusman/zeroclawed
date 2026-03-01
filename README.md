@@ -30,7 +30,7 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 
 <p align="center">
   <a href="#quick-start">Getting Started</a> |
-  <a href="bootstrap.sh">One-Click Setup</a> |
+  <a href="docs/one-click-bootstrap.md">One-Click Setup</a> |
   <a href="docs/README.md">Docs Hub</a> |
   <a href="docs/SUMMARY.md">Docs TOC</a>
 </p>
@@ -108,17 +108,27 @@ cargo install zeroclaw
 ### First Run
 
 ```bash
-# Start the gateway daemon
-zeroclaw gateway start
+# Start the gateway (serves the Web Dashboard API/UI)
+zeroclaw gateway
 
-# Open the web UI
-zeroclaw dashboard
+# Open the dashboard URL shown in startup logs
+# (default: http://127.0.0.1:3000/)
 
 # Or chat directly
 zeroclaw chat "Hello!"
 ```
 
 For detailed setup options, see [docs/one-click-bootstrap.md](docs/one-click-bootstrap.md).
+
+### Installation Docs (Canonical Source)
+
+Use repository docs as the source of truth for install/setup instructions:
+
+- [README Quick Start](#quick-start)
+- [docs/one-click-bootstrap.md](docs/one-click-bootstrap.md)
+- [docs/getting-started/README.md](docs/getting-started/README.md)
+
+Issue comments can provide context, but they are not canonical installation documentation.
 
 ## Benchmark Snapshot (ZeroClaw vs OpenClaw, Reproducible)
 

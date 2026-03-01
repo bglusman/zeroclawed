@@ -15,6 +15,7 @@ Last verified: **February 28, 2026**.
 | `service` | Manage user-level OS service lifecycle |
 | `doctor` | Run diagnostics and freshness checks |
 | `status` | Print current configuration and system summary |
+| `update` | Check or install latest ZeroClaw release |
 | `estop` | Engage/resume emergency stop levels and inspect estop state |
 | `cron` | Manage scheduled tasks |
 | `models` | Refresh provider model catalogs |
@@ -102,6 +103,18 @@ Notes:
 - `zeroclaw service restart`
 - `zeroclaw service status`
 - `zeroclaw service uninstall`
+
+### `update`
+
+- `zeroclaw update --check` (check for new release, no install)
+- `zeroclaw update` (install latest release binary for current platform)
+- `zeroclaw update --force` (reinstall even if current version matches latest)
+- `zeroclaw update --instructions` (print install-method-specific guidance)
+
+Notes:
+
+- If ZeroClaw is installed via Homebrew, prefer `brew upgrade zeroclaw`.
+- `update --instructions` detects common install methods and prints the safest path.
 
 ### `cron`
 
@@ -263,6 +276,11 @@ Registry packages are installed to `~/.zeroclaw/workspace/skills/<name>/`.
 > **Note:** The security audit applies to directory-based installs (local paths, git remotes). Zip-based installs (ClawhHub, direct zip URLs, local zip files) perform path-traversal safety checks during extraction but do not run the full static audit — review zip contents manually for untrusted sources.
 
 Use `skills audit` to manually validate a candidate skill directory (or an installed skill by name) before sharing it.
+
+Workspace symlink policy:
+- Symlinked entries under `~/.zeroclaw/workspace/skills/` are blocked by default.
+- To allow shared local skill directories, set `[skills].trusted_skill_roots` in `config.toml`.
+- A symlinked skill is accepted only when its resolved canonical target is inside one of the trusted roots.
 
 Skill manifests (`SKILL.toml`) support `prompts` and `[[tools]]`; both are injected into the agent system prompt at runtime, so the model can follow skill instructions without manually reading skill files.
 
