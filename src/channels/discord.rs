@@ -1,4 +1,6 @@
+use super::ack_reaction::{select_ack_reaction, AckReactionContext, AckReactionContextChatType};
 use super::traits::{Channel, ChannelMessage, SendMessage};
+use crate::config::AckReactionConfig;
 use anyhow::Context;
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
@@ -17,6 +19,8 @@ pub struct DiscordChannel {
     allowed_users: Vec<String>,
     listen_to_bots: bool,
     mention_only: bool,
+    group_reply_allowed_sender_ids: Vec<String>,
+    ack_reaction: Option<AckReactionConfig>,
     workspace_dir: Option<PathBuf>,
     typing_handles: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
 }
@@ -35,9 +39,23 @@ impl DiscordChannel {
             allowed_users,
             listen_to_bots,
             mention_only,
+            group_reply_allowed_sender_ids: Vec::new(),
+            ack_reaction: None,
             workspace_dir: None,
             typing_handles: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Configure sender IDs that bypass mention gating in guild channels.
+    pub fn with_group_reply_allowed_senders(mut self, sender_ids: Vec<String>) -> Self {
+        self.group_reply_allowed_sender_ids = normalize_group_reply_allowed_sender_ids(sender_ids);
+        self
+    }
+
+    /// Configure ACK reaction policy.
+    pub fn with_ack_reaction(mut self, ack_reaction: Option<AckReactionConfig>) -> Self {
+        self.ack_reaction = ack_reaction;
+        self
     }
 
     /// Configure workspace directory used for validating local attachment paths.
@@ -55,6 +73,16 @@ impl DiscordChannel {
     /// `"*"` means allow everyone.
     fn is_user_allowed(&self, user_id: &str) -> bool {
         self.allowed_users.iter().any(|u| u == "*" || u == user_id)
+    }
+
+    fn is_group_sender_trigger_enabled(&self, sender_id: &str) -> bool {
+        let sender_id = sender_id.trim();
+        if sender_id.is_empty() {
+            return false;
+        }
+        self.group_reply_allowed_sender_ids
+            .iter()
+            .any(|entry| entry == "*" || entry == sender_id)
     }
 
     fn bot_user_id_from_token(token: &str) -> Option<String> {
@@ -100,11 +128,25 @@ impl DiscordChannel {
     }
 }
 
+fn normalize_group_reply_allowed_sender_ids(sender_ids: Vec<String>) -> Vec<String> {
+    let mut normalized = sender_ids
+        .into_iter()
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
 /// Process Discord message attachments and return a string to append to the
 /// agent message context.
 ///
-/// Only `text/*` MIME types are fetched and inlined. All other types are
-/// silently skipped. Fetch errors are logged as warnings.
+/// `image/*` attachments are forwarded as `[IMAGE:<url>]` markers. For
+/// `application/octet-stream` or missing MIME types, image-like filename/url
+/// extensions are also treated as images.
+/// `text/*` MIME types are fetched and inlined. Other types are skipped.
+/// Fetch errors are logged as warnings.
 async fn process_attachments(
     attachments: &[serde_json::Value],
     client: &reqwest::Client,
@@ -123,7 +165,9 @@ async fn process_attachments(
             tracing::warn!(name, "discord: attachment has no url, skipping");
             continue;
         };
-        if ct.starts_with("text/") {
+        if is_image_attachment(ct, name, url) {
+            parts.push(format!("[IMAGE:{url}]"));
+        } else if ct.starts_with("text/") {
             match client.get(url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     if let Ok(text) = resp.text().await {
@@ -146,6 +190,54 @@ async fn process_attachments(
         }
     }
     parts.join("\n---\n")
+}
+
+fn is_image_attachment(content_type: &str, filename: &str, url: &str) -> bool {
+    let normalized_content_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    if !normalized_content_type.is_empty() {
+        if normalized_content_type.starts_with("image/") {
+            return true;
+        }
+        // Trust explicit non-image MIME to avoid false positives from filename extensions.
+        if normalized_content_type != "application/octet-stream" {
+            return false;
+        }
+    }
+
+    has_image_extension(filename) || has_image_extension(url)
+}
+
+fn has_image_extension(value: &str) -> bool {
+    let base = value.split('?').next().unwrap_or(value);
+    let base = base.split('#').next().unwrap_or(base);
+    let ext = Path::new(base)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase());
+
+    matches!(
+        ext.as_deref(),
+        Some(
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "webp"
+                | "bmp"
+                | "tif"
+                | "tiff"
+                | "svg"
+                | "avif"
+                | "heic"
+                | "heif"
+        )
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -458,19 +550,19 @@ fn contains_bot_mention(content: &str, bot_user_id: &str) -> bool {
 
 fn normalize_incoming_content(
     content: &str,
-    mention_only: bool,
+    require_mention: bool,
     bot_user_id: &str,
 ) -> Option<String> {
     if content.is_empty() {
         return None;
     }
 
-    if mention_only && !contains_bot_mention(content, bot_user_id) {
+    if require_mention && !contains_bot_mention(content, bot_user_id) {
         return None;
     }
 
     let mut normalized = content.to_string();
-    if mention_only {
+    if require_mention {
         for tag in mention_tags(bot_user_id) {
             normalized = normalized.replace(&tag, " ");
         }
@@ -761,8 +853,13 @@ impl Channel for DiscordChannel {
                     }
 
                     let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                    let is_group_message = d.get("guild_id").is_some();
+                    let allow_sender_without_mention =
+                        is_group_message && self.is_group_sender_trigger_enabled(author_id);
+                    let require_mention =
+                        self.mention_only && is_group_message && !allow_sender_without_mention;
                     let Some(clean_content) =
-                        normalize_incoming_content(content, self.mention_only, &bot_user_id)
+                        normalize_incoming_content(content, require_mention, &bot_user_id)
                     else {
                         continue;
                     };
@@ -798,21 +895,37 @@ impl Channel for DiscordChannel {
                         );
                         let reaction_channel_id = channel_id.clone();
                         let reaction_message_id = message_id.to_string();
-                        let reaction_emoji = random_discord_ack_reaction().to_string();
-                        tokio::spawn(async move {
-                            if let Err(err) = reaction_channel
-                                .add_reaction(
-                                    &reaction_channel_id,
-                                    &reaction_message_id,
-                                    &reaction_emoji,
-                                )
-                                .await
-                            {
-                                tracing::debug!(
-                                    "Discord: failed to add ACK reaction for message {reaction_message_id}: {err}"
-                                );
-                            }
-                        });
+                        let reaction_ctx = AckReactionContext {
+                            text: &final_content,
+                            sender_id: Some(author_id),
+                            chat_id: Some(&channel_id),
+                            chat_type: if is_group_message {
+                                AckReactionContextChatType::Group
+                            } else {
+                                AckReactionContextChatType::Direct
+                            },
+                            locale_hint: None,
+                        };
+                        if let Some(reaction_emoji) = select_ack_reaction(
+                            self.ack_reaction.as_ref(),
+                            DISCORD_ACK_REACTIONS,
+                            &reaction_ctx,
+                        ) {
+                            tokio::spawn(async move {
+                                if let Err(err) = reaction_channel
+                                    .add_reaction(
+                                        &reaction_channel_id,
+                                        &reaction_message_id,
+                                        &reaction_emoji,
+                                    )
+                                    .await
+                                {
+                                    tracing::debug!(
+                                        "Discord: failed to add ACK reaction for message {reaction_message_id}: {err}"
+                                    );
+                                }
+                            });
+                        }
                     }
 
                     let channel_msg = ChannelMessage {
@@ -1077,6 +1190,28 @@ mod tests {
     fn normalize_incoming_content_rejects_empty_after_strip() {
         let cleaned = normalize_incoming_content("<@12345>", true, "12345");
         assert!(cleaned.is_none());
+    }
+
+    #[test]
+    fn normalize_group_reply_allowed_sender_ids_trims_and_deduplicates() {
+        let normalized = normalize_group_reply_allowed_sender_ids(vec![
+            " 111 ".into(),
+            "111".into(),
+            String::new(),
+            "  ".into(),
+            "222".into(),
+        ]);
+        assert_eq!(normalized, vec!["111".to_string(), "222".to_string()]);
+    }
+
+    #[test]
+    fn group_reply_sender_override_matches_exact_and_wildcard() {
+        let ch = DiscordChannel::new("token".into(), None, vec!["*".into()], false, true)
+            .with_group_reply_allowed_senders(vec!["111".into(), "*".into()]);
+
+        assert!(ch.is_group_sender_trigger_enabled("111"));
+        assert!(ch.is_group_sender_trigger_enabled("anyone"));
+        assert!(!ch.is_group_sender_trigger_enabled(""));
     }
 
     // Message splitting tests
@@ -1502,6 +1637,73 @@ mod tests {
         assert!(result.is_empty());
     }
 
+    async fn process_attachments_emits_image_marker_for_image_content_type() {
+        let client = reqwest::Client::new();
+        let attachments = vec![serde_json::json!({
+            "url": "https://cdn.discordapp.com/attachments/123/456/photo.png",
+            "filename": "photo.png",
+            "content_type": "image/png"
+        })];
+        let result = process_attachments(&attachments, &client).await;
+        assert_eq!(
+            result,
+            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/photo.png]"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_attachments_emits_multiple_image_markers() {
+        let client = reqwest::Client::new();
+        let attachments = vec![
+            serde_json::json!({
+                "url": "https://cdn.discordapp.com/attachments/123/456/one.jpg",
+                "filename": "one.jpg",
+                "content_type": "image/jpeg"
+            }),
+            serde_json::json!({
+                "url": "https://cdn.discordapp.com/attachments/123/456/two.webp",
+                "filename": "two.webp",
+                "content_type": "image/webp"
+            }),
+        ];
+        let result = process_attachments(&attachments, &client).await;
+        assert_eq!(
+            result,
+            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/one.jpg]\n---\n[IMAGE:https://cdn.discordapp.com/attachments/123/456/two.webp]"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_attachments_emits_image_marker_from_filename_without_content_type() {
+        let client = reqwest::Client::new();
+        let attachments = vec![serde_json::json!({
+            "url": "https://cdn.discordapp.com/attachments/123/456/photo.jpeg?size=1024",
+            "filename": "photo.jpeg"
+        })];
+        let result = process_attachments(&attachments, &client).await;
+        assert_eq!(
+            result,
+            "[IMAGE:https://cdn.discordapp.com/attachments/123/456/photo.jpeg?size=1024]"
+        );
+    }
+
+    #[test]
+    fn is_image_attachment_prefers_non_image_content_type_over_extension() {
+        assert!(!is_image_attachment(
+            "text/plain",
+            "photo.png",
+            "https://cdn.discordapp.com/attachments/123/456/photo.png"
+        ));
+    }
+
+    #[test]
+    fn is_image_attachment_allows_octet_stream_extension_fallback() {
+        assert!(is_image_attachment(
+            "application/octet-stream",
+            "photo.png",
+            "https://cdn.discordapp.com/attachments/123/456/photo.png"
+        ));
+    }
     #[test]
     fn parse_attachment_markers_extracts_supported_markers() {
         let input = "Report\n[IMAGE:https://example.com/a.png]\n[DOCUMENT:/tmp/a.pdf]";
