@@ -16,6 +16,7 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{
@@ -29,6 +30,7 @@ use tokio_tungstenite::{
 /// A provider that speaks the OpenAI-compatible chat completions API.
 /// Used by: Venice, Vercel AI Gateway, Cloudflare AI Gateway, Moonshot,
 /// Synthetic, `OpenCode` Zen, `Z.AI`, `GLM`, `MiniMax`, Bedrock, Qianfan, Groq, Mistral, `xAI`, etc.
+#[derive(Clone)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct OpenAiCompatibleProvider {
     pub(crate) name: String,
@@ -1151,6 +1153,90 @@ impl OpenAiCompatibleProvider {
         self.api_mode == CompatibleApiMode::OpenAiResponses
     }
 
+    fn chat_completions_fallback_provider(&self) -> Self {
+        let mut provider = self.clone();
+        provider.api_mode = CompatibleApiMode::OpenAiChatCompletions;
+        provider.supports_responses_fallback = false;
+        provider
+    }
+
+    fn error_status_code(error: &anyhow::Error) -> Option<reqwest::StatusCode> {
+        if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+            if let Some(status) = reqwest_error.status() {
+                return Some(status);
+            }
+        }
+
+        let message = error.to_string();
+        for token in message.split(|c: char| !c.is_ascii_digit()) {
+            let Ok(code) = token.parse::<u16>() else {
+                continue;
+            };
+            if let Ok(status) = reqwest::StatusCode::from_u16(code) {
+                if status.is_client_error() || status.is_server_error() {
+                    return Some(status);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn is_authentication_error(error: &anyhow::Error) -> bool {
+        if let Some(status) = Self::error_status_code(error) {
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return true;
+            }
+        }
+
+        let lower = error.to_string().to_ascii_lowercase();
+        let auth_hints = [
+            "invalid api key",
+            "incorrect api key",
+            "missing api key",
+            "api key not set",
+            "authentication failed",
+            "auth failed",
+            "unauthorized",
+            "forbidden",
+            "permission denied",
+            "access denied",
+            "invalid token",
+        ];
+
+        auth_hints.iter().any(|hint| lower.contains(hint))
+    }
+
+    fn should_fallback_to_chat_completions(error: &anyhow::Error) -> bool {
+        if Self::is_authentication_error(error) {
+            return false;
+        }
+
+        if let Some(status) = Self::error_status_code(error) {
+            return status == reqwest::StatusCode::NOT_FOUND
+                || status == reqwest::StatusCode::REQUEST_TIMEOUT
+                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || status.is_server_error();
+        }
+
+        if let Some(reqwest_error) = error.downcast_ref::<reqwest::Error>() {
+            if reqwest_error.is_connect()
+                || reqwest_error.is_timeout()
+                || reqwest_error.is_request()
+                || reqwest_error.is_body()
+                || reqwest_error.is_decode()
+            {
+                return true;
+            }
+        }
+
+        let lower = error.to_string().to_ascii_lowercase();
+        lower.contains("responses api returned an unexpected payload")
+            || lower.contains("no response from")
+    }
+
     fn effective_max_tokens(&self) -> Option<u32> {
         self.max_tokens_override.filter(|value| *value > 0)
     }
@@ -1335,8 +1421,10 @@ impl OpenAiCompatibleProvider {
             .await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error = response.text().await?;
-            anyhow::bail!("{} Responses API error: {error}", self.name);
+            let sanitized = super::sanitize_api_error(&error);
+            anyhow::bail!("{} Responses API error ({status}): {sanitized}", self.name);
         }
 
         let body = response.text().await?;
@@ -1387,10 +1475,37 @@ impl OpenAiCompatibleProvider {
         credential: &str,
         messages: &[ChatMessage],
         model: &str,
+        temperature: f64,
     ) -> anyhow::Result<String> {
-        let responses = self
+        let responses = match self
             .send_responses_request(credential, messages, model, None)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(responses_err) => {
+                if self.should_use_responses_mode()
+                    && Self::should_fallback_to_chat_completions(&responses_err)
+                {
+                    tracing::warn!(
+                        provider = %self.name,
+                        error = %responses_err,
+                        "Responses API request failed in responses mode; retrying via chat completions"
+                    );
+                    let fallback_provider = self.chat_completions_fallback_provider();
+                    let sanitized = super::sanitize_api_error(&responses_err.to_string());
+                    return fallback_provider
+                        .chat_with_history(messages, model, temperature)
+                        .await
+                        .map_err(|chat_err| {
+                            anyhow::anyhow!(
+                                "{} Responses API failed: {sanitized} (chat-completions fallback failed: {chat_err})",
+                                self.name
+                            )
+                        });
+                }
+                return Err(responses_err);
+            }
+        };
         extract_responses_text(&responses)
             .ok_or_else(|| anyhow::anyhow!("No response from {} Responses API", self.name))
     }
@@ -1401,10 +1516,51 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         model: &str,
         tools: Option<Vec<Value>>,
+        temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
-        let responses = self
-            .send_responses_request(credential, messages, model, tools)
-            .await?;
+        let responses = match self
+            .send_responses_request(credential, messages, model, tools.clone())
+            .await
+        {
+            Ok(response) => response,
+            Err(responses_err) => {
+                if self.should_use_responses_mode()
+                    && Self::should_fallback_to_chat_completions(&responses_err)
+                {
+                    tracing::warn!(
+                        provider = %self.name,
+                        error = %responses_err,
+                        "Responses API request failed in responses mode; retrying via chat completions"
+                    );
+                    let fallback_provider = self.chat_completions_fallback_provider();
+                    let fallback_tool_specs = tools
+                        .as_deref()
+                        .map(Self::openai_tools_to_tool_specs)
+                        .unwrap_or_default();
+                    let fallback_tools =
+                        (!fallback_tool_specs.is_empty()).then_some(fallback_tool_specs.as_slice());
+                    let sanitized = super::sanitize_api_error(&responses_err.to_string());
+
+                    return fallback_provider
+                        .chat(
+                            ProviderChatRequest {
+                                messages,
+                                tools: fallback_tools,
+                            },
+                            model,
+                            temperature,
+                        )
+                        .await
+                        .map_err(|chat_err| {
+                            anyhow::anyhow!(
+                                "{} Responses API failed: {sanitized} (chat-completions fallback failed: {chat_err})",
+                                self.name
+                            )
+                        });
+                }
+                return Err(responses_err);
+            }
+        };
         let parsed = parse_responses_chat_response(responses);
         if parsed.text.is_none() && parsed.tool_calls.is_empty() {
             anyhow::bail!("No response from {} Responses API", self.name);
@@ -1467,90 +1623,173 @@ impl OpenAiCompatibleProvider {
         messages: &[ChatMessage],
         allow_user_image_parts: bool,
     ) -> Vec<NativeMessage> {
-        messages
-            .iter()
-            .map(|message| {
-                if message.role == "assistant" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content)
-                    {
-                        if let Some(tool_calls_value) = value.get("tool_calls") {
-                            if let Ok(parsed_calls) =
-                                serde_json::from_value::<Vec<ProviderToolCall>>(
-                                    tool_calls_value.clone(),
-                                )
-                            {
-                                let tool_calls = parsed_calls
-                                    .into_iter()
-                                    .map(|tc| ToolCall {
-                                        id: Some(tc.id),
-                                        kind: Some("function".to_string()),
-                                        function: Some(Function {
-                                            name: Some(tc.name),
-                                            arguments: Some(tc.arguments),
-                                        }),
-                                        name: None,
-                                        arguments: None,
-                                        parameters: None,
-                                    })
-                                    .collect::<Vec<_>>();
+        let mut native_messages = Vec::with_capacity(messages.len());
+        let mut assistant_tool_call_ids = HashSet::new();
 
-                                let content = value
-                                    .get("content")
-                                    .and_then(serde_json::Value::as_str)
-                                    .map(|value| MessageContent::Text(value.to_string()));
-
-                                let reasoning_content = value
-                                    .get("reasoning_content")
-                                    .and_then(serde_json::Value::as_str)
-                                    .map(ToString::to_string);
-
-                                return NativeMessage {
-                                    role: "assistant".to_string(),
-                                    content,
-                                    tool_call_id: None,
-                                    tool_calls: Some(tool_calls),
-                                    reasoning_content,
-                                };
+        for message in messages {
+            if message.role == "assistant" {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
+                    if let Some(tool_calls) = Self::parse_history_tool_calls(&value) {
+                        for call in &tool_calls {
+                            if let Some(id) = call.id.as_ref() {
+                                assistant_tool_call_ids.insert(id.clone());
                             }
                         }
-                    }
-                }
 
-                if message.role == "tool" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
-                        let tool_call_id = value
-                            .get("tool_call_id")
-                            .and_then(serde_json::Value::as_str)
-                            .map(ToString::to_string);
+                        // Some OpenAI-compatible providers (including NVIDIA NIM models)
+                        // reject assistant tool-call messages if `content` is omitted.
                         let content = value
                             .get("content")
                             .and_then(serde_json::Value::as_str)
-                            .map(|value| MessageContent::Text(value.to_string()))
-                            .or_else(|| Some(MessageContent::Text(message.content.clone())));
+                            .map(ToString::to_string)
+                            .unwrap_or_default();
 
-                        return NativeMessage {
-                            role: "tool".to_string(),
-                            content,
-                            tool_call_id,
-                            tool_calls: None,
-                            reasoning_content: None,
-                        };
+                        let reasoning_content = value
+                            .get("reasoning_content")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string);
+
+                        native_messages.push(NativeMessage {
+                            role: "assistant".to_string(),
+                            content: Some(MessageContent::Text(content)),
+                            tool_call_id: None,
+                            tool_calls: Some(tool_calls),
+                            reasoning_content,
+                        });
+                        continue;
                     }
                 }
+            }
 
-                NativeMessage {
-                    role: message.role.clone(),
-                    content: Some(Self::to_message_content(
-                        &message.role,
-                        &message.content,
-                        allow_user_image_parts,
-                    )),
-                    tool_call_id: None,
-                    tool_calls: None,
-                    reasoning_content: None,
+            if message.role == "tool" {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
+                    let tool_call_id = value
+                        .get("tool_call_id")
+                        .or_else(|| value.get("tool_use_id"))
+                        .or_else(|| value.get("toolUseId"))
+                        .or_else(|| value.get("id"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToString::to_string);
+
+                    let content_text = value
+                        .get("content")
+                        .and_then(serde_json::Value::as_str)
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| message.content.clone());
+
+                    if let Some(id) = tool_call_id {
+                        if assistant_tool_call_ids.contains(&id) {
+                            native_messages.push(NativeMessage {
+                                role: "tool".to_string(),
+                                content: Some(MessageContent::Text(content_text)),
+                                tool_call_id: Some(id),
+                                tool_calls: None,
+                                reasoning_content: None,
+                            });
+                            continue;
+                        }
+
+                        tracing::warn!(
+                            tool_call_id = %id,
+                            "Dropping orphan tool-role message; no matching assistant tool_call in history"
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Dropping tool-role message missing tool_call_id; preserving as user text fallback"
+                        );
+                    }
+
+                    native_messages.push(NativeMessage {
+                        role: "user".to_string(),
+                        content: Some(MessageContent::Text(format!(
+                            "[Tool result]\n{}",
+                            content_text
+                        ))),
+                        tool_call_id: None,
+                        tool_calls: None,
+                        reasoning_content: None,
+                    });
+                    continue;
                 }
-            })
-            .collect()
+            }
+
+            native_messages.push(NativeMessage {
+                role: message.role.clone(),
+                content: Some(Self::to_message_content(
+                    &message.role,
+                    &message.content,
+                    allow_user_image_parts,
+                )),
+                tool_call_id: None,
+                tool_calls: None,
+                reasoning_content: None,
+            });
+        }
+
+        native_messages
+    }
+
+    fn parse_history_tool_calls(value: &serde_json::Value) -> Option<Vec<ToolCall>> {
+        let tool_calls_value = value.get("tool_calls")?;
+
+        if let Ok(parsed_calls) =
+            serde_json::from_value::<Vec<ProviderToolCall>>(tool_calls_value.clone())
+        {
+            let tool_calls = parsed_calls
+                .into_iter()
+                .map(|tc| ToolCall {
+                    id: Some(tc.id),
+                    kind: Some("function".to_string()),
+                    function: Some(Function {
+                        name: Some(tc.name),
+                        arguments: Some(Self::normalize_tool_arguments(tc.arguments)),
+                    }),
+                    name: None,
+                    arguments: None,
+                    parameters: None,
+                })
+                .collect::<Vec<_>>();
+            if !tool_calls.is_empty() {
+                return Some(tool_calls);
+            }
+        }
+
+        if let Ok(parsed_calls) = serde_json::from_value::<Vec<ToolCall>>(tool_calls_value.clone())
+        {
+            let mut normalized_calls = Vec::with_capacity(parsed_calls.len());
+            for call in parsed_calls {
+                let Some(name) = call.function_name() else {
+                    continue;
+                };
+                let arguments = call
+                    .function_arguments()
+                    .unwrap_or_else(|| "{}".to_string());
+                normalized_calls.push(ToolCall {
+                    id: Some(call.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string())),
+                    kind: Some("function".to_string()),
+                    function: Some(Function {
+                        name: Some(name),
+                        arguments: Some(Self::normalize_tool_arguments(arguments)),
+                    }),
+                    name: None,
+                    arguments: None,
+                    parameters: None,
+                });
+            }
+            if !normalized_calls.is_empty() {
+                return Some(normalized_calls);
+            }
+        }
+
+        None
+    }
+
+    fn normalize_tool_arguments(arguments: String) -> String {
+        if serde_json::from_str::<serde_json::Value>(&arguments).is_ok() {
+            arguments
+        } else {
+            "{}".to_string()
+        }
     }
 
     fn with_prompt_guided_tool_instructions(
@@ -1595,17 +1834,14 @@ impl OpenAiCompatibleProvider {
             .filter_map(|tc| {
                 let name = tc.function_name()?;
                 let arguments = tc.function_arguments().unwrap_or_else(|| "{}".to_string());
-                let normalized_arguments =
-                    if serde_json::from_str::<serde_json::Value>(&arguments).is_ok() {
-                        arguments
-                    } else {
-                        tracing::warn!(
-                            function = %name,
-                            arguments = %arguments,
-                            "Invalid JSON in native tool-call arguments, using empty object"
-                        );
-                        "{}".to_string()
-                    };
+                let normalized_arguments = Self::normalize_tool_arguments(arguments.clone());
+                if normalized_arguments == "{}" && arguments != "{}" {
+                    tracing::warn!(
+                        function = %name,
+                        arguments = %arguments,
+                        "Invalid JSON in native tool-call arguments, using empty object"
+                    );
+                }
                 Some(ProviderToolCall {
                     id: tc.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                     name,
@@ -1727,7 +1963,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         if self.should_use_responses_mode() {
             return self
-                .chat_via_responses(credential, &fallback_messages, model)
+                .chat_via_responses(credential, &fallback_messages, model, temperature)
                 .await;
         }
 
@@ -1741,7 +1977,7 @@ impl Provider for OpenAiCompatibleProvider {
                 if self.supports_responses_fallback {
                     let sanitized = super::sanitize_api_error(&chat_error.to_string());
                     return self
-                        .chat_via_responses(credential, &fallback_messages, model)
+                        .chat_via_responses(credential, &fallback_messages, model, temperature)
                         .await
                         .map_err(|responses_err| {
                             anyhow::anyhow!(
@@ -1762,7 +1998,7 @@ impl Provider for OpenAiCompatibleProvider {
 
             if status == reqwest::StatusCode::NOT_FOUND && self.supports_responses_fallback {
                 return self
-                    .chat_via_responses(credential, &fallback_messages, model)
+                    .chat_via_responses(credential, &fallback_messages, model, temperature)
                     .await
                     .map_err(|responses_err| {
                         anyhow::anyhow!(
@@ -1843,7 +2079,7 @@ impl Provider for OpenAiCompatibleProvider {
 
         if self.should_use_responses_mode() {
             return self
-                .chat_via_responses(credential, &effective_messages, model)
+                .chat_via_responses(credential, &effective_messages, model, temperature)
                 .await;
         }
 
@@ -1858,7 +2094,7 @@ impl Provider for OpenAiCompatibleProvider {
                 if self.supports_responses_fallback {
                     let sanitized = super::sanitize_api_error(&chat_error.to_string());
                     return self
-                        .chat_via_responses(credential, &effective_messages, model)
+                        .chat_via_responses(credential, &effective_messages, model, temperature)
                         .await
                         .map_err(|responses_err| {
                             anyhow::anyhow!(
@@ -1878,7 +2114,7 @@ impl Provider for OpenAiCompatibleProvider {
             // Mirror chat_with_system: 404 may mean this provider uses the Responses API
             if status == reqwest::StatusCode::NOT_FOUND && self.supports_responses_fallback {
                 return self
-                    .chat_via_responses(credential, &effective_messages, model)
+                    .chat_via_responses(credential, &effective_messages, model, temperature)
                     .await
                     .map_err(|responses_err| {
                         anyhow::anyhow!(
@@ -1973,6 +2209,7 @@ impl Provider for OpenAiCompatibleProvider {
                     &effective_messages,
                     model,
                     (!tools.is_empty()).then(|| tools.to_vec()),
+                    temperature,
                 )
                 .await;
         }
@@ -2026,6 +2263,7 @@ impl Provider for OpenAiCompatibleProvider {
                         &effective_messages,
                         model,
                         (!tools.is_empty()).then(|| tools.to_vec()),
+                        temperature,
                     )
                     .await;
             }
@@ -2120,6 +2358,7 @@ impl Provider for OpenAiCompatibleProvider {
                     &effective_messages,
                     model,
                     response_tools.clone(),
+                    temperature,
                 )
                 .await;
         }
@@ -2143,6 +2382,7 @@ impl Provider for OpenAiCompatibleProvider {
                             &effective_messages,
                             model,
                             response_tools.clone(),
+                            temperature,
                         )
                         .await
                         .map_err(|responses_err| {
@@ -2180,6 +2420,7 @@ impl Provider for OpenAiCompatibleProvider {
                         &effective_messages,
                         model,
                         response_tools.clone(),
+                        temperature,
                     )
                     .await
                     .map_err(|responses_err| {
@@ -2695,13 +2936,290 @@ mod tests {
     async fn chat_via_responses_requires_non_system_message() {
         let provider = make_provider("custom", "https://api.example.com", Some("test-key"));
         let err = provider
-            .chat_via_responses("test-key", &[ChatMessage::system("policy")], "gpt-test")
+            .chat_via_responses(
+                "test-key",
+                &[ChatMessage::system("policy")],
+                "gpt-test",
+                0.7,
+            )
             .await
             .expect_err("system-only fallback payload should fail");
 
         assert!(err
             .to_string()
             .contains("requires at least one non-system message"));
+    }
+
+    #[tokio::test]
+    async fn responses_mode_falls_back_to_chat_completions_on_responses_404() {
+        #[derive(Clone, Default)]
+        struct FallbackState {
+            hits: Arc<Mutex<Vec<String>>>,
+        }
+
+        async fn responses_endpoint(
+            State(state): State<FallbackState>,
+            Json(_payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("responses".to_string());
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": { "message": "responses endpoint unavailable" }
+                })),
+            )
+        }
+
+        async fn chat_endpoint(
+            State(state): State<FallbackState>,
+            Json(payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("chat".to_string());
+            assert_eq!(
+                payload.get("model").and_then(Value::as_str),
+                Some("test-model")
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "choices": [{
+                        "message": {
+                            "content": "chat fallback ok"
+                        }
+                    }]
+                })),
+            )
+        }
+
+        let state = FallbackState::default();
+        let app = Router::new()
+            .route("/v1/responses", post(responses_endpoint))
+            .route("/chat/completions", post(chat_endpoint))
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("server local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let provider = OpenAiCompatibleProvider::new_custom_with_mode(
+            "custom",
+            &format!("http://{}", addr),
+            Some("test-key"),
+            AuthStyle::Bearer,
+            false,
+            CompatibleApiMode::OpenAiResponses,
+            None,
+        );
+        let text = provider
+            .chat_with_system(Some("system"), "hello", "test-model", 0.2)
+            .await
+            .expect("responses 404 should retry chat completions in responses mode");
+        assert_eq!(text, "chat fallback ok");
+
+        let hits = state.hits.lock().await.clone();
+        assert_eq!(
+            hits,
+            vec!["responses".to_string(), "chat".to_string()],
+            "must attempt responses first, then chat-completions fallback"
+        );
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn responses_mode_does_not_fallback_to_chat_completions_on_auth_error() {
+        #[derive(Clone, Default)]
+        struct AuthFailureState {
+            hits: Arc<Mutex<Vec<String>>>,
+        }
+
+        async fn responses_endpoint(
+            State(state): State<AuthFailureState>,
+            Json(_payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("responses".to_string());
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": { "message": "invalid api key" }
+                })),
+            )
+        }
+
+        async fn chat_endpoint(
+            State(state): State<AuthFailureState>,
+            Json(_payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("chat".to_string());
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "choices": [{
+                        "message": {
+                            "content": "should not be reached"
+                        }
+                    }]
+                })),
+            )
+        }
+
+        let state = AuthFailureState::default();
+        let app = Router::new()
+            .route("/v1/responses", post(responses_endpoint))
+            .route("/chat/completions", post(chat_endpoint))
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("server local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let provider = OpenAiCompatibleProvider::new_custom_with_mode(
+            "custom",
+            &format!("http://{}", addr),
+            Some("test-key"),
+            AuthStyle::Bearer,
+            false,
+            CompatibleApiMode::OpenAiResponses,
+            None,
+        );
+        let err = provider
+            .chat_with_system(None, "hello", "test-model", 0.2)
+            .await
+            .expect_err("auth errors should not trigger chat-completions fallback");
+        assert!(err.to_string().contains("401"));
+
+        let hits = state.hits.lock().await.clone();
+        assert_eq!(
+            hits,
+            vec!["responses".to_string()],
+            "auth failures must not trigger fallback chat attempt"
+        );
+
+        server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn responses_mode_native_chat_falls_back_and_preserves_tool_call_id() {
+        #[derive(Clone, Default)]
+        struct NativeFallbackState {
+            hits: Arc<Mutex<Vec<String>>>,
+            chat_payloads: Arc<Mutex<Vec<Value>>>,
+        }
+
+        async fn responses_endpoint(
+            State(state): State<NativeFallbackState>,
+            Json(_payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("responses".to_string());
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": { "message": "responses backend unavailable" }
+                })),
+            )
+        }
+
+        async fn chat_endpoint(
+            State(state): State<NativeFallbackState>,
+            Json(payload): Json<Value>,
+        ) -> (StatusCode, Json<Value>) {
+            state.hits.lock().await.push("chat".to_string());
+            state.chat_payloads.lock().await.push(payload);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "choices": [{
+                        "message": {
+                            "content": null,
+                            "tool_calls": [{
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {
+                                    "name": "shell",
+                                    "arguments": "{\"command\":\"pwd\"}"
+                                }
+                            }]
+                        }
+                    }]
+                })),
+            )
+        }
+
+        let state = NativeFallbackState::default();
+        let app = Router::new()
+            .route("/v1/responses", post(responses_endpoint))
+            .route("/chat/completions", post(chat_endpoint))
+            .with_state(state.clone());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let addr = listener.local_addr().expect("server local addr");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let provider = OpenAiCompatibleProvider::new_custom_with_mode(
+            "custom",
+            &format!("http://{}", addr),
+            Some("test-key"),
+            AuthStyle::Bearer,
+            false,
+            CompatibleApiMode::OpenAiResponses,
+            None,
+        );
+        let messages = vec![ChatMessage::user("run a command")];
+        let tools = vec![crate::tools::ToolSpec {
+            name: "shell".to_string(),
+            description: "Run a command".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]
+            }),
+        }];
+        let result = provider
+            .chat(
+                ProviderChatRequest {
+                    messages: &messages,
+                    tools: Some(&tools),
+                },
+                "test-model",
+                0.2,
+            )
+            .await
+            .expect("responses server errors should retry via native chat-completions");
+
+        assert_eq!(result.tool_calls.len(), 1);
+        assert_eq!(result.tool_calls[0].id, "call_abc");
+        assert_eq!(result.tool_calls[0].name, "shell");
+
+        let hits = state.hits.lock().await.clone();
+        assert_eq!(
+            hits,
+            vec!["responses".to_string(), "chat".to_string()],
+            "responses mode should retry via chat for retryable errors"
+        );
+
+        let chat_payloads = state.chat_payloads.lock().await;
+        assert_eq!(chat_payloads.len(), 1);
+        assert!(
+            chat_payloads[0].get("tools").is_some(),
+            "fallback native chat request should preserve tool schema"
+        );
+
+        server.abort();
+        let _ = server.await;
     }
 
     #[test]
@@ -2970,18 +3488,80 @@ mod tests {
 
     #[test]
     fn convert_messages_for_native_maps_tool_result_payload() {
-        let input = vec![ChatMessage::tool(
-            r#"{"tool_call_id":"call_abc","content":"done"}"#,
+        let input = vec![
+            ChatMessage::assistant(
+                r#"{"content":"","tool_calls":[{"id":"call_abc","name":"shell","arguments":"{}"}]}"#,
+            ),
+            ChatMessage::tool(r#"{"tool_call_id":"call_abc","content":"done"}"#),
+        ];
+
+        let converted = OpenAiCompatibleProvider::convert_messages_for_native(&input, true);
+        assert_eq!(converted.len(), 2);
+        assert_eq!(converted[1].role, "tool");
+        assert_eq!(converted[1].tool_call_id.as_deref(), Some("call_abc"));
+        assert!(matches!(
+            converted[1].content.as_ref(),
+            Some(MessageContent::Text(value)) if value == "done"
+        ));
+    }
+
+    #[test]
+    fn convert_messages_for_native_parses_openai_style_assistant_tool_calls() {
+        let input = vec![ChatMessage::assistant(
+            r#"{
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_openai_1",
+                    "type": "function",
+                    "function": {
+                        "name": "shell",
+                        "arguments": "{\"command\":\"pwd\"}"
+                    }
+                }]
+            }"#,
         )];
 
         let converted = OpenAiCompatibleProvider::convert_messages_for_native(&input, true);
         assert_eq!(converted.len(), 1);
-        assert_eq!(converted[0].role, "tool");
-        assert_eq!(converted[0].tool_call_id.as_deref(), Some("call_abc"));
+        assert_eq!(converted[0].role, "assistant");
         assert!(matches!(
             converted[0].content.as_ref(),
-            Some(MessageContent::Text(value)) if value == "done"
+            Some(MessageContent::Text(value)) if value.is_empty()
         ));
+
+        let calls = converted[0]
+            .tool_calls
+            .as_ref()
+            .expect("assistant message should include tool_calls");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id.as_deref(), Some("call_openai_1"));
+        assert!(matches!(
+            calls[0].function.as_ref().and_then(|f| f.name.as_deref()),
+            Some("shell")
+        ));
+        assert!(matches!(
+            calls[0]
+                .function
+                .as_ref()
+                .and_then(|f| f.arguments.as_deref()),
+            Some("{\"command\":\"pwd\"}")
+        ));
+    }
+
+    #[test]
+    fn convert_messages_for_native_rewrites_orphan_tool_message_as_user() {
+        let input = vec![ChatMessage::tool(
+            r#"{"tool_call_id":"call_missing","content":"done"}"#,
+        )];
+
+        let converted = OpenAiCompatibleProvider::convert_messages_for_native(&input, true);
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].role, "user");
+        assert!(matches!(
+            converted[0].content.as_ref(),
+            Some(MessageContent::Text(value)) if value.contains("[Tool result]") && value.contains("done")
+        ));
+        assert!(converted[0].tool_call_id.is_none());
     }
 
     #[test]
