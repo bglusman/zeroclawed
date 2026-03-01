@@ -11,6 +11,7 @@ on:
             - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/reproducible_build_check.sh"
+            - "scripts/ci/self_heal_rust_toolchain.sh"
             - ".github/workflows/ci-reproducible-build.yml"
     pull_request:
         branches: [dev, main]
@@ -22,6 +23,7 @@ on:
             - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
             - "scripts/ci/reproducible_build_check.sh"
+            - "scripts/ci/self_heal_rust_toolchain.sh"
             - ".github/workflows/ci-reproducible-build.yml"
     schedule:
         - cron: "45 5 * * 1" # Weekly Monday 05:45 UTC
@@ -63,6 +65,10 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+            - name: Self-heal Rust toolchain cache
+              shell: bash
+              run: ./scripts/ci/self_heal_rust_toolchain.sh 1.92.0
 
             - name: Ensure C toolchain
               shell: bash

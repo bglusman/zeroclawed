@@ -740,11 +740,17 @@ mod tests {
     async fn shell_captures_stderr_output() {
         let tool = ShellTool::new(test_security(AutonomyLevel::Full), test_runtime());
         let result = tool
-            .execute(json!({"command": "ls definitely_missing_path"}))
+            .execute(json!({"command": "cat __nonexistent_stderr_capture_file__"}))
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(!result.error.as_deref().unwrap_or("").is_empty());
+        assert!(
+            result
+                .error
+                .as_deref()
+                .is_some_and(|msg| !msg.trim().is_empty()),
+            "expected non-empty stderr in error field"
+        );
     }
 
     #[tokio::test]
