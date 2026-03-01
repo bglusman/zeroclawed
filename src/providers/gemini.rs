@@ -944,7 +944,7 @@ impl GeminiProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<(
-        String,
+        Option<String>,
         Option<TokenUsage>,
         Option<NormalizedStopReason>,
         Option<String>,
@@ -1150,10 +1150,7 @@ impl GeminiProvider {
             .as_deref()
             .map(NormalizedStopReason::from_gemini_finish_reason);
 
-        let text = candidate
-            .content
-            .and_then(|c| c.effective_text())
-            .ok_or_else(|| anyhow::anyhow!("No response from Gemini"))?;
+        let text = candidate.content.and_then(|c| c.effective_text());
 
         Ok((text, usage, stop_reason, raw_stop_reason))
     }
@@ -1182,9 +1179,10 @@ impl Provider for GeminiProvider {
             }],
         }];
 
-        let (text, _usage, _stop_reason, _raw_stop_reason) = self
+        let (text_opt, _usage, _stop_reason, _raw_stop_reason) = self
             .send_generate_content(contents, system_instruction, model, temperature)
             .await?;
+        let text = text_opt.ok_or_else(|| anyhow::anyhow!("No response from Gemini"))?;
         Ok(text)
     }
 
@@ -1234,9 +1232,10 @@ impl Provider for GeminiProvider {
             })
         };
 
-        let (text, _usage, _stop_reason, _raw_stop_reason) = self
+        let (text_opt, _usage, _stop_reason, _raw_stop_reason) = self
             .send_generate_content(contents, system_instruction, model, temperature)
             .await?;
+        let text = text_opt.ok_or_else(|| anyhow::anyhow!("No response from Gemini"))?;
         Ok(text)
     }
 
@@ -1284,7 +1283,7 @@ impl Provider for GeminiProvider {
             .await?;
 
         Ok(ChatResponse {
-            text: Some(text),
+            text,
             tool_calls: Vec::new(),
             usage,
             reasoning_content: None,

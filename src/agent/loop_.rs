@@ -583,6 +583,18 @@ fn merge_continuation_text(existing: &str, next: &str) -> String {
     if next.starts_with(existing) {
         return next.to_string();
     }
+
+    let mut prefix_ends: Vec<usize> = next.char_indices().map(|(idx, _)| idx).collect();
+    prefix_ends.push(next.len());
+    for prefix_end in prefix_ends.into_iter().rev() {
+        if prefix_end == 0 || prefix_end > existing.len() {
+            continue;
+        }
+        if existing.ends_with(&next[..prefix_end]) {
+            return format!("{existing}{}", &next[prefix_end..]);
+        }
+    }
+
     format!("{existing}{next}")
 }
 
@@ -4727,6 +4739,18 @@ mod tests {
             .expect("hook error buffer lock should be valid");
         assert_eq!(recorded.len(), 1);
         assert_eq!(recorded[0].as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn merge_continuation_text_deduplicates_partial_overlap() {
+        let merged = merge_continuation_text("The result is wor", "world.");
+        assert_eq!(merged, "The result is world.");
+    }
+
+    #[test]
+    fn merge_continuation_text_handles_unicode_overlap() {
+        let merged = merge_continuation_text("你好世界", "世界和平");
+        assert_eq!(merged, "你好世界和平");
     }
 
     #[test]

@@ -117,7 +117,11 @@ impl NormalizedStopReason {
         match raw.trim().to_ascii_uppercase().as_str() {
             "STOP" => Self::EndTurn,
             "MAX_TOKENS" => Self::MaxTokens,
+            "MALFORMED_FUNCTION_CALL" | "UNEXPECTED_TOOL_CALL" | "TOO_MANY_TOOL_CALLS" => {
+                Self::ToolCall
+            }
             "SAFETY" | "RECITATION" => Self::SafetyBlocked,
+            // Observed in some integrations even though not always listed in docs.
             "CANCELLED" => Self::Cancelled,
             _ => Self::Unknown(raw.trim().to_string()),
         }
@@ -757,6 +761,18 @@ mod tests {
         assert_eq!(
             NormalizedStopReason::from_gemini_finish_reason("MAX_TOKENS"),
             NormalizedStopReason::MaxTokens
+        );
+        assert_eq!(
+            NormalizedStopReason::from_gemini_finish_reason("MALFORMED_FUNCTION_CALL"),
+            NormalizedStopReason::ToolCall
+        );
+        assert_eq!(
+            NormalizedStopReason::from_gemini_finish_reason("UNEXPECTED_TOOL_CALL"),
+            NormalizedStopReason::ToolCall
+        );
+        assert_eq!(
+            NormalizedStopReason::from_gemini_finish_reason("TOO_MANY_TOOL_CALLS"),
+            NormalizedStopReason::ToolCall
         );
     }
 
