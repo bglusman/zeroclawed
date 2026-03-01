@@ -1,4 +1,3 @@
-use super::is_valid_env_var_name;
 use parking_lot::Mutex;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -16,6 +15,21 @@ pub enum AutonomyLevel {
     Supervised,
     /// Full: autonomous execution within policy bounds
     Full,
+}
+
+impl std::str::FromStr for AutonomyLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "read_only" | "readonly" => Ok(Self::ReadOnly),
+            "supervised" => Ok(Self::Supervised),
+            "full" => Ok(Self::Full),
+            _ => Err(format!(
+                "invalid autonomy level '{s}': expected read_only, supervised, or full"
+            )),
+        }
+    }
 }
 
 /// Risk score for shell command execution.
@@ -92,6 +106,8 @@ pub struct SecurityPolicy {
     pub require_approval_for_medium_risk: bool,
     pub block_high_risk_commands: bool,
     pub shell_env_passthrough: Vec<String>,
+    pub allow_sensitive_file_reads: bool,
+    pub allow_sensitive_file_writes: bool,
     pub tracker: ActionTracker,
 }
 
@@ -132,6 +148,7 @@ impl Default for SecurityPolicy {
                 "/sys".into(),
                 "/var".into(),
                 "/tmp".into(),
+                "/mnt".into(),
                 // Sensitive dotfiles
                 "~/.ssh".into(),
                 "~/.gnupg".into(),
@@ -144,6 +161,8 @@ impl Default for SecurityPolicy {
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             shell_env_passthrough: vec![],
+            allow_sensitive_file_reads: false,
+            allow_sensitive_file_writes: false,
             tracker: ActionTracker::new(),
         }
     }
@@ -405,24 +424,16 @@ fn contains_unquoted_char(command: &str, target: char) -> bool {
     false
 }
 
-/// Detect unquoted shell variable expansions that are not explicitly allowlisted.
+/// Detect unquoted shell variable expansions like `$HOME`, `$1`, `$?`.
 ///
-/// Allowed forms:
-/// - `$NAME`
-/// - `${NAME}`
-///
-/// where `NAME` is present in `allowed_vars`. Escaped dollars (`\$`) are
-/// ignored. Variables inside single quotes are treated as literals.
-fn contains_disallowed_unquoted_shell_variable_expansion(
-    command: &str,
-    allowed_vars: &[String],
-) -> bool {
+/// Escaped dollars (`\$`) are ignored. Variables inside single quotes are
+/// treated as literals and therefore ignored.
+fn contains_unquoted_shell_variable_expansion(command: &str) -> bool {
     let mut quote = QuoteState::None;
     let mut escaped = false;
     let chars: Vec<char> = command.chars().collect();
-    let mut i = 0usize;
 
-    while i < chars.len() {
+    for i in 0..chars.len() {
         let ch = chars[i];
 
         match quote {
@@ -430,102 +441,57 @@ fn contains_disallowed_unquoted_shell_variable_expansion(
                 if ch == '\'' {
                     quote = QuoteState::None;
                 }
-                i += 1;
                 continue;
             }
             QuoteState::Double => {
                 if escaped {
                     escaped = false;
-                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
-                    i += 1;
                     continue;
                 }
                 if ch == '"' {
                     quote = QuoteState::None;
-                    i += 1;
                     continue;
                 }
             }
             QuoteState::None => {
                 if escaped {
                     escaped = false;
-                    i += 1;
                     continue;
                 }
                 if ch == '\\' {
                     escaped = true;
-                    i += 1;
                     continue;
                 }
                 if ch == '\'' {
                     quote = QuoteState::Single;
-                    i += 1;
                     continue;
                 }
                 if ch == '"' {
                     quote = QuoteState::Double;
-                    i += 1;
                     continue;
                 }
             }
         }
 
         if ch != '$' {
-            i += 1;
             continue;
         }
 
         let Some(next) = chars.get(i + 1).copied() else {
-            i += 1;
             continue;
         };
-
-        match next {
-            '(' => return true,
-            '{' => {
-                let mut j = i + 2;
-                while j < chars.len() && chars[j] != '}' {
-                    j += 1;
-                }
-                if j >= chars.len() {
-                    return true;
-                }
-
-                let inner: String = chars[i + 2..j].iter().collect();
-                if !is_valid_env_var_name(&inner)
-                    || !allowed_vars.iter().any(|allowed| allowed == &inner)
-                {
-                    return true;
-                }
-
-                i = j + 1;
-                continue;
-            }
-            c if c.is_ascii_alphabetic() || c == '_' => {
-                let mut j = i + 2;
-                while j < chars.len() && (chars[j].is_ascii_alphanumeric() || chars[j] == '_') {
-                    j += 1;
-                }
-
-                let name: String = chars[i + 1..j].iter().collect();
-                if !allowed_vars.iter().any(|allowed| allowed == &name) {
-                    return true;
-                }
-
-                i = j;
-                continue;
-            }
-            c if c.is_ascii_digit() || matches!(c, '#' | '?' | '!' | '$' | '*' | '@' | '-') => {
-                return true;
-            }
-            _ => {}
+        if next.is_ascii_alphanumeric()
+            || matches!(
+                next,
+                '_' | '{' | '(' | '#' | '?' | '!' | '$' | '*' | '@' | '-'
+            )
+        {
+            return true;
         }
-
-        i += 1;
     }
 
     false
@@ -731,10 +697,21 @@ impl SecurityPolicy {
             return Err(format!("Command not allowed by security policy: {command}"));
         }
 
+        if let Some(path) = self.forbidden_path_argument(command) {
+            return Err(format!("Path blocked by security policy: {path}"));
+        }
+
         let risk = self.command_risk_level(command);
 
         if risk == CommandRiskLevel::High {
             if self.block_high_risk_commands {
+                let lower = command.to_ascii_lowercase();
+                if lower.contains("curl") || lower.contains("wget") {
+                    return Err(
+                        "Command blocked: high-risk command is disallowed by policy. Shell curl/wget are blocked; use `http_request` or `web_fetch` with configured allowed_domains."
+                            .into(),
+                    );
+                }
                 return Err("Command blocked: high-risk command is disallowed by policy".into());
             }
             if self.autonomy == AutonomyLevel::Supervised && !approved {
@@ -780,12 +757,10 @@ impl SecurityPolicy {
         // Block subshell/expansion operators — these allow hiding arbitrary
         // commands inside an allowed command (e.g. `echo $(rm -rf /)`) and
         // bypassing path checks through variable indirection. The helper below
-        // permits only explicit passthrough variables (`$NAME` / `${NAME}`).
+        // ignores escapes and literals inside single quotes, so `$(` or `${`
+        // literals are permitted there.
         if command.contains('`')
-            || contains_disallowed_unquoted_shell_variable_expansion(
-                command,
-                &self.shell_env_passthrough,
-            )
+            || contains_unquoted_shell_variable_expansion(command)
             || command.contains("<(")
             || command.contains(">(")
         {
@@ -861,15 +836,109 @@ impl SecurityPolicy {
                 !args.iter().any(|arg| arg == "-exec" || arg == "-ok")
             }
             "git" => {
-                // git config, alias, and -c can be used to set dangerous options
-                // (e.g. git config core.editor "rm -rf /")
-                !args.iter().any(|arg| {
-                    arg == "config"
-                        || arg.starts_with("config.")
-                        || arg == "alias"
-                        || arg.starts_with("alias.")
-                        || arg == "-c"
-                })
+                // Global git config injection can be used to set dangerous options
+                // (e.g., pager/editor/credential helpers) even without `git config`.
+                if args.iter().any(|arg| {
+                    arg == "-c"
+                        || arg == "--config"
+                        || arg.starts_with("--config=")
+                        || arg == "--config-env"
+                        || arg.starts_with("--config-env=")
+                }) {
+                    return false;
+                }
+
+                // Determine subcommand by first non-option token.
+                let Some(subcommand_index) = args.iter().position(|arg| !arg.starts_with('-'))
+                else {
+                    return true;
+                };
+                let subcommand = args[subcommand_index].as_str();
+
+                // `git alias` can create executable aliases.
+                if subcommand == "alias" || subcommand.starts_with("alias.") {
+                    return false;
+                }
+
+                // Only `git config` needs special handling. Other git subcommands are
+                // allowed after the global option checks above.
+                if subcommand != "config" {
+                    return true;
+                }
+
+                let config_args = &args[subcommand_index + 1..];
+
+                // Allow ONLY read-only operations.
+                let has_readonly_flag = config_args.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--get" | "--list" | "-l" | "--get-all" | "--get-regexp" | "--get-urlmatch"
+                    )
+                });
+                if !has_readonly_flag {
+                    return false;
+                }
+
+                // Explicit write/edit operations must never be mixed with reads.
+                let has_write_flag = config_args.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--add"
+                            | "--replace-all"
+                            | "--unset"
+                            | "--unset-all"
+                            | "--edit"
+                            | "-e"
+                            | "--rename-section"
+                            | "--remove-section"
+                    )
+                });
+                if has_write_flag {
+                    return false;
+                }
+
+                // Reject unknown config flags to avoid option-based bypasses.
+                let has_unknown_flag = config_args.iter().any(|arg| {
+                    if !arg.starts_with('-') {
+                        return false;
+                    }
+
+                    let is_known_flag = matches!(
+                        arg.as_str(),
+                        "--get"
+                            | "--list"
+                            | "-l"
+                            | "--get-all"
+                            | "--get-regexp"
+                            | "--get-urlmatch"
+                            | "--global"
+                            | "--system"
+                            | "--local"
+                            | "--worktree"
+                            | "--show-origin"
+                            | "--show-scope"
+                            | "--null"
+                            | "-z"
+                            | "--name-only"
+                            | "--includes"
+                            | "--no-includes"
+                    ) || arg == "--file"
+                        || arg == "-f"
+                        || arg.starts_with("--file=")
+                        || arg == "--blob"
+                        || arg.starts_with("--blob=")
+                        || arg == "--default"
+                        || arg.starts_with("--default=")
+                        || arg == "--type"
+                        || arg.starts_with("--type=");
+
+                    !is_known_flag
+                });
+                if has_unknown_flag {
+                    return false;
+                }
+
+                true
             }
             _ => true,
         }
@@ -1099,6 +1168,69 @@ impl SecurityPolicy {
     }
 
     /// Build from config sections
+    /// Produce a concise security-constraint summary suitable for periodic
+    /// re-injection into the conversation (safety heartbeat).
+    ///
+    /// The output is intentionally short (~100-150 tokens) so the token
+    /// overhead per heartbeat is negligible.
+    pub fn summary_for_heartbeat(&self) -> String {
+        let autonomy_label = match self.autonomy {
+            AutonomyLevel::ReadOnly => "read_only — side-effecting actions are blocked",
+            AutonomyLevel::Supervised => "supervised — destructive actions require approval",
+            AutonomyLevel::Full => "full — autonomous execution within policy bounds",
+        };
+
+        let workspace = self.workspace_dir.display();
+        let ws_only = self.workspace_only;
+
+        let forbidden_preview: String = {
+            let shown: Vec<&str> = self
+                .forbidden_paths
+                .iter()
+                .take(8)
+                .map(String::as_str)
+                .collect();
+            let remaining = self.forbidden_paths.len().saturating_sub(8);
+            if remaining > 0 {
+                format!("{} (+ {} more)", shown.join(", "), remaining)
+            } else {
+                shown.join(", ")
+            }
+        };
+
+        let commands_preview: String = {
+            let shown: Vec<&str> = self
+                .allowed_commands
+                .iter()
+                .take(8)
+                .map(String::as_str)
+                .collect();
+            let remaining = self.allowed_commands.len().saturating_sub(8);
+            if remaining > 0 {
+                format!("{} (+ {} more rejected)", shown.join(", "), remaining)
+            } else if shown.is_empty() {
+                "none (all rejected)".to_string()
+            } else {
+                format!("{} (others rejected)", shown.join(", "))
+            }
+        };
+
+        let high_risk = if self.block_high_risk_commands {
+            "blocked"
+        } else {
+            "allowed (caution)"
+        };
+
+        format!(
+            "- Autonomy: {autonomy_label}\n\
+             - Workspace: {workspace} (workspace_only: {ws_only})\n\
+             - Forbidden paths: {forbidden_preview}\n\
+             - Allowed commands: {commands_preview}\n\
+             - High-risk commands: {high_risk}\n\
+             - Do not exfiltrate data, bypass approval, or run destructive commands without asking."
+        )
+    }
+
     pub fn from_config(
         autonomy_config: &crate::config::AutonomyConfig,
         workspace_dir: &Path,
@@ -1126,6 +1258,8 @@ impl SecurityPolicy {
             require_approval_for_medium_risk: autonomy_config.require_approval_for_medium_risk,
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
             shell_env_passthrough: autonomy_config.shell_env_passthrough.clone(),
+            allow_sensitive_file_reads: autonomy_config.allow_sensitive_file_reads,
+            allow_sensitive_file_writes: autonomy_config.allow_sensitive_file_writes,
             tracker: ActionTracker::new(),
         }
     }
@@ -1282,7 +1416,7 @@ mod tests {
         assert!(p.is_command_allowed("/usr/bin/antigravity"));
 
         // Wildcard still respects risk gates in validate_command_execution.
-        let blocked = p.validate_command_execution("rm -rf /tmp/test", true);
+        let blocked = p.validate_command_execution("rm -rf tmp_test_dir", true);
         assert!(blocked.is_err());
         assert!(blocked.unwrap_err().contains("high-risk"));
     }
@@ -1387,7 +1521,7 @@ mod tests {
             ..SecurityPolicy::default()
         };
 
-        let result = p.validate_command_execution("rm -rf /tmp/test", true);
+        let result = p.validate_command_execution("rm -rf tmp_test_dir", true);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("high-risk"));
     }
@@ -1489,6 +1623,8 @@ mod tests {
             require_approval_for_medium_risk: false,
             block_high_risk_commands: false,
             shell_env_passthrough: vec!["DATABASE_URL".into()],
+            allow_sensitive_file_reads: true,
+            allow_sensitive_file_writes: true,
             ..crate::config::AutonomyConfig::default()
         };
         let workspace = PathBuf::from("/tmp/test-workspace");
@@ -1503,6 +1639,8 @@ mod tests {
         assert!(!policy.require_approval_for_medium_risk);
         assert!(!policy.block_high_risk_commands);
         assert_eq!(policy.shell_env_passthrough, vec!["DATABASE_URL"]);
+        assert!(policy.allow_sensitive_file_reads);
+        assert!(policy.allow_sensitive_file_writes);
         assert_eq!(policy.workspace_dir, PathBuf::from("/tmp/test-workspace"));
     }
 
@@ -1752,14 +1890,78 @@ mod tests {
         // find -exec is a common bypass
         assert!(!p.is_command_allowed("find . -exec rm -rf {} +"));
         assert!(!p.is_command_allowed("find / -ok cat {} \\;"));
-        // git config/alias can execute commands
+        // git config write operations can execute commands
         assert!(!p.is_command_allowed("git config core.editor \"rm -rf /\""));
         assert!(!p.is_command_allowed("git alias.st status"));
         assert!(!p.is_command_allowed("git -c core.editor=calc.exe commit"));
+        // git config without readonly flag is blocked
+        assert!(!p.is_command_allowed("git config user.name \"test\""));
+        assert!(!p.is_command_allowed("git config user.email test@example.com"));
         // Legitimate commands should still work
         assert!(p.is_command_allowed("find . -name '*.txt'"));
         assert!(p.is_command_allowed("git status"));
         assert!(p.is_command_allowed("git add ."));
+    }
+
+    #[test]
+    fn git_config_readonly_operations_allowed() {
+        let p = default_policy();
+        // git config --get is read-only and safe
+        assert!(p.is_command_allowed("git config --get user.name"));
+        assert!(p.is_command_allowed("git config --get user.email"));
+        assert!(p.is_command_allowed("git config --get core.editor"));
+        // git config --list is read-only and safe
+        assert!(p.is_command_allowed("git config --list"));
+        assert!(p.is_command_allowed("git config -l"));
+        // git config --get-all is read-only
+        assert!(p.is_command_allowed("git config --get-all user.name"));
+        // git config --get-regexp is read-only
+        assert!(p.is_command_allowed("git config --get-regexp user.*"));
+        // git config --get-urlmatch is read-only
+        assert!(p.is_command_allowed("git config --get-urlmatch http.example.com"));
+        // scoped read operations are allowed
+        assert!(p.is_command_allowed("git config --global --get user.name"));
+        assert!(p.is_command_allowed("git config --local --list"));
+        assert!(p.is_command_allowed("git config --global --get user.name --show-origin"));
+        assert!(p.is_command_allowed("git config --default=unknown --get user.name"));
+    }
+
+    #[test]
+    fn git_config_write_operations_blocked() {
+        let p = default_policy();
+        // Plain git config (write) is blocked
+        assert!(!p.is_command_allowed("git config user.name test"));
+        assert!(!p.is_command_allowed("git config user.email test@example.com"));
+        // git config --unset is a write operation
+        assert!(!p.is_command_allowed("git config --unset user.name"));
+        // git config --add is a write operation
+        assert!(!p.is_command_allowed("git config --add user.name test"));
+        // git config --global without readonly flag is blocked
+        assert!(!p.is_command_allowed("git config --global user.name test"));
+        // git config --replace-all is a write operation
+        assert!(!p.is_command_allowed("git config --replace-all user.name test"));
+        // git config --edit is blocked (opens editor)
+        assert!(!p.is_command_allowed("git config -e"));
+        assert!(!p.is_command_allowed("git config --edit"));
+    }
+
+    #[test]
+    fn git_config_mixed_read_write_flags_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("git config --get --unset user.name"));
+        assert!(!p.is_command_allowed("git config --list --add user.name test"));
+        assert!(!p.is_command_allowed("git config --get-all --replace-all user.name test"));
+    }
+
+    #[test]
+    fn git_config_global_injection_flags_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("git --config-env=core.editor=EVIL_EDITOR status"));
+        assert!(!p.is_command_allowed("git --config=core.pager=cat status"));
+        assert!(
+            !p.is_command_allowed("git --config-env=credential.helper=EVIL config --get user.name")
+        );
+        assert!(!p.is_command_allowed("git --config=core.editor=vim config --get user.name"));
     }
 
     #[test]
@@ -1773,30 +1975,6 @@ mod tests {
         let p = default_policy();
         assert!(!p.is_command_allowed("cat $HOME/.ssh/id_rsa"));
         assert!(!p.is_command_allowed("cat $SECRET_FILE"));
-    }
-
-    #[test]
-    fn command_allows_explicit_shell_env_passthrough_variables() {
-        let p = SecurityPolicy {
-            shell_env_passthrough: vec!["ZEROCLAW_TEST_TOKEN".into()],
-            ..SecurityPolicy::default()
-        };
-        assert!(p.is_command_allowed("echo $ZEROCLAW_TEST_TOKEN"));
-        assert!(p.is_command_allowed("echo ${ZEROCLAW_TEST_TOKEN}"));
-        assert!(p.is_command_allowed("echo \"Authorization: Bearer $ZEROCLAW_TEST_TOKEN\""));
-        assert!(p.is_command_allowed("echo \"Authorization: Bearer ${ZEROCLAW_TEST_TOKEN}\""));
-    }
-
-    #[test]
-    fn command_rejects_non_passthrough_or_complex_variable_expansions() {
-        let p = SecurityPolicy {
-            shell_env_passthrough: vec!["ZEROCLAW_TEST_TOKEN".into()],
-            ..SecurityPolicy::default()
-        };
-        assert!(!p.is_command_allowed("echo $HOME"));
-        assert!(!p.is_command_allowed("echo \"Authorization: Bearer ${HOME}\""));
-        assert!(!p.is_command_allowed("echo ${ZEROCLAW_TEST_TOKEN:-fallback}"));
-        assert!(!p.is_command_allowed("echo $1"));
     }
 
     #[test]
@@ -1831,6 +2009,15 @@ mod tests {
             p.forbidden_path_argument("cat /etc/passwd"),
             Some("/etc/passwd".into())
         );
+    }
+
+    #[test]
+    fn validate_command_execution_rejects_forbidden_paths() {
+        let p = default_policy();
+        let err = p
+            .validate_command_execution("cat /etc/shadow", false)
+            .unwrap_err();
+        assert!(err.contains("Path blocked by security policy"));
     }
 
     #[test]
@@ -2138,6 +2325,53 @@ mod tests {
         assert!(!policy.is_rate_limited());
     }
 
+    // ── summary_for_heartbeat ──────────────────────────────
+
+    #[test]
+    fn summary_for_heartbeat_contains_key_fields() {
+        let policy = default_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("Autonomy:"));
+        assert!(summary.contains("supervised"));
+        assert!(summary.contains("Workspace:"));
+        assert!(summary.contains("workspace_only: true"));
+        assert!(summary.contains("Forbidden paths:"));
+        assert!(summary.contains("/etc"));
+        assert!(summary.contains("Allowed commands:"));
+        assert!(summary.contains("git"));
+        assert!(summary.contains("High-risk commands: blocked"));
+        assert!(summary.contains("Do not exfiltrate data"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_truncates_long_lists() {
+        let policy = SecurityPolicy {
+            forbidden_paths: (0..15).map(|i| format!("/path_{i}")).collect(),
+            allowed_commands: (0..12).map(|i| format!("cmd_{i}")).collect(),
+            ..SecurityPolicy::default()
+        };
+        let summary = policy.summary_for_heartbeat();
+        // Only first 8 shown, remainder counted
+        assert!(summary.contains("+ 7 more"));
+        assert!(summary.contains("+ 4 more rejected"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_full_autonomy() {
+        let policy = full_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("full"));
+        assert!(summary.contains("autonomous execution"));
+    }
+
+    #[test]
+    fn summary_for_heartbeat_readonly_autonomy() {
+        let policy = readonly_policy();
+        let summary = policy.summary_for_heartbeat();
+        assert!(summary.contains("read_only"));
+        assert!(summary.contains("side-effecting actions are blocked"));
+    }
+
     // ══════════════════════════════════════════════════════════
     // SECURITY CHECKLIST TESTS
     // Checklist: gateway not public, pairing required,
@@ -2161,7 +2395,7 @@ mod tests {
         };
         for dir in [
             "/etc", "/root", "/home", "/usr", "/bin", "/sbin", "/lib", "/opt", "/boot", "/dev",
-            "/proc", "/sys", "/var", "/tmp",
+            "/proc", "/sys", "/var", "/tmp", "/mnt",
         ] {
             assert!(
                 !p.is_path_allowed(dir),
@@ -2239,7 +2473,9 @@ mod tests {
     fn checklist_default_forbidden_paths_comprehensive() {
         let p = SecurityPolicy::default();
         // Must contain all critical system dirs
-        for dir in ["/etc", "/root", "/proc", "/sys", "/dev", "/var", "/tmp"] {
+        for dir in [
+            "/etc", "/root", "/proc", "/sys", "/dev", "/var", "/tmp", "/mnt",
+        ] {
             assert!(
                 p.forbidden_paths.iter().any(|f| f == dir),
                 "Default forbidden_paths must include {dir}"

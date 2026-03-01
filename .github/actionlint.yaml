@@ -3,3 +3,4 @@ self-hosted-runner:
         - Linux
         - X64
         - racknerd
+        - aws-india

@@ -297,7 +297,7 @@ on: [push, pull_request]
 
 jobs:
   test:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, aws-india]
     steps:
       - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1

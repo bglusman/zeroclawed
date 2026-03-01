@@ -14,7 +14,7 @@ Các kiểm tra chặn merge nên giữ nhỏ và mang tính quyết định. C�
     - Mục đích: Rust validation (`cargo fmt --all -- --check`, `cargo clippy --locked --all-targets -- -D clippy::correctness`, strict delta lint gate trên các dòng Rust thay đổi, `test`, kiểm tra smoke release build) + kiểm tra chất lượng tài liệu khi tài liệu thay đổi (`markdownlint` chỉ chặn các vấn đề trên dòng thay đổi; link check chỉ quét các link mới được thêm trên dòng thay đổi)
     - Hành vi bổ sung: rust-cache được phân vùng theo vai trò job qua `prefix-key` để giảm cache churn giữa các lane lint/test/build/flake-probe
     - Hành vi bổ sung: sinh artifact `test-flake-probe` từ cơ chế retry một lần khi test fail; có thể bật chế độ chặn bằng biến repository `CI_BLOCK_ON_FLAKE_SUSPECTED=true`
-    - Hành vi bổ sung: các PR thay đổi `.github/workflows/**` yêu cầu ít nhất một review phê duyệt từ login trong `WORKFLOW_OWNER_LOGINS` (fallback biến repository: `theonlyhennygod,willsarg`)
+    - Hành vi bổ sung: các PR thay đổi đường dẫn CI/CD được quản trị yêu cầu review phê duyệt tường minh từ `@chumyin` (`.github/workflows/**`, `.github/codeql/**`, `.github/connectivity/**`, `.github/release/**`, `.github/security/**`, `.github/actionlint.yaml`, `.github/dependabot.yml`, `scripts/ci/**` và tài liệu CI governance)
     - Hành vi bổ sung: lint gate chạy trước `test`/`build`; khi lint/docs gate thất bại trên PR, CI đăng comment phản hồi hành động được với tên gate thất bại và các lệnh sửa cục bộ
     - Merge gate: `CI Required Gate`
 - `.github/workflows/workflow-sanity.yml` (`Workflow Sanity`)
@@ -45,8 +45,6 @@ Các kiểm tra chặn merge nên giữ nhỏ và mang tính quyết định. C�
     - Mục đích: build release artifact ở chế độ xác minh (thủ công/theo lịch) và publish GitHub release khi push tag hoặc chế độ publish thủ công
 - `.github/workflows/pr-label-policy-check.yml` (`Label Policy Sanity`)
     - Mục đích: xác thực chính sách bậc contributor dùng chung trong `.github/label-policy.json` và đảm bảo các label workflow sử dụng chính sách đó
-- `.github/workflows/test-rust-build.yml` (`Rust Reusable Job`)
-    - Mục đích: Rust setup/cache có thể tái sử dụng + trình chạy lệnh cho các workflow-call consumer
 
 ### Tự động hóa repository tùy chọn
 
@@ -117,7 +115,7 @@ Các kiểm tra chặn merge nên giữ nhỏ và mang tính quyết định. C�
 
 - Giữ các kiểm tra chặn merge mang tính quyết định và tái tạo được (`--locked` khi áp dụng được).
 - Đảm bảo tương thích merge queue bằng cách hỗ trợ `merge_group` cho các workflow bắt buộc (`ci-run`, `sec-audit`, `sec-codeql`).
-- PR intake checks không bắt buộc liên kết với hệ thống ticket bên ngoài.
+- Bắt buộc PR liên kết với Linear issue key (`RMN-*`/`CDV-*`/`COM-*`) qua PR intake checks.
 - Bắt buộc entry `advisories.ignore` trong `deny.toml` dùng object có `id` + `reason` (được kiểm tra bởi `deny_policy_guard.py`).
 - Giữ metadata governance cho deny ignore trong `.github/security/deny-ignore-governance.json` luôn cập nhật (owner/reason/expiry/ticket được kiểm tra bởi `deny_policy_guard.py`).
 - Giữ metadata quản trị allowlist gitleaks trong `.github/security/gitleaks-allowlist-governance.json` luôn cập nhật (owner/reason/expiry/ticket được kiểm tra bởi `secrets_governance_guard.py`).
