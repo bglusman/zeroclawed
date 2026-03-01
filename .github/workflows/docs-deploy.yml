@@ -160,6 +160,11 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: ${{ steps.deploy_guard.outputs.docs_guard_artifact_retention_days || 21 }}
 
+            - name: Setup Node.js for markdown lint
+              uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+              with:
+                  node-version: "22"
+
             - name: Markdown quality gate
               env:
                   BASE_SHA: ${{ steps.scope.outputs.base_sha }}
