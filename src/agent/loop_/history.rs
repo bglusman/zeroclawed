@@ -214,7 +214,7 @@ mod tests {
         assert_eq!(history.len(), 22);
 
         let compacted =
-            auto_compact_history(&mut history, &StaticSummaryProvider, "test-model", 21)
+            auto_compact_history(&mut history, &StaticSummaryProvider, "test-model", 21, None)
                 .await
                 .expect("compaction should succeed");
 
