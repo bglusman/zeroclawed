@@ -70,21 +70,44 @@ fn registry_cell() -> &'static RwLock<PluginRegistry> {
     CELL.get_or_init(|| RwLock::new(PluginRegistry::default()))
 }
 
-/// Whether `initialize_from_config` has completed at least once.
-static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn init_fingerprint_cell() -> &'static RwLock<Option<String>> {
+    static CELL: OnceLock<RwLock<Option<String>>> = OnceLock::new();
+    CELL.get_or_init(|| RwLock::new(None))
+}
+
+fn config_fingerprint(config: &PluginsConfig) -> String {
+    serde_json::to_string(config).unwrap_or_else(|_| "<serialize-error>".to_string())
+}
 
 pub fn initialize_from_config(config: &PluginsConfig) -> Result<()> {
-    if INITIALIZED.load(std::sync::atomic::Ordering::Acquire) {
-        tracing::debug!("plugin registry already initialized, skipping re-init");
-        return Ok(());
+    let fingerprint = config_fingerprint(config);
+    {
+        let guard = init_fingerprint_cell()
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if guard.as_ref() == Some(&fingerprint) {
+            tracing::debug!(
+                "plugin registry already initialized for this config, skipping re-init"
+            );
+            return Ok(());
+        }
     }
+
     let runtime = PluginRuntime::new();
     let registry = runtime.load_registry_from_config(config)?;
-    let mut guard = registry_cell()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *guard = registry;
-    INITIALIZED.store(true, std::sync::atomic::Ordering::Release);
+    {
+        let mut guard = registry_cell()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = registry;
+    }
+    {
+        let mut guard = init_fingerprint_cell()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = Some(fingerprint);
+    }
+
     Ok(())
 }
 
@@ -100,6 +123,27 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn write_manifest(dir: &std::path::Path, id: &str, provider: &str, tool: &str) {
+        let manifest_path = dir.join(format!("{id}.plugin.toml"));
+        std::fs::write(
+            &manifest_path,
+            format!(
+                r#"
+id = "{id}"
+version = "1.0.0"
+module_path = "plugins/{id}.wasm"
+wit_packages = ["zeroclaw:tools@1.0.0"]
+providers = ["{provider}"]
+
+[[tools]]
+name = "{tool}"
+description = "{tool} description"
+"#
+            ),
+        )
+        .expect("write manifest");
+    }
+
     #[test]
     fn runtime_rejects_invalid_manifest() {
         let runtime = PluginRuntime::new();
@@ -109,22 +153,7 @@ mod tests {
     #[test]
     fn runtime_loads_plugin_manifest_files() {
         let dir = TempDir::new().expect("temp dir");
-        let manifest_path = dir.path().join("demo.plugin.toml");
-        std::fs::write(
-            &manifest_path,
-            r#"
-id = "demo"
-version = "1.0.0"
-module_path = "plugins/demo.wasm"
-wit_packages = ["zeroclaw:tools@1.0.0"]
-providers = ["demo-provider"]
-
-[[tools]]
-name = "demo_tool"
-description = "demo tool"
-"#,
-        )
-        .expect("write manifest");
+        write_manifest(dir.path(), "demo", "demo-provider", "demo_tool");
 
         let runtime = PluginRuntime::new();
         let cfg = PluginsConfig {
@@ -138,5 +167,42 @@ description = "demo tool"
         assert_eq!(reg.len(), 1);
         assert_eq!(reg.tools().len(), 1);
         assert!(reg.has_provider("demo-provider"));
+    }
+
+    #[test]
+    fn initialize_from_config_applies_updated_plugin_dirs() {
+        let dir_a = TempDir::new().expect("temp dir a");
+        let dir_b = TempDir::new().expect("temp dir b");
+        write_manifest(
+            dir_a.path(),
+            "reload_a",
+            "reload-provider-a-for-runtime-test",
+            "reload_tool_a",
+        );
+        write_manifest(
+            dir_b.path(),
+            "reload_b",
+            "reload-provider-b-for-runtime-test",
+            "reload_tool_b",
+        );
+
+        let cfg_a = PluginsConfig {
+            enabled: true,
+            load_paths: vec![dir_a.path().to_string_lossy().to_string()],
+            ..PluginsConfig::default()
+        };
+        initialize_from_config(&cfg_a).expect("first initialization should succeed");
+        let reg_a = current_registry();
+        assert!(reg_a.has_provider("reload-provider-a-for-runtime-test"));
+
+        let cfg_b = PluginsConfig {
+            enabled: true,
+            load_paths: vec![dir_b.path().to_string_lossy().to_string()],
+            ..PluginsConfig::default()
+        };
+        initialize_from_config(&cfg_b).expect("second initialization should succeed");
+        let reg_b = current_registry();
+        assert!(reg_b.has_provider("reload-provider-b-for-runtime-test"));
+        assert!(!reg_b.has_provider("reload-provider-a-for-runtime-test"));
     }
 }
