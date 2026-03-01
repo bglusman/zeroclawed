@@ -46,12 +46,12 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 </p>
 
 <p align="center">
-  <strong>Fast, small, and fully autonomous Operating System</strong><br />
+  <strong>Fast, small, and fully autonomous Framework</strong><br />
   Deploy anywhere. Swap anything.
 </p>
 
 <p align="center">
-  ZeroClaw is the <strong>runtime operating system</strong> for agentic workflows — infrastructure that abstracts models, tools, memory, and execution so agents can be built once and run anywhere.
+  ZeroClaw is the <strong>runtime framework</strong> for agentic workflows — infrastructure that abstracts models, tools, memory, and execution so agents can be built once and run anywhere.
 </p>
 
 <p align="center"><code>Trait-driven architecture · secure-by-default runtime · provider/channel/tool swappable · pluggable everything</code></p>
