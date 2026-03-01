@@ -70,13 +70,22 @@ fn registry_cell() -> &'static RwLock<PluginRegistry> {
     CELL.get_or_init(|| RwLock::new(PluginRegistry::default()))
 }
 
+/// Whether `initialize_from_config` has completed at least once.
+static INITIALIZED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn initialize_from_config(config: &PluginsConfig) -> Result<()> {
+    if INITIALIZED.load(std::sync::atomic::Ordering::Acquire) {
+        tracing::debug!("plugin registry already initialized, skipping re-init");
+        return Ok(());
+    }
     let runtime = PluginRuntime::new();
     let registry = runtime.load_registry_from_config(config)?;
     let mut guard = registry_cell()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *guard = registry;
+    INITIALIZED.store(true, std::sync::atomic::Ordering::Release);
     Ok(())
 }
 

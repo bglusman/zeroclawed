@@ -369,21 +369,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let config_state = Arc::new(Mutex::new(config.clone()));
 
     // ── Hooks ──────────────────────────────────────────────────────
-    let hooks: Option<std::sync::Arc<crate::hooks::HookRunner>> = if config.hooks.enabled {
-        let mut runner = crate::hooks::HookRunner::new();
-        if config.hooks.builtin.boot_script {
-            runner.register(Box::new(crate::hooks::builtin::BootScriptHook));
-        }
-        if config.hooks.builtin.command_logger {
-            runner.register(Box::new(crate::hooks::builtin::CommandLoggerHook::new()));
-        }
-        if config.hooks.builtin.session_memory {
-            runner.register(Box::new(crate::hooks::builtin::SessionMemoryHook));
-        }
-        Some(std::sync::Arc::new(runner))
-    } else {
-        None
-    };
+    let hooks = crate::hooks::HookRunner::from_config(&config.hooks)
+        .map(std::sync::Arc::new);
 
     let addr: SocketAddr = format!("{host}:{port}").parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
