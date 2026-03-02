@@ -25,11 +25,11 @@ These are host-level failures and were reproduced across unrelated merge commits
 
 | Time (UTC) | Workflow run | Commit | Runner | Failure signature |
 |---|---|---|---|---|
-| 2026-03-02T02:04:42Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558446611 | `4b16ac92197d98bd64a43ae750d473b9f1c6d66d` | `hetzner-8` (`hetzner-ci`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
-| 2026-03-02T02:04:42Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558446636 | `4b16ac92197d98bd64a43ae750d473b9f1c6d66d` | `hetzner-25` (`hetzner-ci`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
-| 2026-03-02T01:54:26Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558247107 | `b8e5707d180004fe00fa12bfacd1bcf29f195457` | `hetzner-14` (`hetzner-ci`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
-| 2026-03-02T01:25:15Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22557668884 | `64a2a271c74fc84276e98231196b749f29276d17` | `hetzner-17` (`hetzner-ci`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
-| 2026-03-02T01:25:15Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22557668895 | `64a2a271c74fc84276e98231196b749f29276d17` | `aws-india-cap65-19` (`ip-172-26-11-17`) | `No space left on device` |
+| 2026-03-02T02:04:42Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558446611 | `4b16ac92197d98bd64a43ae750d473b9f1c6d66d` | `runner-a` (`self-hosted-pool`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
+| 2026-03-02T02:04:42Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558446636 | `4b16ac92197d98bd64a43ae750d473b9f1c6d66d` | `runner-b` (`self-hosted-pool`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
+| 2026-03-02T01:54:26Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22558247107 | `b8e5707d180004fe00fa12bfacd1bcf29f195457` | `runner-c` (`self-hosted-pool`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
+| 2026-03-02T01:25:15Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22557668884 | `64a2a271c74fc84276e98231196b749f29276d17` | `runner-d` (`self-hosted-pool`) | `error: linker 'cc' not found` + `No such file or directory (os error 2)` |
+| 2026-03-02T01:25:15Z | https://github.com/zeroclaw-labs/zeroclaw/actions/runs/22557668895 | `64a2a271c74fc84276e98231196b749f29276d17` | `runner-e` (`self-hosted-pool`) | `No space left on device` |
 
 ## Why this is runner infra
 
