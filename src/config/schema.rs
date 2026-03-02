@@ -5353,6 +5353,9 @@ pub struct WatiConfig {
     ///
     /// Supports `X-Hub-Signature-256` HMAC verification and Bearer-token fallback.
     /// Can also be set via `ZEROCLAW_WATI_WEBHOOK_SECRET`.
+    /// Default: `None` (unset).
+    /// Compatibility/migration: additive key for existing deployments; set this
+    /// before enabling inbound WATI webhooks. Remove (or set null) to roll back.
     #[serde(default)]
     pub webhook_secret: Option<String>,
     /// Tenant ID for multi-channel setups (optional).
