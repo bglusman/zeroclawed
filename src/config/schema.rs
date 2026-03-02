@@ -5342,19 +5342,40 @@ impl ChannelConfig for BlueBubblesConfig {
 }
 
 /// WATI WhatsApp Business API channel configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WatiConfig {
     /// WATI API token (Bearer auth).
     pub api_token: String,
     /// WATI API base URL (default: https://live-mt-server.wati.io).
     #[serde(default = "default_wati_api_url")]
     pub api_url: String,
+    /// Shared secret for WATI webhook authentication.
+    ///
+    /// Supports `X-Hub-Signature-256` HMAC verification and Bearer-token fallback.
+    /// Can also be set via `ZEROCLAW_WATI_WEBHOOK_SECRET`.
+    /// Default: `None` (unset).
+    /// Compatibility/migration: additive key for existing deployments; set this
+    /// before enabling inbound WATI webhooks. Remove (or set null) to roll back.
+    #[serde(default)]
+    pub webhook_secret: Option<String>,
     /// Tenant ID for multi-channel setups (optional).
     #[serde(default)]
     pub tenant_id: Option<String>,
     /// Allowed phone numbers (E.164 format) or "*" for all.
     #[serde(default)]
     pub allowed_numbers: Vec<String>,
+}
+
+impl std::fmt::Debug for WatiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WatiConfig")
+            .field("api_token", &"[REDACTED]")
+            .field("api_url", &self.api_url)
+            .field("webhook_secret", &"[REDACTED]")
+            .field("tenant_id", &self.tenant_id)
+            .field("allowed_numbers", &self.allowed_numbers)
+            .finish()
+    }
 }
 
 fn default_wati_api_url() -> String {
@@ -6939,6 +6960,18 @@ fn decrypt_channel_secrets(
             "config.channels_config.linq.signing_secret",
         )?;
     }
+    if let Some(ref mut wati) = channels.wati {
+        decrypt_secret(
+            store,
+            &mut wati.api_token,
+            "config.channels_config.wati.api_token",
+        )?;
+        decrypt_optional_secret(
+            store,
+            &mut wati.webhook_secret,
+            "config.channels_config.wati.webhook_secret",
+        )?;
+    }
     if let Some(ref mut github) = channels.github {
         decrypt_secret(
             store,
@@ -7130,6 +7163,18 @@ fn encrypt_channel_secrets(
             store,
             &mut linq.signing_secret,
             "config.channels_config.linq.signing_secret",
+        )?;
+    }
+    if let Some(ref mut wati) = channels.wati {
+        encrypt_secret(
+            store,
+            &mut wati.api_token,
+            "config.channels_config.wati.api_token",
+        )?;
+        encrypt_optional_secret(
+            store,
+            &mut wati.webhook_secret,
+            "config.channels_config.wati.webhook_secret",
         )?;
     }
     if let Some(ref mut github) = channels.github {
