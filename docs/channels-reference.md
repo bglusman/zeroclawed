@@ -566,7 +566,7 @@ Notes:
   - `Authorization: Bearer <webhook_secret>` fallback
 - `ZEROCLAW_WATI_WEBHOOK_SECRET` overrides `webhook_secret` when set.
 
-### 4.18 ACP
+### 4.21 ACP
 
 ACP (Agent Client Protocol) enables ZeroClaw to act as a client for OpenCode ACP server,
 allowing remote control of OpenCode behavior through JSON-RPC 2.0 communication over stdio.

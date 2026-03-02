@@ -1920,24 +1920,32 @@ pub fn verify_wati_signature(webhook_secret: &str, body: &[u8], signature_header
     hmac::verify(&key, body, &expected).is_ok()
 }
 
+const WATI_SIGNATURE_HEADERS: [&str; 3] = [
+    "X-Hub-Signature-256",
+    "X-Wati-Signature",
+    "X-Webhook-Signature",
+];
+
+fn wati_signature_candidates<'a>(headers: &'a HeaderMap) -> Vec<&'a str> {
+    WATI_SIGNATURE_HEADERS
+        .iter()
+        .filter_map(|name| {
+            headers
+                .get(*name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .collect()
+}
+
 fn verify_wati_webhook_auth(secret: &str, headers: &HeaderMap, body: &[u8]) -> bool {
-    let signature = [
-        "X-Hub-Signature-256",
-        "X-Wati-Signature",
-        "X-Webhook-Signature",
-    ]
-    .iter()
-    .find_map(|name| {
-        headers
-            .get(*name)
-            .and_then(|value| value.to_str().ok())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    });
-    if let Some(signature) = signature {
-        if verify_wati_signature(secret, body, signature) {
-            return true;
-        }
+    let signatures = wati_signature_candidates(headers);
+    if signatures
+        .iter()
+        .any(|signature| verify_wati_signature(secret, body, signature))
+    {
+        return true;
     }
 
     let bearer = headers
@@ -2495,19 +2503,7 @@ async fn handle_wati_webhook(
     };
 
     if !verify_wati_webhook_auth(webhook_secret, &headers, &body) {
-        let signature = [
-            "X-Hub-Signature-256",
-            "X-Wati-Signature",
-            "X-Webhook-Signature",
-        ]
-        .iter()
-        .find_map(|name| {
-            headers
-                .get(*name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        });
+        let signatures = wati_signature_candidates(&headers);
         let bearer = headers
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
@@ -2517,10 +2513,10 @@ async fn handle_wati_webhook(
 
         tracing::warn!(
             "WATI webhook authentication failed (signature: {}, bearer: {})",
-            if signature.is_some() {
-                "invalid"
-            } else {
+            if signatures.is_empty() {
                 "missing"
+            } else {
+                "invalid"
             },
             if bearer.is_some() {
                 "invalid"
@@ -4641,6 +4637,130 @@ Reminder set successfully."#;
         );
 
         let response = handle_wati_webhook(State(state), headers, Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_rejects_invalid_bearer_token() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+        let secret = "wati-secret";
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from(secret)),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer wrong-secret"),
+        );
+
+        let response = handle_wati_webhook(State(state), headers, Bytes::from("{}"))
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn wati_webhook_accepts_when_any_supported_signature_header_is_valid() {
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+        let wati = Arc::new(WatiChannel::new(
+            "wati-api-token".into(),
+            "https://live-mt-server.wati.io".into(),
+            None,
+            vec!["*".into()],
+        ));
+        let secret = "wati-secret";
+        let body = "{}";
+        let valid_signature = compute_wati_signature_header(secret, body);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            bluebubbles: None,
+            bluebubbles_webhook_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: Some(wati),
+            wati_webhook_secret: Some(Arc::from(secret)),
+            qq: None,
+            qq_webhook_enabled: false,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(Vec::new()),
+            tools_registry_exec: Arc::new(Vec::new()),
+            multimodal: crate::config::MultimodalConfig::default(),
+            max_tool_iterations: 10,
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Hub-Signature-256",
+            HeaderValue::from_static("sha256=deadbeef"),
+        );
+        headers.insert(
+            "X-Wati-Signature",
+            HeaderValue::from_str(&valid_signature).unwrap(),
+        );
+
+        let response = handle_wati_webhook(State(state), headers, Bytes::from(body))
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
