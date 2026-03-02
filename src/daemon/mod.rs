@@ -8,6 +8,40 @@ use tokio::time::Duration;
 
 const STATUS_FLUSH_SECONDS: u64 = 5;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShutdownSignal {
+    CtrlC,
+    SigTerm,
+}
+
+fn shutdown_reason(signal: ShutdownSignal) -> &'static str {
+    match signal {
+        ShutdownSignal::CtrlC => "shutdown requested (SIGINT)",
+        ShutdownSignal::SigTerm => "shutdown requested (SIGTERM)",
+    }
+}
+
+async fn wait_for_shutdown_signal() -> Result<ShutdownSignal> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        let mut sigterm = signal(SignalKind::terminate())?;
+        tokio::select! {
+            ctrl_c = tokio::signal::ctrl_c() => {
+                ctrl_c?;
+                Ok(ShutdownSignal::CtrlC)
+            }
+            _ = sigterm.recv() => Ok(ShutdownSignal::SigTerm),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await?;
+        Ok(ShutdownSignal::CtrlC)
+    }
+}
+
 pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     // Pre-flight: check if port is already in use by another zeroclaw daemon
     if let Err(_e) = check_port_available(&host, port).await {
@@ -106,10 +140,10 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     println!("🧠 ZeroClaw daemon started");
     println!("   Gateway:  http://{host}:{port}");
     println!("   Components: gateway, channels, heartbeat, scheduler");
-    println!("   Ctrl+C to stop");
+    println!("   Ctrl+C or SIGTERM to stop");
 
-    tokio::signal::ctrl_c().await?;
-    crate::health::mark_component_error("daemon", "shutdown requested");
+    let signal = wait_for_shutdown_signal().await?;
+    crate::health::mark_component_error("daemon", shutdown_reason(signal));
 
     for handle in &handles {
         handle.abort();
@@ -442,6 +476,22 @@ mod tests {
 
         let path = state_file_path(&config);
         assert_eq!(path, tmp.path().join("daemon_state.json"));
+    }
+
+    #[test]
+    fn shutdown_reason_for_ctrl_c_mentions_sigint() {
+        assert_eq!(
+            shutdown_reason(ShutdownSignal::CtrlC),
+            "shutdown requested (SIGINT)"
+        );
+    }
+
+    #[test]
+    fn shutdown_reason_for_sigterm_mentions_sigterm() {
+        assert_eq!(
+            shutdown_reason(ShutdownSignal::SigTerm),
+            "shutdown requested (SIGTERM)"
+        );
     }
 
     #[tokio::test]
