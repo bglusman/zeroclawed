@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Core contracts for the staged workspace split.
 //!
 //! This crate is intentionally minimal in PR-1 (scaffolding only).
