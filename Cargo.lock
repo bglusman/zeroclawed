@@ -9151,6 +9151,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeroclaw-core"
+version = "0.1.0"
+dependencies = [
+ "zeroclaw-types",
+]
+
+[[package]]
 name = "zeroclaw-robot-kit"
 version = "0.1.0"
 dependencies = [
@@ -9170,6 +9177,10 @@ dependencies = [
  "toml 1.0.3+spec-1.1.0",
  "tracing",
 ]
+
+[[package]]
+name = "zeroclaw-types"
+version = "0.1.0"
 
 [[package]]
 name = "zerocopy"
