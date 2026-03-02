@@ -1618,15 +1618,22 @@ pub fn create_resilient_provider_with_options(
 
         let (provider_name, profile_override) = parse_provider_profile(fallback);
 
-        // Each fallback provider resolves its own credential via provider-
-        // specific env vars (e.g. DEEPSEEK_API_KEY for "deepseek") instead
-        // of inheriting the primary provider's key. Passing `None` lets
-        // `resolve_provider_credential` check the correct env var for the
-        // fallback provider name.
+        // Fallback providers can use explicit per-entry API keys from
+        // `reliability.fallback_api_keys` (keyed by full fallback entry), or
+        // fall back to provider-name keys for compatibility.
+        //
+        // If no explicit map entry exists, pass `None` so
+        // `resolve_provider_credential` can resolve provider-specific env vars.
         //
         // When a profile override is present (e.g. "openai-codex:second"),
         // propagate it through `auth_profile_override` so the provider
         // picks up the correct OAuth credential set.
+        let fallback_api_key = reliability
+            .fallback_api_keys
+            .get(fallback)
+            .or_else(|| reliability.fallback_api_keys.get(provider_name))
+            .map(String::as_str);
+
         let fallback_options = match profile_override {
             Some(profile) => {
                 let mut opts = options.clone();
@@ -1636,7 +1643,7 @@ pub fn create_resilient_provider_with_options(
             None => options.clone(),
         };
 
-        match create_provider_with_options(provider_name, None, &fallback_options) {
+        match create_provider_with_options(provider_name, fallback_api_key, &fallback_options) {
             Ok(provider) => providers.push((fallback.clone(), provider)),
             Err(_error) => {
                 tracing::warn!(
@@ -3039,6 +3046,7 @@ providers = ["demo-plugin-provider"]
                 "openai".into(),
                 "openai".into(),
             ],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3078,6 +3086,7 @@ providers = ["demo-plugin-provider"]
             provider_retries: 1,
             provider_backoff_ms: 100,
             fallback_providers: vec!["lmstudio".into(), "ollama".into()],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3100,6 +3109,7 @@ providers = ["demo-plugin-provider"]
             provider_retries: 1,
             provider_backoff_ms: 100,
             fallback_providers: vec!["custom:http://host.docker.internal:1234/v1".into()],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3126,6 +3136,7 @@ providers = ["demo-plugin-provider"]
                 "nonexistent-provider".into(),
                 "lmstudio".into(),
             ],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3158,6 +3169,7 @@ providers = ["demo-plugin-provider"]
             provider_retries: 1,
             provider_backoff_ms: 100,
             fallback_providers: vec!["osaurus".into(), "lmstudio".into()],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3692,6 +3704,7 @@ providers = ["demo-plugin-provider"]
             provider_retries: 1,
             provider_backoff_ms: 100,
             fallback_providers: vec!["openai-codex:second".into()],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
@@ -3721,6 +3734,7 @@ providers = ["demo-plugin-provider"]
                 "lmstudio".into(),
                 "nonexistent-provider".into(),
             ],
+            fallback_api_keys: std::collections::HashMap::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
