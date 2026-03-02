@@ -1926,6 +1926,36 @@ const WATI_SIGNATURE_HEADERS: [&str; 3] = [
     "X-Webhook-Signature",
 ];
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum WatiAuthState {
+    Missing,
+    Invalid,
+    Valid,
+}
+
+impl WatiAuthState {
+    fn as_log_status(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Invalid => "invalid",
+            Self::Valid => "valid",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct WatiWebhookAuthResult {
+    signature: WatiAuthState,
+    bearer: WatiAuthState,
+}
+
+impl WatiWebhookAuthResult {
+    fn is_authorized(self) -> bool {
+        matches!(self.signature, WatiAuthState::Valid)
+            || matches!(self.bearer, WatiAuthState::Valid)
+    }
+}
+
 fn wati_signature_candidates(headers: &HeaderMap) -> Vec<&str> {
     WATI_SIGNATURE_HEADERS
         .iter()
@@ -1939,14 +1969,22 @@ fn wati_signature_candidates(headers: &HeaderMap) -> Vec<&str> {
         .collect()
 }
 
-fn verify_wati_webhook_auth(secret: &str, headers: &HeaderMap, body: &[u8]) -> bool {
+fn verify_wati_webhook_auth(
+    secret: &str,
+    headers: &HeaderMap,
+    body: &[u8],
+) -> WatiWebhookAuthResult {
     let signatures = wati_signature_candidates(headers);
-    if signatures
+    let signature = if signatures.is_empty() {
+        WatiAuthState::Missing
+    } else if signatures
         .iter()
         .any(|signature| verify_wati_signature(secret, body, signature))
     {
-        return true;
-    }
+        WatiAuthState::Valid
+    } else {
+        WatiAuthState::Invalid
+    };
 
     let bearer = headers
         .get(header::AUTHORIZATION)
@@ -1954,7 +1992,13 @@ fn verify_wati_webhook_auth(secret: &str, headers: &HeaderMap, body: &[u8]) -> b
         .and_then(|value| value.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    bearer.is_some_and(|token| constant_time_eq(token, secret))
+    let bearer = match bearer {
+        Some(token) if constant_time_eq(token, secret) => WatiAuthState::Valid,
+        Some(_) => WatiAuthState::Invalid,
+        None => WatiAuthState::Missing,
+    };
+
+    WatiWebhookAuthResult { signature, bearer }
 }
 
 /// POST /whatsapp — incoming message webhook
@@ -2502,27 +2546,12 @@ async fn handle_wati_webhook(
         );
     };
 
-    if !verify_wati_webhook_auth(webhook_secret, &headers, &body) {
-        let signatures = wati_signature_candidates(&headers);
-        let bearer = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
+    let auth_result = verify_wati_webhook_auth(webhook_secret, &headers, &body);
+    if !auth_result.is_authorized() {
         tracing::warn!(
             "WATI webhook authentication failed (signature: {}, bearer: {})",
-            if signatures.is_empty() {
-                "missing"
-            } else {
-                "invalid"
-            },
-            if bearer.is_some() {
-                "invalid"
-            } else {
-                "missing"
-            }
+            auth_result.signature.as_log_status(),
+            auth_result.bearer.as_log_status()
         );
         return (
             StatusCode::UNAUTHORIZED,

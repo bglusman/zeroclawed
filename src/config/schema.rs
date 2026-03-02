@@ -5342,7 +5342,7 @@ impl ChannelConfig for BlueBubblesConfig {
 }
 
 /// WATI WhatsApp Business API channel configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WatiConfig {
     /// WATI API token (Bearer auth).
     pub api_token: String,
@@ -5361,6 +5361,21 @@ pub struct WatiConfig {
     /// Allowed phone numbers (E.164 format) or "*" for all.
     #[serde(default)]
     pub allowed_numbers: Vec<String>,
+}
+
+impl std::fmt::Debug for WatiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WatiConfig")
+            .field("api_token", &"[REDACTED]")
+            .field("api_url", &self.api_url)
+            .field(
+                "webhook_secret",
+                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("tenant_id", &self.tenant_id)
+            .field("allowed_numbers", &self.allowed_numbers)
+            .finish()
+    }
 }
 
 fn default_wati_api_url() -> String {

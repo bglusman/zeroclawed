@@ -148,6 +148,7 @@ If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.fe
 | QQ | bot gateway | No |
 | Napcat | websocket receive + HTTP send (OneBot) | No (typically local/LAN) |
 | Linq | webhook (`/linq`) | Yes (public HTTPS callback) |
+| WATI | webhook (`/wati`) | Yes (public HTTPS callback) |
 | iMessage | local integration | No |
 | ACP | stdio (JSON-RPC 2.0) | No |
 | Nostr | relay websocket (NIP-04 / NIP-17) | No |
@@ -166,7 +167,7 @@ Field names differ by channel:
 
 - `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Napcat/Nextcloud Talk/ACP)
 - `allowed_from` (Signal)
-- `allowed_numbers` (WhatsApp)
+- `allowed_numbers` (WhatsApp/WATI)
 - `allowed_senders` (Email/Linq)
 - `allowed_contacts` (iMessage)
 - `allowed_pubkeys` (Nostr)
@@ -562,7 +563,7 @@ Notes:
   - `500` when `webhook_secret` is not configured.
   - `401` when signature/bearer auth is missing or invalid.
 - Accepted auth methods:
-  - `X-Hub-Signature-256` HMAC-SHA256 (`sha256=<hex>` or raw hex)
+  - `X-Hub-Signature-256`, `X-Wati-Signature`, or `X-Webhook-Signature` HMAC-SHA256 (`sha256=<hex>` or raw hex)
   - `Authorization: Bearer <webhook_secret>` fallback
 - `ZEROCLAW_WATI_WEBHOOK_SECRET` overrides `webhook_secret` when set.
 
