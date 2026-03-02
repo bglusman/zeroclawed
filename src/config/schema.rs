@@ -5371,10 +5371,7 @@ impl std::fmt::Debug for WatiConfig {
         f.debug_struct("WatiConfig")
             .field("api_token", &"[REDACTED]")
             .field("api_url", &self.api_url)
-            .field(
-                "webhook_secret",
-                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
-            )
+            .field("webhook_secret", &"[REDACTED]")
             .field("tenant_id", &self.tenant_id)
             .field("allowed_numbers", &self.allowed_numbers)
             .finish()
