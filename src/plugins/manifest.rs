@@ -378,11 +378,10 @@ id = "  "
             tools: vec![],
             providers: vec![],
         };
-        assert!(validate_manifest_with_profile(
-            &manifest,
-            ManifestValidationProfile::SchemaOnly
-        )
-        .is_ok());
+        assert!(
+            validate_manifest_with_profile(&manifest, ManifestValidationProfile::SchemaOnly)
+                .is_ok()
+        );
     }
 
     #[test]
