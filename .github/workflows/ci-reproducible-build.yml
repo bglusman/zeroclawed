@@ -10,6 +10,7 @@ on:
             - "crates/**"
             - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
+            - "scripts/ci/ensure_cc.sh"
             - "scripts/ci/reproducible_build_check.sh"
             - "scripts/ci/self_heal_rust_toolchain.sh"
             - ".github/workflows/ci-reproducible-build.yml"
@@ -22,6 +23,7 @@ on:
             - "crates/**"
             - "scripts/ci/ensure_c_toolchain.sh"
             - "scripts/ci/ensure_cargo_component.sh"
+            - "scripts/ci/ensure_cc.sh"
             - "scripts/ci/reproducible_build_check.sh"
             - "scripts/ci/self_heal_rust_toolchain.sh"
             - ".github/workflows/ci-reproducible-build.yml"
@@ -79,6 +81,8 @@ jobs:
               with:
                   toolchain: 1.92.0
 
+            - name: Ensure C toolchain for Rust builds
+              run: ./scripts/ci/ensure_cc.sh
             - name: Ensure cargo component
               shell: bash
               env:

@@ -25,32 +25,12 @@ on:
             - "scripts/ci/config/unsafe_debt_policy.toml"
             - "scripts/ci/emit_audit_event.py"
             - "scripts/ci/security_regression_tests.sh"
+            - "scripts/ci/ensure_cc.sh"
             - ".github/workflows/sec-audit.yml"
     pull_request:
         branches: [dev, main]
-        paths:
-            - "Cargo.toml"
-            - "Cargo.lock"
-            - "src/**"
-            - "crates/**"
-            - "deny.toml"
-            - ".gitleaks.toml"
-            - ".github/security/gitleaks-allowlist-governance.json"
-            - ".github/security/deny-ignore-governance.json"
-            - ".github/security/unsafe-audit-governance.json"
-            - "scripts/ci/install_gitleaks.sh"
-            - "scripts/ci/install_syft.sh"
-            - "scripts/ci/ensure_c_toolchain.sh"
-            - "scripts/ci/ensure_cargo_component.sh"
-            - "scripts/ci/self_heal_rust_toolchain.sh"
-            - "scripts/ci/deny_policy_guard.py"
-            - "scripts/ci/secrets_governance_guard.py"
-            - "scripts/ci/unsafe_debt_audit.py"
-            - "scripts/ci/unsafe_policy_guard.py"
-            - "scripts/ci/config/unsafe_debt_policy.toml"
-            - "scripts/ci/emit_audit_event.py"
-            - "scripts/ci/security_regression_tests.sh"
-            - ".github/workflows/sec-audit.yml"
+        # Do not gate pull_request by paths: main branch protection requires
+        # "Security Required Gate" to always report a status on PRs.
     merge_group:
         branches: [dev, main]
     schedule:
@@ -112,6 +92,8 @@ jobs:
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
+            - name: Ensure C toolchain for Rust builds
+              run: ./scripts/ci/ensure_cc.sh
 
             - name: Ensure cargo component
               shell: bash
@@ -252,6 +234,8 @@ jobs:
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
                   toolchain: 1.92.0
+            - name: Ensure C toolchain for Rust builds
+              run: ./scripts/ci/ensure_cc.sh
             - name: Ensure cargo component
               shell: bash
               env:
