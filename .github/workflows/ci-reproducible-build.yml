@@ -81,6 +81,8 @@ jobs:
 
             - name: Ensure cargo component
               shell: bash
+              env:
+                  ENSURE_CARGO_COMPONENT_STRICT: "true"
               run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
 
             - name: Run reproducible build check

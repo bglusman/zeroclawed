@@ -115,6 +115,8 @@ jobs:
 
             - name: Ensure cargo component
               shell: bash
+              env:
+                  ENSURE_CARGO_COMPONENT_STRICT: "true"
               run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
 
             - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -141,6 +143,8 @@ jobs:
                   toolchain: 1.92.0
             - name: Ensure cargo component
               shell: bash
+              env:
+                  ENSURE_CARGO_COMPONENT_STRICT: "true"
               run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
 
             - name: Enforce deny policy hygiene
@@ -162,18 +166,33 @@ jobs:
                   version="0.19.0"
                   arch="$(uname -m)"
                   case "${arch}" in
-                    x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
-                    aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
+                    x86_64|amd64)
+                      target="x86_64-unknown-linux-musl"
+                      expected_sha256="0e8c2aa59128612c90d9e09c02204e912f29a5b8d9a64671b94608cbe09e064f"
+                      ;;
+                    aarch64|arm64)
+                      target="aarch64-unknown-linux-musl"
+                      expected_sha256="2b3567a60b7491c159d1cef8b7d8479d1ad2a31e29ef49462634ad4552fcc77d"
+                      ;;
                     *)
                       echo "Unsupported runner architecture for cargo-deny: ${arch}" >&2
                       exit 1
                       ;;
                   esac
                   install_dir="${RUNNER_TEMP}/cargo-deny-${version}"
+                  archive="${RUNNER_TEMP}/cargo-deny-${version}-${target}.tar.gz"
                   mkdir -p "${install_dir}"
                   curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
-                    "https://github.com/EmbarkStudios/cargo-deny/releases/download/${version}/cargo-deny-${version}-${target}.tar.gz" \
-                    | tar -xz -C "${install_dir}" --strip-components=1
+                    --output "${archive}" \
+                    "https://github.com/EmbarkStudios/cargo-deny/releases/download/${version}/cargo-deny-${version}-${target}.tar.gz"
+                  actual_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
+                  if [ "${actual_sha256}" != "${expected_sha256}" ]; then
+                    echo "Checksum mismatch for cargo-deny ${version} (${target})" >&2
+                    echo "Expected: ${expected_sha256}" >&2
+                    echo "Actual:   ${actual_sha256}" >&2
+                    exit 1
+                  fi
+                  tar -xzf "${archive}" -C "${install_dir}" --strip-components=1
                   echo "${install_dir}" >> "${GITHUB_PATH}"
                   "${install_dir}/cargo-deny" --version
 
@@ -235,6 +254,8 @@ jobs:
                   toolchain: 1.92.0
             - name: Ensure cargo component
               shell: bash
+              env:
+                  ENSURE_CARGO_COMPONENT_STRICT: "true"
               run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
             - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v3
               with:
