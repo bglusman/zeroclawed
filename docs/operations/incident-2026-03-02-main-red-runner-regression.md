@@ -12,7 +12,7 @@ This report is for CI runner maintainers to debug runner health regressions firs
 
 ## Executive Summary
 
-`main` became red due runner-environment failures in self-hosted pools.
+`main` became red due to runner-environment failures in self-hosted pools.
 
 Observed failure classes:
 

@@ -68,7 +68,7 @@ jobs:
             failed=1
           fi
 
-          inode_used_pct="$(df -Pi . | awk 'NR==2 {gsub(/%/, \"\", $5); print $5}')"
+          inode_used_pct="$(df -Pi . | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
           if [ "${inode_used_pct}" -ge 95 ]; then
             echo "::error::Inode usage >=95%; clean files to avoid ENOSPC."
             df -i .
