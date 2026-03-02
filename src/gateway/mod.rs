@@ -2551,10 +2551,19 @@ async fn handle_wati_webhook(
 
     let auth_result = verify_wati_webhook_auth(webhook_secret, &headers, &body);
     if !auth_result.is_authorized() {
+        let signature_status = auth_result.signature.as_log_status();
+        let bearer_status = auth_result.bearer.as_log_status();
+        state
+            .observer
+            .record_event(&crate::observability::ObserverEvent::WebhookAuthFailure {
+                channel: "wati".to_string(),
+                signature: signature_status.to_string(),
+                bearer: bearer_status.to_string(),
+            });
         tracing::warn!(
             "WATI webhook authentication failed (signature: {}, bearer: {})",
-            auth_result.signature.as_log_status(),
-            auth_result.bearer.as_log_status()
+            signature_status,
+            bearer_status
         );
         return (
             StatusCode::UNAUTHORIZED,
