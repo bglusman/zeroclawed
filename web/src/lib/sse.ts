@@ -1,5 +1,6 @@
 import type { SSEEvent } from '../types/api';
 import { getToken } from './auth';
+import { isMockModeEnabled } from './mockMode';
 
 export type SSEEventHandler = (event: SSEEvent) => void;
 export type SSEErrorHandler = (error: Event | Error) => void;
@@ -28,6 +29,7 @@ const MAX_RECONNECT_DELAY = 30000;
 export class SSEClient {
   private controller: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private mockTimer: ReturnType<typeof setInterval> | null = null;
   private currentDelay: number;
   private intentionallyClosed = false;
 
@@ -52,6 +54,12 @@ export class SSEClient {
   connect(): void {
     this.intentionallyClosed = false;
     this.clearReconnectTimer();
+
+    if (isMockModeEnabled()) {
+      this.mockConnect();
+      return;
+    }
+
     this.controller = new AbortController();
 
     const token = getToken();
@@ -92,6 +100,7 @@ export class SSEClient {
   disconnect(): void {
     this.intentionallyClosed = true;
     this.clearReconnectTimer();
+    this.clearMockTimer();
     if (this.controller) {
       this.controller.abort();
       this.controller = null;
@@ -180,6 +189,38 @@ export class SSEClient {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  private mockConnect(): void {
+    this.clearMockTimer();
+    this.currentDelay = this.reconnectDelay;
+    this.onConnect?.();
+
+    const eventTypes = ['status', 'message', 'tool_call', 'tool_result', 'health'] as const;
+    let tick = 0;
+
+    this.mockTimer = setInterval(() => {
+      if (this.intentionallyClosed) {
+        this.clearMockTimer();
+        return;
+      }
+
+      const type = eventTypes[tick % eventTypes.length] ?? 'message';
+      tick += 1;
+      const now = new Date().toISOString();
+      this.onEvent?.({
+        type,
+        timestamp: now,
+        message: `[mock] ${type} event #${tick}`,
+      });
+    }, 1400);
+  }
+
+  private clearMockTimer(): void {
+    if (this.mockTimer !== null) {
+      clearInterval(this.mockTimer);
+      this.mockTimer = null;
     }
   }
 }

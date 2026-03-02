@@ -181,7 +181,7 @@ export default function AgentChat() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+    <div className="flex min-h-[28rem] flex-col h-[calc(100dvh-8.5rem)]">
       {/* Connection status bar */}
       {error && (
         <div className="px-4 py-2 bg-red-900/30 border-b border-red-700 flex items-center gap-2 text-sm text-red-300">
