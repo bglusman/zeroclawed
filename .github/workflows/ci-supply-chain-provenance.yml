@@ -43,6 +43,25 @@ jobs:
               with:
                   toolchain: 1.92.0
 
+            - name: Activate toolchain binaries on PATH
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  toolchain_bin="$(dirname "$(rustup which --toolchain 1.92.0 cargo)")"
+                  echo "$toolchain_bin" >> "$GITHUB_PATH"
+
+            - name: Resolve host target
+              id: rust-meta
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  host_target="$(rustup run 1.92.0 rustc -vV | sed -n 's/^host: //p')"
+                  if [ -z "${host_target}" ]; then
+                    echo "::error::Unable to resolve Rust host target."
+                    exit 1
+                  fi
+                  echo "host_target=${host_target}" >> "$GITHUB_OUTPUT"
+
             - name: Runner preflight (compiler + disk)
               shell: bash
               run: |
@@ -62,8 +81,8 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p artifacts
-                  host_target="$(rustc -vV | sed -n 's/^host: //p')"
-                  cargo build --profile release-fast --locked --target "$host_target"
+                  host_target="${{ steps.rust-meta.outputs.host_target }}"
+                  rustup run 1.92.0 cargo build --profile release-fast --locked --target "$host_target"
                   cp "target/${host_target}/release-fast/zeroclaw" "artifacts/zeroclaw-${host_target}"
                   sha256sum "artifacts/zeroclaw-${host_target}" > "artifacts/zeroclaw-${host_target}.sha256"
 
@@ -71,7 +90,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  host_target="$(rustc -vV | sed -n 's/^host: //p')"
+                  host_target="${{ steps.rust-meta.outputs.host_target }}"
                   python3 scripts/ci/generate_provenance.py \
                     --artifact "artifacts/zeroclaw-${host_target}" \
                     --subject-name "zeroclaw-${host_target}" \
@@ -84,7 +103,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  host_target="$(rustc -vV | sed -n 's/^host: //p')"
+                  host_target="${{ steps.rust-meta.outputs.host_target }}"
                   statement="artifacts/provenance-${host_target}.intoto.json"
                   cosign sign-blob --yes \
                     --bundle="${statement}.sigstore.json" \
@@ -96,7 +115,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  host_target="$(rustc -vV | sed -n 's/^host: //p')"
+                  host_target="${{ steps.rust-meta.outputs.host_target }}"
                   python3 scripts/ci/emit_audit_event.py \
                     --event-type supply_chain_provenance \
                     --input-json "artifacts/provenance-${host_target}.intoto.json" \
@@ -115,7 +134,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  host_target="$(rustc -vV | sed -n 's/^host: //p')"
+                  host_target="${{ steps.rust-meta.outputs.host_target }}"
                   {
                     echo "### Supply Chain Provenance"
                     echo "- Target: \`${host_target}\`"

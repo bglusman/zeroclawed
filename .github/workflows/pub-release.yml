@@ -3,6 +3,10 @@ name: Pub Release
 on:
     push:
         tags: ["v*"]
+        tags-ignore:
+            - "v*-alpha.*"
+            - "v*-beta.*"
+            - "v*-rc.*"
     workflow_dispatch:
         inputs:
             release_ref:
