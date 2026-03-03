@@ -1,8 +1,9 @@
+---
 name: Post-Release Validation
 
 on:
     release:
-        types: [published]
+        types: ["published"]
 
 permissions:
     contents: read
@@ -15,7 +16,7 @@ jobs:
         steps:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-            - name: Validate release assets
+            - name: Download and verify release assets
               shell: bash
               env:
                   RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -26,24 +27,32 @@ jobs:
                   echo "Validating release: ${RELEASE_TAG}"
 
                   # 1. Check release exists and is not draft
-                  release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
-                  is_draft="$(echo "$release_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")"
+                  release_json="$(gh api \
+                    "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+                  is_draft="$(echo "$release_json" \
+                    | python3 -c "import sys,json; print(json.load(sys.stdin)['draft'])")"
                   if [ "$is_draft" = "True" ]; then
-                    echo "::warning::Release ${RELEASE_TAG} is still in draft state."
+                    echo "::warning::Release ${RELEASE_TAG} is still in draft."
                   fi
 
                   # 2. Check expected assets exist
-                  asset_count="$(echo "$release_json" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")"
+                  asset_count="$(echo "$release_json" \
+                    | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")"
                   echo "Release has ${asset_count} assets"
                   if [ "$asset_count" -lt 10 ]; then
-                    echo "::error::Expected at least 10 release assets, found ${asset_count}"
+                    echo "::error::Expected >=10 release assets, found ${asset_count}"
                     exit 1
                   fi
 
-                  # 3. Download and verify SHA256SUMS
-                  gh release download "${RELEASE_TAG}" --pattern "SHA256SUMS" --dir /tmp/release-check
-                  gh release download "${RELEASE_TAG}" --pattern "zeroclaw-x86_64-unknown-linux-gnu.tar.gz" --dir /tmp/release-check
+                  # 3. Download checksum file and one archive
+                  gh release download "${RELEASE_TAG}" \
+                    --pattern "SHA256SUMS" \
+                    --dir /tmp/release-check
+                  gh release download "${RELEASE_TAG}" \
+                    --pattern "zeroclaw-x86_64-unknown-linux-gnu.tar.gz" \
+                    --dir /tmp/release-check
 
+                  # 4. Verify checksum
                   cd /tmp/release-check
                   if sha256sum --check --ignore-missing SHA256SUMS; then
                     echo "SHA256 checksum verification: passed"
@@ -52,15 +61,21 @@ jobs:
                     exit 1
                   fi
 
-                  # 4. Smoke-test the Linux binary
+                  # 5. Extract binary
                   tar xzf zeroclaw-x86_64-unknown-linux-gnu.tar.gz
+
+            - name: Smoke-test release binary
+              shell: bash
+              env:
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: |
+                  set -euo pipefail
+                  cd /tmp/release-check
                   if ./zeroclaw --version | grep -q "${RELEASE_TAG#v}"; then
                     echo "Binary version check: passed (${RELEASE_TAG})"
                   else
-                    echo "::error::Binary --version does not contain expected version ${RELEASE_TAG#v}"
                     actual="$(./zeroclaw --version)"
-                    echo "::error::Actual output: ${actual}"
+                    echo "::error::Binary --version mismatch: ${actual}"
                     exit 1
                   fi
-
                   echo "Post-release validation: all checks passed"
