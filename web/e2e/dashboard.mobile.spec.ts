@@ -79,7 +79,7 @@ test.describe('Dashboard mobile smoke', () => {
       });
     });
 
-    await page.goto('/?mock_backend=1');
+    await page.goto('/');
 
     await expect(page.getByText('Electric Runtime Dashboard')).toBeVisible();
 

@@ -1,6 +1,5 @@
 import type { WsMessage } from '../types/api';
 import { getToken } from './auth';
-import { isMockModeEnabled } from './mockMode';
 
 export type WsMessageHandler = (msg: WsMessage) => void;
 export type WsOpenHandler = () => void;
@@ -26,8 +25,6 @@ export class WebSocketClient {
   private ws: WebSocket | null = null;
   private currentDelay: number;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private mockTimers: Array<ReturnType<typeof setTimeout>> = [];
-  private mockConnected = false;
   private intentionallyClosed = false;
 
   public onMessage: WsMessageHandler | null = null;
@@ -56,11 +53,6 @@ export class WebSocketClient {
   connect(): void {
     this.intentionallyClosed = false;
     this.clearReconnectTimer();
-
-    if (isMockModeEnabled()) {
-      this.mockConnect();
-      return;
-    }
 
     const token = getToken();
     const url = `${this.baseUrl}/ws/chat?session_id=${encodeURIComponent(this.sessionId)}`;
@@ -97,30 +89,6 @@ export class WebSocketClient {
 
   /** Send a chat message to the agent. */
   sendMessage(content: string): void {
-    if (isMockModeEnabled()) {
-      if (!this.mockConnected) {
-        throw new Error('Mock WebSocket is not connected');
-      }
-
-      this.pushMockTimer(
-        setTimeout(() => {
-          this.onMessage?.({
-            type: 'chunk',
-            content: 'Mock runtime: analyzing request...',
-          });
-        }, 220),
-      );
-      this.pushMockTimer(
-        setTimeout(() => {
-          this.onMessage?.({
-            type: 'done',
-            full_response: `Mock response generated for: "${content}"`,
-          });
-        }, 780),
-      );
-      return;
-    }
-
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');
     }
@@ -131,8 +99,6 @@ export class WebSocketClient {
   disconnect(): void {
     this.intentionallyClosed = true;
     this.clearReconnectTimer();
-    this.clearMockTimers();
-    this.mockConnected = false;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -141,9 +107,6 @@ export class WebSocketClient {
 
   /** Returns true if the socket is open. */
   get connected(): boolean {
-    if (isMockModeEnabled()) {
-      return this.mockConnected;
-    }
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
@@ -165,38 +128,6 @@ export class WebSocketClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-  }
-
-  private mockConnect(): void {
-    this.clearMockTimers();
-    this.mockConnected = true;
-    this.currentDelay = this.reconnectDelay;
-
-    this.pushMockTimer(
-      setTimeout(() => {
-        this.onOpen?.();
-        this.onMessage?.({
-          type: 'history',
-          messages: [
-            {
-              role: 'assistant',
-              content: 'Mock mode connected. This chat is running without a backend.',
-            },
-          ],
-        });
-      }, 80),
-    );
-  }
-
-  private pushMockTimer(timer: ReturnType<typeof setTimeout>): void {
-    this.mockTimers.push(timer);
-  }
-
-  private clearMockTimers(): void {
-    for (const timer of this.mockTimers) {
-      clearTimeout(timer);
-    }
-    this.mockTimers = [];
   }
 
   private resolveSessionId(): string {

@@ -142,13 +142,6 @@ body {
   box-shadow: 0 0 22px -16px rgba(83, 153, 255, 0.95);
 }
 
-.status-pill-mock {
-  border-color: #49a1ff;
-  color: #ffffff;
-  background: rgba(17, 76, 170, 0.76);
-  box-shadow: 0 0 18px -7px rgba(74, 166, 255, 0.86);
-}
-
 .electric-brand-mark {
   display: flex;
   align-items: center;

@@ -1,10 +1,8 @@
 import { useLocation } from 'react-router-dom';
-import { useState } from 'react';
-import { LogOut, Menu, TestTubeDiagonal, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { t, LANGUAGE_BUTTON_LABELS, LANGUAGE_SWITCH_ORDER } from '@/lib/i18n';
 import { useLocaleContext } from '@/App';
 import { useAuth } from '@/hooks/useAuth';
-import { isMockModeEnabled, setMockModeEnabled } from '@/lib/mockMode';
 
 const routeTitles: Record<string, string> = {
   '/': 'nav.dashboard',
@@ -36,7 +34,6 @@ export default function Header({
   const location = useLocation();
   const { logout } = useAuth();
   const { locale, setAppLocale } = useLocaleContext();
-  const [mockMode, setMockMode] = useState(() => isMockModeEnabled());
 
   const titleKey = routeTitles[location.pathname] ?? 'nav.dashboard';
   const pageTitle = t(titleKey);
@@ -46,13 +43,6 @@ export default function Header({
     const nextLocale =
       LANGUAGE_SWITCH_ORDER[(currentIndex + 1) % LANGUAGE_SWITCH_ORDER.length] ?? 'en';
     setAppLocale(nextLocale);
-  };
-
-  const toggleMockMode = () => {
-    const next = !mockMode;
-    setMockModeEnabled(next);
-    setMockMode(next);
-    window.location.reload();
   };
 
   return (
@@ -88,21 +78,6 @@ export default function Header({
         >
           {isSidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           <span>{isSidebarCollapsed ? 'Expand' : 'Collapse'}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={toggleMockMode}
-          className={[
-            'flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] uppercase tracking-[0.1em] transition sm:px-2.5 sm:text-xs sm:tracking-[0.12em]',
-            mockMode
-              ? 'border-[#48a8ff] bg-[#0f3d8a]/75 text-white shadow-[0_0_18px_-8px_rgba(73,152,255,1)]'
-              : 'border-[#284a8c] bg-[#081a3b]/75 text-[#9bb7e7] hover:border-[#4f83ff] hover:text-white',
-          ].join(' ')}
-          title="Toggle dashboard mock mode"
-        >
-          <TestTubeDiagonal className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Mock</span>
         </button>
 
         <button

@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import type { CostSummary, StatusResponse } from '@/types/api';
 import { getCost, getStatus } from '@/lib/api';
-import { isMockModeEnabled } from '@/lib/mockMode';
 
 type DashboardSectionKey = 'cost' | 'channels' | 'health';
 
@@ -132,8 +131,6 @@ export default function Dashboard() {
     health: true,
   });
 
-  const mockMode = isMockModeEnabled();
-
   useEffect(() => {
     Promise.all([getStatus(), getCost()])
       .then(([statusPayload, costPayload]) => {
@@ -195,7 +192,6 @@ export default function Dashboard() {
               <ShieldCheck className="h-3.5 w-3.5" />
               {status.paired ? 'Paired' : 'Unpaired'}
             </span>
-            {mockMode && <span className="status-pill status-pill-mock">Mock Data</span>}
           </div>
         </div>
       </section>

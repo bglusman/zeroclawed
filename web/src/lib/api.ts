@@ -12,8 +12,6 @@ import type {
   HealthSnapshot,
 } from '../types/api';
 import { clearToken, getToken, setToken } from './auth';
-import { isMockBackendEnabled, isMockModeEnabled } from './mockMode';
-import { mockApiFetch } from './mockData';
 
 // ---------------------------------------------------------------------------
 // Base fetch wrapper
@@ -30,19 +28,8 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const mockMode = isMockModeEnabled();
-  const backendMock = mockMode && isMockBackendEnabled();
-
-  if (mockMode && !backendMock) {
-    return mockApiFetch<T>(path, options);
-  }
-
   const token = getToken();
   const headers = new Headers(options.headers);
-
-  if (backendMock && path.startsWith('/api/')) {
-    headers.set('X-ZeroClaw-Mock', '1');
-  }
 
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -92,18 +79,6 @@ function unwrapField<T>(value: T | Record<string, T>, key: string): T {
 // ---------------------------------------------------------------------------
 
 export async function pair(code: string): Promise<{ token: string }> {
-  const mockMode = isMockModeEnabled();
-  const backendMock = mockMode && isMockBackendEnabled();
-
-  if (mockMode && !backendMock) {
-    const data = await mockApiFetch<{ token: string }>('/pair', {
-      method: 'POST',
-      body: JSON.stringify({ code }),
-    });
-    setToken(data.token);
-    return data;
-  }
-
   const response = await fetch('/pair', {
     method: 'POST',
     headers: { 'X-Pairing-Code': code },
@@ -124,13 +99,6 @@ export async function pair(code: string): Promise<{ token: string }> {
 // ---------------------------------------------------------------------------
 
 export async function getPublicHealth(): Promise<{ require_pairing: boolean; paired: boolean }> {
-  const mockMode = isMockModeEnabled();
-  const backendMock = mockMode && isMockBackendEnabled();
-
-  if (mockMode && !backendMock) {
-    return mockApiFetch<{ require_pairing: boolean; paired: boolean }>('/health');
-  }
-
   const response = await fetch('/health');
   if (!response.ok) {
     throw new Error(`Health check failed (${response.status})`);
