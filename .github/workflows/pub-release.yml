@@ -183,6 +183,9 @@ jobs:
         needs: [prepare]
         runs-on: ${{ matrix.os }}
         timeout-minutes: 40
+        env:
+            CARGO_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.target }}/cargo
+            RUSTUP_HOME: ${{ github.workspace }}/.ci-rust/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}-${{ matrix.target }}/rustup
         strategy:
             fail-fast: false
             matrix:
@@ -278,6 +281,10 @@ jobs:
             - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
               with:
                   ref: ${{ needs.prepare.outputs.release_ref }}
+
+            - name: Self-heal Rust toolchain cache
+              shell: bash
+              run: ./scripts/ci/self_heal_rust_toolchain.sh 1.92.0
 
             - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
               with:
@@ -389,6 +396,10 @@ jobs:
 
             - name: Check binary size (Unix)
               if: runner.os != 'Windows'
+              env:
+                  BINARY_SIZE_HARD_LIMIT_MB: 28
+                  BINARY_SIZE_ADVISORY_MB: 20
+                  BINARY_SIZE_TARGET_MB: 5
               run: bash scripts/ci/check_binary_size.sh "target/${{ matrix.target }}/release-fast/${{ matrix.artifact }}" "${{ matrix.target }}"
 
             - name: Package (Unix)
