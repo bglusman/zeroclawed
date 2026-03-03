@@ -76,8 +76,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  cargo fmt --all -- --check
-                  cargo clippy --locked --all-targets -- -D warnings
+                  ./scripts/ci/rust_quality_gate.sh
                   cargo test --locked --verbose
 
             - name: Build production binary (canonical)
