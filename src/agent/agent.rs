@@ -303,6 +303,36 @@ impl Agent {
             config.api_key.as_deref(),
             config,
         );
+        let (tools, tool_filter_report) = tools::filter_primary_agent_tools(
+            tools,
+            &config.agent.allowed_tools,
+            &config.agent.denied_tools,
+        );
+        for unmatched in tool_filter_report.unmatched_allowed_tools {
+            tracing::debug!(
+                tool = %unmatched,
+                "agent.allowed_tools entry did not match any registered tool"
+            );
+        }
+        let has_agent_allowlist = config
+            .agent
+            .allowed_tools
+            .iter()
+            .any(|entry| !entry.trim().is_empty());
+        let has_agent_denylist = config
+            .agent
+            .denied_tools
+            .iter()
+            .any(|entry| !entry.trim().is_empty());
+        if has_agent_allowlist
+            && has_agent_denylist
+            && tool_filter_report.allowlist_match_count > 0
+            && tools.is_empty()
+        {
+            anyhow::bail!(
+                "agent.allowed_tools and agent.denied_tools removed all executable tools; update [agent] tool filters"
+            );
+        }
 
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
 
@@ -1032,6 +1062,7 @@ mod tests {
 
     #[test]
     fn from_config_loads_plugin_declared_tools() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
         let tmp = TempDir::new().expect("temp dir");
         let plugin_dir = tmp.path().join("plugins");
         std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
@@ -1068,5 +1099,78 @@ description = "plugin tool exposed for from_config tests"
             .tools
             .iter()
             .any(|tool| tool.name() == "__agent_from_config_plugin_tool"));
+    }
+
+    fn base_from_config_for_tool_filter_tests() -> Config {
+        let root = std::env::temp_dir().join(format!(
+            "zeroclaw_agent_tool_filter_{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("workspace")).expect("create workspace dir");
+
+        let mut config = Config::default();
+        config.workspace_dir = root.join("workspace");
+        config.config_path = root.join("config.toml");
+        config.default_provider = Some("ollama".to_string());
+        config.memory.backend = "none".to_string();
+        config
+    }
+
+    #[test]
+    fn from_config_primary_allowlist_filters_tools() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
+        let mut config = base_from_config_for_tool_filter_tests();
+        config.agent.allowed_tools = vec!["shell".to_string()];
+
+        let agent = Agent::from_config(&config).expect("agent should build");
+        let names: Vec<&str> = agent.tools.iter().map(|tool| tool.name()).collect();
+        assert_eq!(names, vec!["shell"]);
+    }
+
+    #[test]
+    fn from_config_empty_allowlist_preserves_default_toolset() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
+        let config = base_from_config_for_tool_filter_tests();
+
+        let agent = Agent::from_config(&config).expect("agent should build");
+        let names: Vec<&str> = agent.tools.iter().map(|tool| tool.name()).collect();
+        assert!(names.contains(&"shell"));
+        assert!(names.contains(&"file_read"));
+    }
+
+    #[test]
+    fn from_config_primary_denylist_removes_tools() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
+        let mut config = base_from_config_for_tool_filter_tests();
+        config.agent.denied_tools = vec!["shell".to_string()];
+
+        let agent = Agent::from_config(&config).expect("agent should build");
+        let names: Vec<&str> = agent.tools.iter().map(|tool| tool.name()).collect();
+        assert!(!names.contains(&"shell"));
+    }
+
+    #[test]
+    fn from_config_unmatched_allowlist_entry_is_graceful() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
+        let mut config = base_from_config_for_tool_filter_tests();
+        config.agent.allowed_tools = vec!["missing_tool".to_string()];
+
+        let agent = Agent::from_config(&config).expect("agent should build with empty toolset");
+        assert!(agent.tools.is_empty());
+    }
+
+    #[test]
+    fn from_config_conflicting_allow_and_deny_fails_fast() {
+        let _guard = crate::test_locks::PLUGIN_RUNTIME_LOCK.lock();
+        let mut config = base_from_config_for_tool_filter_tests();
+        config.agent.allowed_tools = vec!["shell".to_string()];
+        config.agent.denied_tools = vec!["shell".to_string()];
+
+        let err = Agent::from_config(&config)
+            .err()
+            .expect("expected filter conflict");
+        assert!(err
+            .to_string()
+            .contains("agent.allowed_tools and agent.denied_tools removed all executable tools"));
     }
 }

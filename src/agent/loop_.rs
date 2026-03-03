@@ -80,6 +80,54 @@ const CANARY_EXFILTRATION_BLOCK_MESSAGE: &str =
 /// Matches the channel-side constant in `channels/mod.rs`.
 const AUTOSAVE_MIN_MESSAGE_CHARS: usize = 20;
 
+fn filter_primary_agent_tools_or_fail(
+    config: &Config,
+    tools_registry: Vec<Box<dyn Tool>>,
+) -> Result<Vec<Box<dyn Tool>>> {
+    let (filtered_tools, report) = tools::filter_primary_agent_tools(
+        tools_registry,
+        &config.agent.allowed_tools,
+        &config.agent.denied_tools,
+    );
+
+    for unmatched in report.unmatched_allowed_tools {
+        tracing::debug!(
+            tool = %unmatched,
+            "agent.allowed_tools entry did not match any registered tool"
+        );
+    }
+
+    let has_agent_allowlist = config
+        .agent
+        .allowed_tools
+        .iter()
+        .any(|entry| !entry.trim().is_empty());
+    let has_agent_denylist = config
+        .agent
+        .denied_tools
+        .iter()
+        .any(|entry| !entry.trim().is_empty());
+    if has_agent_allowlist
+        && has_agent_denylist
+        && report.allowlist_match_count > 0
+        && filtered_tools.is_empty()
+    {
+        anyhow::bail!(
+            "agent.allowed_tools and agent.denied_tools removed all executable tools; update [agent] tool filters"
+        );
+    }
+
+    Ok(filtered_tools)
+}
+
+fn retain_visible_tool_descriptions<'a>(
+    tool_descs: &mut Vec<(&'a str, &'a str)>,
+    tools_registry: &[Box<dyn Tool>],
+) {
+    let visible_tools: HashSet<&str> = tools_registry.iter().map(|tool| tool.name()).collect();
+    tool_descs.retain(|(name, _)| visible_tools.contains(*name));
+}
+
 fn should_treat_provider_as_vision_capable(provider_name: &str, provider: &dyn Provider) -> bool {
     if provider.supports_vision() {
         return true;
@@ -2641,6 +2689,7 @@ pub async fn run(
         tracing::info!(count = peripheral_tools.len(), "Peripheral tools added");
         tools_registry.extend(peripheral_tools);
     }
+    let tools_registry = filter_primary_agent_tools_or_fail(&config, tools_registry)?;
 
     // ── Resolve provider ─────────────────────────────────────────
     let provider_name = provider_override
@@ -2829,6 +2878,7 @@ pub async fn run(
             "Query connected hardware for reported GPIO pins and LED pin. Use when: user asks what pins are available.",
         ));
     }
+    retain_visible_tool_descriptions(&mut tool_descs, &tools_registry);
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
     } else {
@@ -3271,6 +3321,7 @@ pub async fn process_message_with_session(
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
     tools_registry.extend(peripheral_tools);
+    let tools_registry = filter_primary_agent_tools_or_fail(&config, tools_registry)?;
 
     let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
     let model_name = crate::config::resolve_default_model_id(
@@ -3372,6 +3423,7 @@ pub async fn process_message_with_session(
             "Query connected hardware for reported GPIO pins and LED pin. Use when user asks what pins are available.",
         ));
     }
+    retain_visible_tool_descriptions(&mut tool_descs, &tools_registry);
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
     } else {
