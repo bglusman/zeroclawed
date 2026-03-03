@@ -278,6 +278,14 @@ jobs:
               run: |
                   sudo apt-get update -qq
                   sudo apt-get install -y "${{ matrix.cross_compiler }}"
+                  # Install matching libc dev headers for cross targets
+                  # (required by ring/aws-lc-sys C compilation)
+                  case "${{ matrix.target }}" in
+                    armv7-unknown-linux-gnueabihf)
+                      sudo apt-get install -y libc6-dev-armhf-cross ;;
+                    aarch64-unknown-linux-gnu)
+                      sudo apt-get install -y libc6-dev-arm64-cross ;;
+                  esac
 
             - name: Setup Android NDK
               if: matrix.android_ndk
