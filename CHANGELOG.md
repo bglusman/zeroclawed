@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-03-03
-
 ### Security
 - **Legacy XOR cipher migration**: The `enc:` prefix (XOR cipher) is now deprecated. 
   Secrets using this format will be automatically migrated to `enc2:` (ChaCha20-Poly1305 AEAD)
@@ -69,6 +67,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace escape prevention
 - Forbidden system path protection (`/etc`, `/root`, `~/.ssh`)
 
-[Unreleased]: https://github.com/zeroclaw-labs/zeroclaw/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/zeroclaw-labs/zeroclaw/compare/v0.1.7...v0.2.0
-[0.1.0]: https://github.com/zeroclaw-labs/zeroclaw/releases/tag/v0.1.0
+[0.1.0]: https://github.com/theonlyhennygod/zeroclaw/releases/tag/v0.1.0
