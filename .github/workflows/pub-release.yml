@@ -233,21 +233,21 @@ jobs:
                       linker_env: ""
                       linker: ""
                       use_cross: true
-                    - os: [self-hosted, Linux, X64, aws-india, blacksmith-2vcpu-ubuntu-2404, hetzner]
+                    - os: macos-15-intel
                       target: x86_64-apple-darwin
                       artifact: zeroclaw
                       archive_ext: tar.gz
                       cross_compiler: ""
                       linker_env: ""
                       linker: ""
-                    - os: [self-hosted, Linux, X64, aws-india, blacksmith-2vcpu-ubuntu-2404, hetzner]
+                    - os: macos-14
                       target: aarch64-apple-darwin
                       artifact: zeroclaw
                       archive_ext: tar.gz
                       cross_compiler: ""
                       linker_env: ""
                       linker: ""
-                    - os: [self-hosted, Linux, X64, aws-india, blacksmith-2vcpu-ubuntu-2404, hetzner]
+                    - os: windows-latest
                       target: x86_64-pc-windows-msvc
                       artifact: zeroclaw.exe
                       archive_ext: zip
