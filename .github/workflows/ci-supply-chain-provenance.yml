@@ -43,6 +43,12 @@ jobs:
               with:
                   toolchain: 1.92.0
 
+            - name: Ensure cargo component
+              shell: bash
+              env:
+                  ENSURE_CARGO_COMPONENT_STRICT: "true"
+              run: bash ./scripts/ci/ensure_cargo_component.sh 1.92.0
+
             - name: Activate toolchain binaries on PATH
               shell: bash
               run: |
@@ -82,7 +88,7 @@ jobs:
                   set -euo pipefail
                   mkdir -p artifacts
                   host_target="${{ steps.rust-meta.outputs.host_target }}"
-                  rustup run 1.92.0 cargo build --profile release-fast --locked --target "$host_target"
+                  cargo build --profile release-fast --locked --target "$host_target"
                   cp "target/${host_target}/release-fast/zeroclaw" "artifacts/zeroclaw-${host_target}"
                   sha256sum "artifacts/zeroclaw-${host_target}" > "artifacts/zeroclaw-${host_target}.sha256"
 
