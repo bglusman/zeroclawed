@@ -131,8 +131,8 @@ jobs:
                       break
                     fi
                   done
-                  sudo apt-get update -qq
-                  sudo apt-get install -y gh
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update -qq
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y gh
               env:
                   GH_TOKEN: ${{ github.token }}
 
@@ -330,15 +330,15 @@ jobs:
                       break
                     fi
                   done
-                  sudo apt-get update -qq
-                  sudo apt-get install -y "${{ matrix.cross_compiler }}"
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update -qq
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y "${{ matrix.cross_compiler }}"
                   # Install matching libc dev headers for cross targets
                   # (required by ring/aws-lc-sys C compilation)
                   case "${{ matrix.target }}" in
                     armv7-unknown-linux-gnueabihf)
-                      sudo apt-get install -y libc6-dev-armhf-cross ;;
+                      sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y libc6-dev-armhf-cross ;;
                     aarch64-unknown-linux-gnu)
-                      sudo apt-get install -y libc6-dev-arm64-cross ;;
+                      sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y libc6-dev-arm64-cross ;;
                   esac
 
             - name: Setup Android NDK
@@ -362,8 +362,8 @@ jobs:
                       break
                     fi
                   done
-                  sudo apt-get update -qq
-                  sudo apt-get install -y unzip
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update -qq
+                  sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y unzip
 
                   mkdir -p "${NDK_ROOT}"
                   curl -fsSL "${NDK_URL}" -o "${RUNNER_TEMP}/${NDK_ZIP}"
