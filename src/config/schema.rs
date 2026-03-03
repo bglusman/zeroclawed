@@ -39,6 +39,8 @@ fn canonical_provider_for_model_defaults(provider_name: &str) -> String {
         "kimi_coding" | "kimi_for_coding" => "kimi-code".to_string(),
         "nvidia-nim" | "build.nvidia.com" => "nvidia".to_string(),
         "aws-bedrock" => "bedrock".to_string(),
+        "samba-nova" => "sambanova".to_string(),
+        "hf" => "huggingface".to_string(),
         "llama.cpp" => "llamacpp".to_string(),
         _ => provider_name.to_string(),
     }
@@ -76,6 +78,11 @@ pub fn default_model_fallback_for_provider(provider_name: Option<&str>) -> &'sta
         "novita" => "minimax/minimax-m2.5",
         "together-ai" => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         "cohere" => "command-a-03-2025",
+        "ai21" => "jamba-1.5-large",
+        "cerebras" => "llama3.1-70b",
+        "sambanova" => "Meta-Llama-3.3-70B-Instruct",
+        "huggingface" => "meta-llama/Llama-3.3-70B-Instruct",
+        "replicate" => "meta/meta-llama-3-70b-instruct",
         "moonshot" => "kimi-k2.5",
         "stepfun" => "step-3.5-flash",
         "hunyuan" => "hunyuan-t1-latest",
@@ -12391,6 +12398,12 @@ provider_api = "not-a-real-mode"
 
         let bedrock = resolve_default_model_id(None, Some("aws-bedrock"));
         assert_eq!(bedrock, "anthropic.claude-sonnet-4-5-20250929-v1:0");
+
+        let ai21 = resolve_default_model_id(None, Some("ai21"));
+        assert_eq!(ai21, "jamba-1.5-large");
+
+        let huggingface = resolve_default_model_id(None, Some("huggingface"));
+        assert_eq!(huggingface, "meta-llama/Llama-3.3-70B-Instruct");
     }
 
     #[test]
@@ -12406,6 +12419,12 @@ provider_api = "not-a-real-mode"
 
         let step_ai_alias = resolve_default_model_id(None, Some("step-ai"));
         assert_eq!(step_ai_alias, "step-3.5-flash");
+
+        let samba_nova_alias = resolve_default_model_id(None, Some("samba-nova"));
+        assert_eq!(samba_nova_alias, "Meta-Llama-3.3-70B-Instruct");
+
+        let hf_alias = resolve_default_model_id(None, Some("hf"));
+        assert_eq!(hf_alias, "meta-llama/Llama-3.3-70B-Instruct");
     }
 
     #[test]

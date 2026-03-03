@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   ChevronsLeftRightEllipsis,
@@ -15,6 +16,8 @@ import {
   X,
 } from 'lucide-react';
 import { t } from '@/lib/i18n';
+
+const COLLAPSE_BUTTON_DELAY_MS = 1000;
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
@@ -43,6 +46,13 @@ export default function Sidebar({
   onClose,
   onToggleCollapse,
 }: SidebarProps) {
+  const [showCollapseButton, setShowCollapseButton] = useState(false);
+
+  useEffect(() => {
+    const id = setTimeout(() => setShowCollapseButton(true), COLLAPSE_BUTTON_DELAY_MS);
+    return () => clearTimeout(id);
+  }, []);
+
   return (
     <>
       <button
@@ -66,32 +76,33 @@ export default function Sidebar({
       >
         <div className="relative flex items-center justify-between border-b border-[#1a2d5e] px-4 py-4">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div
-              className="electric-brand-mark h-9 w-9 shrink-0 rounded-xl"
-              role="img"
-              aria-label="ZeroClaw"
-            >
-              <span className="sr-only">ZeroClaw</span>
-            </div>
-            <span
-              className={[
-                'text-lg font-semibold tracking-[0.1em] text-white transition-[opacity,transform,width] duration-300',
-                isCollapsed ? 'w-0 -translate-x-3 opacity-0 md:invisible' : 'w-auto opacity-100',
-              ].join(' ')}
-            >
-              ZeroClaw
-            </span>
+            {!isCollapsed && (
+              <>
+                <div
+                  className="electric-brand-mark h-9 w-9 shrink-0 rounded-xl"
+                  role="img"
+                  aria-label="ZeroClaw"
+                >
+                  <span className="sr-only">ZeroClaw</span>
+                </div>
+                <span className="text-lg font-semibold tracking-[0.1em] text-white">
+                  ZeroClaw
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onToggleCollapse}
-              aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-              className="hidden rounded-lg border border-[#2c4e97] bg-[#0a1b3f]/60 p-1.5 text-[#8bb9ff] transition hover:border-[#4f83ff] hover:text-white md:block"
-            >
-              <ChevronsLeftRightEllipsis className="h-4 w-4" />
-            </button>
+            {showCollapseButton && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                className="hidden rounded-lg border border-[#2c4e97] bg-[#0a1b3f]/60 p-1.5 text-[#8bb9ff] transition hover:border-[#4f83ff] hover:text-white md:block"
+              >
+                <ChevronsLeftRightEllipsis className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -141,7 +152,7 @@ export default function Sidebar({
         >
           <p className={isCollapsed ? 'hidden md:block' : ''}>Gateway + Dashboard</p>
           <p className={isCollapsed ? 'text-[10px] uppercase tracking-widest' : 'mt-1 text-[#5f84cc]'}>
-            {isCollapsed ? 'UI' : 'Electric Mode'}
+            {isCollapsed ? 'UI' : 'Runtime Mode'}
           </p>
         </div>
       </aside>

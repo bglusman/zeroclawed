@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Sidebar from './Sidebar';
@@ -62,19 +62,26 @@ describe('Sidebar', () => {
     expect(opened.onClose).toHaveBeenCalledTimes(2);
   });
 
-  it('supports collapsed mode controls and closes on navigation click', async () => {
-    const user = userEvent.setup();
-    const view = renderSidebar({ isOpen: true, isCollapsed: true });
+  it('supports collapsed mode controls and closes on navigation click', () => {
+    vi.useFakeTimers();
+    try {
+      const view = renderSidebar({ isOpen: true, isCollapsed: true });
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
 
-    const collapseToggle = screen.getByRole('button', {
-      name: /Expand navigation/i,
-    });
-    await user.click(collapseToggle);
-    expect(view.onToggleCollapse).toHaveBeenCalledTimes(1);
+      const collapseToggle = screen.getByRole('button', {
+        name: /Expand navigation/i,
+      });
+      fireEvent.click(collapseToggle);
+      expect(view.onToggleCollapse).toHaveBeenCalledTimes(1);
 
-    const dashboardLink = screen.getByRole('link', { name: 'Dashboard' });
-    expect(dashboardLink).toHaveAttribute('title', 'Dashboard');
-    await user.click(dashboardLink);
-    expect(view.onClose).toHaveBeenCalled();
+      const dashboardLink = screen.getByRole('link', { name: 'Dashboard' });
+      expect(dashboardLink).toHaveAttribute('title', 'Dashboard');
+      fireEvent.click(dashboardLink);
+      expect(view.onClose).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

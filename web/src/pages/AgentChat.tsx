@@ -259,7 +259,7 @@ export default function AgentChat() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-800 bg-gray-900 p-4">
+      <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
         <div className="flex items-center gap-3 max-w-4xl mx-auto">
           <div className="flex-1 relative">
             <input

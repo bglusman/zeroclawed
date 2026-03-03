@@ -770,6 +770,49 @@ export default function App(): JSX.Element {
     return undefined;
   }, [themeMode]);
 
+  useEffect(() => {
+    const cardSelector = ".metric-card, .principle-card, .pathway-card, .reader-side .side-card";
+    const cards = [...document.querySelectorAll<HTMLElement>(cardSelector)];
+
+    if (!cards.length) {
+      return;
+    }
+
+    const cleanups = cards.map((card) => {
+      const onPointerMove = (event: PointerEvent): void => {
+        const bounds = card.getBoundingClientRect();
+        const x = event.clientX - bounds.left;
+        const y = event.clientY - bounds.top;
+
+        card.style.setProperty("--spotlight-x", `${x}px`);
+        card.style.setProperty("--spotlight-y", `${y}px`);
+        card.style.setProperty("--spotlight-opacity", "1");
+      };
+
+      const onPointerEnter = (): void => {
+        card.style.setProperty("--spotlight-opacity", "0.9");
+      };
+
+      const onPointerLeave = (): void => {
+        card.style.setProperty("--spotlight-opacity", "0");
+      };
+
+      card.addEventListener("pointermove", onPointerMove);
+      card.addEventListener("pointerenter", onPointerEnter);
+      card.addEventListener("pointerleave", onPointerLeave);
+
+      return () => {
+        card.removeEventListener("pointermove", onPointerMove);
+        card.removeEventListener("pointerenter", onPointerEnter);
+        card.removeEventListener("pointerleave", onPointerLeave);
+      };
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, []);
+
   const sectionOptions = useMemo(
     () => ["all", ...new Set(docs.map((doc) => doc.section))],
     []

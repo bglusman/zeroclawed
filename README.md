@@ -25,7 +25,7 @@ Built by students and members of the Harvard, MIT, and Sundai.Club communities.
 </p>
 
 <p align="center">
-  🌐 <strong>Languages:</strong> <a href="README.md">English</a> · <a href="docs/i18n/zh-CN/README.md">简体中文</a> · <a href="docs/i18n/ja/README.md">日本語</a> · <a href="docs/i18n/ru/README.md">Русский</a> · <a href="docs/i18n/fr/README.md">Français</a> · <a href="docs/i18n/vi/README.md">Tiếng Việt</a> · <a href="docs/i18n/el/README.md">Ελληνικά</a>
+  🌐 <strong>Languages:</strong> <a href="README.md">English</a> · <a href="docs/i18n/zh-CN/README.md">简体中文</a> · <a href="docs/i18n/ja/README.md">日本語</a> · <a href="docs/i18n/ru/README.md">Русский</a> · <a href="docs/i18n/fr/README.md">Français</a> · <a href="docs/i18n/vi/README.md">Tiếng Việt</a> · <a href="docs/i18n/el/README.md">Ελληνικά</a> · Español (coming soon)
 </p>
 
 <p align="center">
@@ -129,6 +129,23 @@ Use repository docs as the source of truth for install/setup instructions:
 - [docs/getting-started/README.md](docs/getting-started/README.md)
 
 Issue comments can provide context, but they are not canonical installation documentation.
+
+### Migrate from OpenClaw
+
+Already running OpenClaw? One command:
+
+```bash
+# Migrate everything - agents, memory, and configs
+zeroclaw migrate openclaw
+
+# Migrate from a specific OpenClaw path
+zeroclaw migrate openclaw --source ~/.openclaw/workspace --source-config ~/.openclaw/openclaw.json
+
+# Dry run first to see what would change
+zeroclaw migrate openclaw --dry-run
+```
+
+The migration engine imports your agents, memory entries, and configuration with merge-first semantics that preserve existing ZeroClaw data. ZeroClaw reads `SKILL.md` natively and is compatible with the ClawHub marketplace.
 
 ## Benchmark Snapshot (ZeroClaw vs OpenClaw, Reproducible)
 

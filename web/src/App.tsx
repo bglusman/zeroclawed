@@ -53,7 +53,7 @@ function PairingDialog({ onPair }: { onPair: (code: string) => Promise<void> }) 
     <div className="pairing-shell min-h-screen flex items-center justify-center px-4">
       <div className="pairing-card w-full max-w-md rounded-2xl p-8">
         <div className="text-center mb-6">
-          <h1 className="mb-2 text-2xl font-semibold tracking-[0.12em] text-white">ZEROCLAW</h1>
+          <h1 className="mb-2 text-2xl font-semibold tracking-[0.16em] pairing-brand">ZEROCLAW</h1>
           <p className="text-sm text-[#9bb8e8]">Enter the one-time pairing code from your terminal</p>
         </div>
         <form onSubmit={handleSubmit}>

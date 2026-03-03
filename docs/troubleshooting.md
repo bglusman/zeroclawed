@@ -403,11 +403,11 @@ The `.cargo/config.toml` in this repository already pins `x86_64-apple-darwin` b
 Both still work:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/bootstrap.sh | bash
+curl -fsSL https://zeroclawlabs.ai/install.sh | bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
 ```
 
-`install.sh` is a compatibility entry and forwards/falls back to bootstrap behavior.
+`install.sh` remains a compatibility entry and forwards/falls back to bootstrap behavior for older docs and links.
 
 ## Still Stuck?
 

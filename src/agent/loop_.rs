@@ -6901,7 +6901,6 @@ Let me check the result."#;
         assert!(should_emit_tool_progress(ProgressMode::Compact));
         assert!(!should_emit_tool_progress(ProgressMode::Off));
     }
-
     #[test]
     fn progress_tracker_renders_in_place_block() {
         let mut tracker = ProgressTracker::default();
