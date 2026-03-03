@@ -1044,6 +1044,14 @@ pub struct AgentConfig {
     /// Tool dispatch strategy (e.g. `"auto"`). Default: `"auto"`.
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
+    /// Optional allowlist for primary-agent tool visibility.
+    /// When non-empty, only listed tools are exposed to the primary agent.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// Optional denylist for primary-agent tool visibility.
+    /// Applied after `allowed_tools`.
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
     /// Agent-team runtime controls for synchronous delegation.
     #[serde(default)]
     pub teams: AgentTeamsConfig,
@@ -1179,6 +1187,8 @@ impl Default for AgentConfig {
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+            allowed_tools: Vec::new(),
+            denied_tools: Vec::new(),
             teams: AgentTeamsConfig::default(),
             subagents: SubAgentsConfig::default(),
             loop_detection_no_progress_threshold: default_loop_detection_no_progress_threshold(),
@@ -8102,6 +8112,30 @@ impl Config {
                 );
             }
         }
+        for (i, tool_name) in self.agent.allowed_tools.iter().enumerate() {
+            let normalized = tool_name.trim();
+            if normalized.is_empty() {
+                anyhow::bail!("agent.allowed_tools[{i}] must not be empty");
+            }
+            if !normalized
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '*')
+            {
+                anyhow::bail!("agent.allowed_tools[{i}] contains invalid characters: {normalized}");
+            }
+        }
+        for (i, tool_name) in self.agent.denied_tools.iter().enumerate() {
+            let normalized = tool_name.trim();
+            if normalized.is_empty() {
+                anyhow::bail!("agent.denied_tools[{i}] must not be empty");
+            }
+            if !normalized
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '*')
+            {
+                anyhow::bail!("agent.denied_tools[{i}] contains invalid characters: {normalized}");
+            }
+        }
         let built_in_roles = ["owner", "admin", "operator", "viewer", "guest"];
         let mut custom_role_names = std::collections::HashSet::new();
         for (i, role) in self.security.roles.iter().enumerate() {
@@ -10411,6 +10445,8 @@ reasoning_level = "high"
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
         assert_eq!(cfg.tool_dispatcher, "auto");
+        assert!(cfg.allowed_tools.is_empty());
+        assert!(cfg.denied_tools.is_empty());
     }
 
     #[test]
@@ -10423,6 +10459,8 @@ max_tool_iterations = 20
 max_history_messages = 80
 parallel_tools = true
 tool_dispatcher = "xml"
+allowed_tools = ["delegate", "task_plan"]
+denied_tools = ["shell"]
 "#;
         let parsed: Config = toml::from_str(raw).unwrap();
         assert!(parsed.agent.compact_context);
@@ -10430,6 +10468,11 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.agent.max_history_messages, 80);
         assert!(parsed.agent.parallel_tools);
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
+        assert_eq!(
+            parsed.agent.allowed_tools,
+            vec!["delegate".to_string(), "task_plan".to_string()]
+        );
+        assert_eq!(parsed.agent.denied_tools, vec!["shell".to_string()]);
     }
 
     #[tokio::test]
@@ -14240,6 +14283,50 @@ sensitivity = 0.9
 
         let err = config.validate().expect_err("expected invalid domain glob");
         assert!(err.to_string().contains("gated_domains"));
+    }
+
+    #[test]
+    async fn agent_validation_rejects_empty_allowed_tool_entry() {
+        let mut config = Config::default();
+        config.agent.allowed_tools = vec!["   ".to_string()];
+
+        let err = config
+            .validate()
+            .expect_err("expected invalid agent allowed_tools entry");
+        assert!(err.to_string().contains("agent.allowed_tools"));
+    }
+
+    #[test]
+    async fn agent_validation_rejects_invalid_allowed_tool_chars() {
+        let mut config = Config::default();
+        config.agent.allowed_tools = vec!["bad tool".to_string()];
+
+        let err = config
+            .validate()
+            .expect_err("expected invalid agent allowed_tools chars");
+        assert!(err.to_string().contains("agent.allowed_tools"));
+    }
+
+    #[test]
+    async fn agent_validation_rejects_empty_denied_tool_entry() {
+        let mut config = Config::default();
+        config.agent.denied_tools = vec!["   ".to_string()];
+
+        let err = config
+            .validate()
+            .expect_err("expected invalid agent denied_tools entry");
+        assert!(err.to_string().contains("agent.denied_tools"));
+    }
+
+    #[test]
+    async fn agent_validation_rejects_invalid_denied_tool_chars() {
+        let mut config = Config::default();
+        config.agent.denied_tools = vec!["bad/tool".to_string()];
+
+        let err = config
+            .validate()
+            .expect_err("expected invalid agent denied_tools chars");
+        assert!(err.to_string().contains("agent.denied_tools"));
     }
 
     #[test]

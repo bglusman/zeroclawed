@@ -129,6 +129,8 @@ Operational note for container users:
 | `max_history_messages` | `50` | Maximum conversation history messages retained per session |
 | `parallel_tools` | `false` | Enable parallel tool execution within a single iteration |
 | `tool_dispatcher` | `auto` | Tool dispatch strategy |
+| `allowed_tools` | `[]` | Primary-agent tool allowlist. When non-empty, only listed tools are exposed in context |
+| `denied_tools` | `[]` | Primary-agent tool denylist applied after `allowed_tools` |
 | `loop_detection_no_progress_threshold` | `3` | Same tool+args producing identical output this many times triggers loop detection. `0` disables |
 | `loop_detection_ping_pong_cycles` | `2` | A→B→A→B alternating pattern cycle count threshold. `0` disables |
 | `loop_detection_failure_streak` | `3` | Same tool consecutive failure count threshold. `0` disables |
@@ -139,7 +141,26 @@ Notes:
 - If a channel message exceeds this value, the runtime returns: `Agent exceeded maximum tool iterations (<value>)`.
 - In CLI, gateway, and channel tool loops, multiple independent tool calls are executed concurrently by default when the pending calls do not require approval gating; result order remains stable.
 - `parallel_tools` applies to the `Agent::turn()` API surface. It does not gate the runtime loop used by CLI, gateway, or channel handlers.
+- `allowed_tools` / `denied_tools` are applied at startup before prompt construction. Excluded tools are omitted from system prompt context and tool specs.
+- Unknown entries in `allowed_tools` are skipped and logged at debug level.
+- If both `allowed_tools` and `denied_tools` are configured and the denylist removes all allowlisted matches, startup fails fast with a clear config error.
 - **Loop detection** intervenes before `max_tool_iterations` is exhausted. On first detection the agent receives a self-correction prompt; if the loop persists the agent is stopped early. Detection is result-aware: repeated calls with *different* outputs (genuine progress) do not trigger. Set any threshold to `0` to disable that detector.
+
+Example:
+
+```toml
+[agent]
+allowed_tools = [
+  "delegate",
+  "subagent_spawn",
+  "subagent_list",
+  "subagent_manage",
+  "memory_recall",
+  "memory_store",
+  "task_plan",
+]
+denied_tools = ["shell", "file_write", "browser_open"]
+```
 
 ## `[agent.teams]`
 
