@@ -35,12 +35,19 @@ jobs:
                     echo "::warning::Release ${RELEASE_TAG} is still in draft."
                   fi
 
-                  # 2. Check expected assets exist
+                  # 2. Check expected assets against artifact contract
                   asset_count="$(echo "$release_json" \
                     | python3 -c "import sys,json; print(len(json.load(sys.stdin)['assets']))")"
-                  echo "Release has ${asset_count} assets"
-                  if [ "$asset_count" -lt 10 ]; then
-                    echo "::error::Expected >=10 release assets, found ${asset_count}"
+                  contract=".github/release/release-artifact-contract.json"
+                  expected_count="$(python3 -c "
+                  import json
+                  c = json.load(open('$contract'))
+                  total = sum(len(c[k]) for k in c if k != 'schema_version')
+                  print(total)
+                  ")"
+                  echo "Release has ${asset_count} assets (contract expects ${expected_count})"
+                  if [ "$asset_count" -lt "$expected_count" ]; then
+                    echo "::error::Expected >=${expected_count} release assets (from ${contract}), found ${asset_count}"
                     exit 1
                   fi
 
@@ -71,7 +78,7 @@ jobs:
               run: |
                   set -euo pipefail
                   cd /tmp/release-check
-                  if ./zeroclaw --version | grep -q "${RELEASE_TAG#v}"; then
+                  if ./zeroclaw --version | grep -Fq "${RELEASE_TAG#v}"; then
                     echo "Binary version check: passed (${RELEASE_TAG})"
                   else
                     actual="$(./zeroclaw --version)"
