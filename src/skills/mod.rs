@@ -764,12 +764,16 @@ fn resolve_skill_location(skill: &Skill, workspace_dir: &Path) -> PathBuf {
 
 fn render_skill_location(skill: &Skill, workspace_dir: &Path, prefer_relative: bool) -> String {
     let location = resolve_skill_location(skill, workspace_dir);
-    if prefer_relative {
-        if let Ok(relative) = location.strip_prefix(workspace_dir) {
-            return relative.display().to_string();
+    let path_str = if prefer_relative {
+        match location.strip_prefix(workspace_dir) {
+            Ok(relative) => relative.display().to_string(),
+            Err(_) => location.display().to_string(),
         }
-    }
-    location.display().to_string()
+    } else {
+        location.display().to_string()
+    };
+    // Normalize path separators to forward slashes for XML output (portable across Windows/Unix)
+    path_str.replace('\\', "/")
 }
 
 /// Build the "Available Skills" system prompt section with full skill instructions.
