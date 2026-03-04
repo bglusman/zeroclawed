@@ -4738,7 +4738,10 @@ mod tests {
             Arc::clone(&max_active),
         ))];
 
-        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig::default());
+        let approval_mgr = ApprovalManager::from_config(&crate::config::AutonomyConfig {
+            auto_approve: vec!["shell".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        });
         approval_mgr.grant_non_cli_session("shell");
 
         let mut history = vec![
