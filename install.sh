@@ -39,7 +39,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd || 
 LOCAL_INSTALLER="$SCRIPT_DIR/zeroclaw_install.sh"
 
 declare -a FORWARDED_ARGS=("$@")
-if [[ $# -eq 0 && -t 0 && -t 1 ]]; then
+# In piped one-liners (`curl ... | bash`) stdin is not a TTY; prefer the
+# controlling terminal when available so interactive onboarding is still default.
+if [[ $# -eq 0 && -t 1 ]] && (: </dev/tty) 2>/dev/null; then
   FORWARDED_ARGS=(--interactive-onboard)
 fi
 
