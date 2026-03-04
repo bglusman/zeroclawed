@@ -2113,30 +2113,35 @@ pub async fn run_tool_call_loop(
                     channel_name != "cli" && mgr.is_non_cli_session_granted(&tool_name);
                 let requires_interactive_approval =
                     mgr.needs_approval_for_call(&tool_name, &tool_args);
-                if (bypass_non_cli_approval_for_turn || non_cli_session_granted)
-                    && !requires_interactive_approval
-                {
+                if bypass_non_cli_approval_for_turn {
+                    // One-time bypass token: bypass ALL approvals (including interactive)
                     mgr.record_decision(
                         &tool_name,
                         &tool_args,
                         ApprovalResponse::Yes,
                         channel_name,
                     );
-                    if non_cli_session_granted {
-                        runtime_trace::record_event(
-                            "approval_bypass_non_cli_session_grant",
-                            Some(channel_name),
-                            Some(provider_name),
-                            Some(active_model.as_str()),
-                            Some(&turn_id),
-                            Some(true),
-                            Some("using runtime non-cli session approval grant"),
-                            serde_json::json!({
-                                "iteration": iteration + 1,
-                                "tool": tool_name.clone(),
-                            }),
-                        );
-                    }
+                } else if non_cli_session_granted && !requires_interactive_approval {
+                    // Session grant: bypass only non-interactive approvals
+                    mgr.record_decision(
+                        &tool_name,
+                        &tool_args,
+                        ApprovalResponse::Yes,
+                        channel_name,
+                    );
+                    runtime_trace::record_event(
+                        "approval_bypass_non_cli_session_grant",
+                        Some(channel_name),
+                        Some(provider_name),
+                        Some(active_model.as_str()),
+                        Some(&turn_id),
+                        Some(true),
+                        Some("using runtime non-cli session approval grant"),
+                        serde_json::json!({
+                            "iteration": iteration + 1,
+                            "tool": tool_name.clone(),
+                        }),
+                    );
                 } else if requires_interactive_approval {
                     let request = ApprovalRequest {
                         tool_name: tool_name.clone(),
