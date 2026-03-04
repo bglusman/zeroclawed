@@ -4922,6 +4922,7 @@ mod tests {
             &[],
             ProgressMode::Verbose,
             None,
+            false,
         )
         .await
         .expect("tool loop should continue after non-cli approval");
