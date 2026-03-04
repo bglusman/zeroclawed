@@ -281,7 +281,6 @@ struct TuiState {
     status: String,
     plan: TuiOnboardPlan,
     model_touched: bool,
-    force_locked: bool,
     provider_probe: CheckStatus,
     telegram_probe: CheckStatus,
     discord_probe: CheckStatus,
@@ -299,7 +298,6 @@ impl TuiState {
                 .to_string(),
             plan: TuiOnboardPlan::new(default_workspace, force),
             model_touched: false,
-            force_locked: force,
             provider_probe: CheckStatus::NotRun,
             telegram_probe: CheckStatus::NotRun,
             discord_probe: CheckStatus::NotRun,
@@ -331,13 +329,9 @@ impl TuiState {
                     key: FieldKey::ForceOverwrite,
                     label: "Overwrite existing config",
                     value: bool_label(self.plan.force_overwrite),
-                    hint: if self.force_locked {
-                        "Locked on because --force was passed on CLI."
-                    } else {
-                        "Enable to overwrite existing config.toml."
-                    },
+                    hint: "Enable to overwrite existing config.toml. If launched with --force, this starts as yes.",
                     required: false,
-                    editable: !self.force_locked,
+                    editable: true,
                 },
             ],
             Step::Provider => vec![
@@ -1206,9 +1200,7 @@ impl TuiState {
 
         match field_key {
             FieldKey::ForceOverwrite => {
-                if !self.force_locked {
-                    self.plan.force_overwrite = !self.plan.force_overwrite;
-                }
+                self.plan.force_overwrite = !self.plan.force_overwrite;
             }
             FieldKey::Provider => {
                 self.plan.provider_idx =
@@ -1839,7 +1831,7 @@ pub async fn run_wizard_tui_with_migration(
         crate::config::schema::resolve_config_dir_for_workspace(&selected_workspace);
     let config_path = config_dir.join("config.toml");
 
-    if config_path.exists() && !(force || plan.force_overwrite) {
+    if config_path.exists() && !plan.force_overwrite {
         bail!(
             "Config already exists at {}. Re-run with --force or enable overwrite inside TUI.",
             config_path.display()
