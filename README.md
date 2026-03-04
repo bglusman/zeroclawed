@@ -83,6 +83,12 @@ Use this board for important notices (breaking changes, security advisories, mai
 
 ## Quick Start
 
+### Option 0: One-line Installer (Default TUI Onboarding)
+
+```bash
+curl -fsSL https://zeroclawlabs.ai/install.sh | bash
+```
+
 ### Option 1: Homebrew (macOS/Linuxbrew)
 
 ```bash
