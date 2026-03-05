@@ -403,7 +403,6 @@ The `.cargo/config.toml` in this repository already pins `x86_64-apple-darwin` b
 Both still work:
 
 ```bash
-curl -fsSL https://zeroclawlabs.ai/install.sh | bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/install.sh | bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
 ```
