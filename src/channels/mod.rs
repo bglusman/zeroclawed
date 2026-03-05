@@ -272,6 +272,7 @@ struct RuntimeConfigState {
     defaults: ChannelRuntimeDefaults,
     perplexity_filter: crate::config::PerplexityFilterConfig,
     outbound_leak_guard: crate::config::OutboundLeakGuardConfig,
+    canary_tokens: bool,
     last_applied_stamp: Option<ConfigFileStamp>,
 }
 
@@ -279,6 +280,7 @@ struct RuntimeConfigState {
 struct RuntimeAutonomyPolicy {
     auto_approve: Vec<String>,
     always_ask: Vec<String>,
+    command_context_rules: Vec<crate::config::CommandContextRuleConfig>,
     non_cli_excluded_tools: Vec<String>,
     non_cli_approval_approvers: Vec<String>,
     non_cli_natural_language_approval_mode: NonCliNaturalLanguageApprovalMode,
@@ -286,6 +288,7 @@ struct RuntimeAutonomyPolicy {
         HashMap<String, NonCliNaturalLanguageApprovalMode>,
     perplexity_filter: crate::config::PerplexityFilterConfig,
     outbound_leak_guard: crate::config::OutboundLeakGuardConfig,
+    canary_tokens: bool,
 }
 
 fn runtime_config_store() -> &'static Mutex<HashMap<PathBuf, RuntimeConfigState>> {
@@ -856,7 +859,7 @@ fn normalize_cached_channel_turns(turns: Vec<ChatMessage>) -> Vec<ChatMessage> {
 }
 
 fn supports_runtime_model_switch(channel_name: &str) -> bool {
-    !channel_name.eq_ignore_ascii_case("cli")
+    matches!(channel_name, "telegram" | "discord")
 }
 
 fn parse_runtime_command(channel_name: &str, content: &str) -> Option<ChannelRuntimeCommand> {
@@ -1106,6 +1109,7 @@ fn runtime_autonomy_policy_from_config(config: &Config) -> RuntimeAutonomyPolicy
     RuntimeAutonomyPolicy {
         auto_approve: config.autonomy.auto_approve.clone(),
         always_ask: config.autonomy.always_ask.clone(),
+        command_context_rules: config.autonomy.command_context_rules.clone(),
         non_cli_excluded_tools: config.autonomy.non_cli_excluded_tools.clone(),
         non_cli_approval_approvers: config.autonomy.non_cli_approval_approvers.clone(),
         non_cli_natural_language_approval_mode: config
@@ -1117,6 +1121,7 @@ fn runtime_autonomy_policy_from_config(config: &Config) -> RuntimeAutonomyPolicy
             .clone(),
         perplexity_filter: config.security.perplexity_filter.clone(),
         outbound_leak_guard: config.security.outbound_leak_guard.clone(),
+        canary_tokens: config.security.canary_tokens,
     }
 }
 
@@ -1187,6 +1192,19 @@ fn runtime_outbound_leak_guard_snapshot(
     }
     crate::config::OutboundLeakGuardConfig::default()
 }
+
+fn runtime_canary_tokens_snapshot(ctx: &ChannelRuntimeContext) -> bool {
+    if let Some(config_path) = runtime_config_path(ctx) {
+        let store = runtime_config_store()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(state) = store.get(&config_path) {
+            return state.canary_tokens;
+        }
+    }
+    false
+}
+
 fn snapshot_non_cli_excluded_tools(ctx: &ChannelRuntimeContext) -> Vec<String> {
     ctx.non_cli_excluded_tools
         .lock()
@@ -1713,6 +1731,7 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
                 defaults: next_defaults.clone(),
                 perplexity_filter: next_autonomy_policy.perplexity_filter.clone(),
                 outbound_leak_guard: next_autonomy_policy.outbound_leak_guard.clone(),
+                canary_tokens: next_autonomy_policy.canary_tokens,
                 last_applied_stamp: Some(stamp),
             },
         );
@@ -1721,6 +1740,7 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
     ctx.approval_manager.replace_runtime_non_cli_policy(
         &next_autonomy_policy.auto_approve,
         &next_autonomy_policy.always_ask,
+        &next_autonomy_policy.command_context_rules,
         &next_autonomy_policy.non_cli_approval_approvers,
         next_autonomy_policy.non_cli_natural_language_approval_mode,
         &next_autonomy_policy.non_cli_natural_language_approval_mode_by_channel,
@@ -1747,6 +1767,7 @@ async fn maybe_apply_runtime_config_update(ctx: &ChannelRuntimeContext) -> Resul
         outbound_leak_guard_enabled = next_autonomy_policy.outbound_leak_guard.enabled,
         outbound_leak_guard_action = ?next_autonomy_policy.outbound_leak_guard.action,
         outbound_leak_guard_sensitivity = next_autonomy_policy.outbound_leak_guard.sensitivity,
+        canary_tokens = next_autonomy_policy.canary_tokens,
         "Applied updated channel runtime config from disk"
     );
 
@@ -2047,6 +2068,31 @@ async fn create_resilient_provider_nonblocking(
     .context("failed to join provider initialization task")?
 }
 
+async fn create_routed_provider_nonblocking(
+    provider_name: &str,
+    api_key: Option<String>,
+    api_url: Option<String>,
+    reliability: crate::config::ReliabilityConfig,
+    model_routes: Vec<crate::config::ModelRouteConfig>,
+    default_model: String,
+    provider_runtime_options: providers::ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    let provider_name = provider_name.to_string();
+    tokio::task::spawn_blocking(move || {
+        providers::create_routed_provider_with_options(
+            &provider_name,
+            api_key.as_deref(),
+            api_url.as_deref(),
+            &reliability,
+            &model_routes,
+            &default_model,
+            &provider_runtime_options,
+        )
+    })
+    .await
+    .context("failed to join routed provider initialization task")?
+}
+
 fn build_models_help_response(current: &ChannelRouteSelection, workspace_dir: &Path) -> String {
     let mut response = String::new();
     let _ = writeln!(
@@ -2258,7 +2304,6 @@ async fn handle_runtime_command_if_needed(
     /// - Grant session and persistent runtime grants
     /// - Persist to config
     /// - Clear exclusions
-    ///
     /// Returns the approval success message.
     async fn handle_confirm_tool_approval_side_effects(
         ctx: &ChannelRuntimeContext,
@@ -2301,7 +2346,7 @@ async fn handle_runtime_command_if_needed(
     ///
     /// This path confirms only the current pending request and intentionally does
     /// not persist approval policy changes for normal tools.
-    fn handle_pending_runtime_approval_side_effects(
+    async fn handle_pending_runtime_approval_side_effects(
         ctx: &ChannelRuntimeContext,
         request_id: &str,
         tool_name: &str,
@@ -2785,7 +2830,8 @@ async fn handle_runtime_command_if_needed(
                             ctx,
                             &request_id,
                             &req.tool_name,
-                        );
+                        )
+                        .await;
                         runtime_trace::record_event(
                             "approval_request_approved",
                             Some(source_channel),
@@ -3818,6 +3864,7 @@ or tune thresholds in config.",
                     &excluded_tools_snapshot,
                     progress_mode,
                     ctx.safety_heartbeat.clone(),
+                    runtime_canary_tokens_snapshot(ctx.as_ref()),
                 ),
             ),
         ) => LlmExecutionResult::Completed(result),
@@ -4943,6 +4990,7 @@ fn collect_configured_channels(
                 )
                 .with_group_reply_allowed_senders(dc.group_reply_allowed_sender_ids())
                 .with_ack_reaction(config.channels_config.ack_reaction.discord.clone())
+                .with_transcription(config.transcription.clone())
                 .with_workspace_dir(config.workspace_dir.clone()),
             ),
         });
@@ -5364,6 +5412,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     let provider_name = resolved_default_provider(&config);
+    let model = resolved_default_model(&config);
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
         provider_api_url: config.api_url.clone(),
@@ -5373,15 +5422,18 @@ pub async fn start_channels(config: Config) -> Result<()> {
         reasoning_enabled: config.runtime.reasoning_enabled,
         reasoning_level: config.effective_provider_reasoning_level(),
         custom_provider_api_mode: config.provider_api.map(|mode| mode.as_compatible_mode()),
+        custom_provider_auth_header: config.effective_custom_provider_auth_header(),
         max_tokens_override: None,
         model_support_vision: config.model_support_vision,
     };
     let provider: Arc<dyn Provider> = Arc::from(
-        create_resilient_provider_nonblocking(
+        create_routed_provider_nonblocking(
             &provider_name,
             config.api_key.clone(),
             config.api_url.clone(),
             config.reliability.clone(),
+            config.model_routes.clone(),
+            model.clone(),
             provider_runtime_options.clone(),
         )
         .await?,
@@ -5404,6 +5456,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
                 defaults: runtime_defaults_from_config(&config),
                 perplexity_filter: config.security.perplexity_filter.clone(),
                 outbound_leak_guard: config.security.outbound_leak_guard.clone(),
+                canary_tokens: config.security.canary_tokens,
                 last_applied_stamp: initial_stamp,
             },
         );
@@ -5420,7 +5473,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
         &config.autonomy,
         &config.workspace_dir,
     ));
-    let model = resolved_default_model(&config);
     let temperature = config.default_temperature;
     let mem: Arc<dyn Memory> = Arc::from(memory::create_memory_with_storage(
         &config.memory,
@@ -5792,6 +5844,7 @@ mod tests {
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::{ChatMessage, Provider};
+    use crate::security::AutonomyLevel;
     use crate::tools::{Tool, ToolResult};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -5863,7 +5916,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_runtime_command_allows_runtime_commands_on_non_cli_channels() {
+    fn parse_runtime_command_allows_approval_commands_on_non_model_channels() {
         assert_eq!(
             parse_runtime_command("slack", "/approve-request shell"),
             Some(ChannelRuntimeCommand::RequestToolApproval(
@@ -5908,16 +5961,7 @@ mod tests {
             parse_runtime_command("slack", "/approvals"),
             Some(ChannelRuntimeCommand::ListApprovals)
         );
-        assert_eq!(
-            parse_runtime_command("slack", "/models"),
-            Some(ChannelRuntimeCommand::ShowProviders)
-        );
-    }
-
-    #[test]
-    fn parse_runtime_command_keeps_model_switch_disabled_on_cli_channel() {
-        assert_eq!(parse_runtime_command("cli", "/models"), None);
-        assert_eq!(parse_runtime_command("cli", "/model"), None);
+        assert_eq!(parse_runtime_command("slack", "/models"), None);
     }
 
     #[test]
@@ -6221,7 +6265,7 @@ mod tests {
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(histories)),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -6904,7 +6948,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -6969,6 +7013,14 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let _approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -6983,7 +7035,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7035,6 +7087,14 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let _approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -7049,7 +7109,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7115,6 +7175,14 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let _approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -7129,7 +7197,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7194,6 +7262,14 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let _approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
@@ -7208,7 +7284,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7280,7 +7356,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7332,6 +7408,14 @@ BTC is currently around $65,000 based on latest tool output."#
 
         let mut channels_by_name = HashMap::new();
         channels_by_name.insert(channel.name().to_string(), channel);
+
+        let autonomy_cfg = crate::config::AutonomyConfig {
+            level: AutonomyLevel::Full,
+            auto_approve: vec!["mock_price".to_string()],
+            ..crate::config::AutonomyConfig::default()
+        };
+        let _approval_manager = Arc::new(ApprovalManager::from_config(&autonomy_cfg));
+
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingAliasProvider),
@@ -7346,7 +7430,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7422,7 +7506,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -7526,7 +7610,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -7667,7 +7751,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -7756,7 +7840,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -7834,7 +7918,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -7995,7 +8079,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8110,7 +8194,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8220,7 +8304,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8315,7 +8399,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8417,7 +8501,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8517,7 +8601,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8668,7 +8752,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8765,7 +8849,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -8915,7 +8999,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9035,7 +9119,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9135,7 +9219,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9257,7 +9341,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9377,7 +9461,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9456,7 +9540,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9539,6 +9623,7 @@ BTC is currently around $65,000 based on latest tool output."#
                     },
                     perplexity_filter: crate::config::PerplexityFilterConfig::default(),
                     outbound_leak_guard: crate::config::OutboundLeakGuardConfig::default(),
+                    canary_tokens: true,
                     last_applied_stamp: None,
                 },
             );
@@ -9558,7 +9643,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(provider_cache_seed)),
@@ -9745,7 +9830,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -9884,6 +9969,40 @@ BTC is currently around $65,000 based on latest tool output."#
     }
 
     #[tokio::test]
+    async fn start_channels_uses_model_routes_when_global_provider_key_is_missing() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let workspace_dir = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_dir).expect("workspace dir");
+
+        let mut cfg = Config::default();
+        cfg.workspace_dir = workspace_dir;
+        cfg.config_path = temp.path().join("config.toml");
+        cfg.default_provider = None;
+        cfg.api_key = None;
+        cfg.default_model = Some("hint:fast".to_string());
+        cfg.model_routes = vec![crate::config::ModelRouteConfig {
+            hint: "fast".to_string(),
+            provider: "openai-codex".to_string(),
+            model: "gpt-5.3-codex".to_string(),
+            max_tokens: Some(512),
+            api_key: Some("route-specific-key".to_string()),
+            transport: Some("sse".to_string()),
+        }];
+
+        let config_path = cfg.config_path.clone();
+        let result = start_channels(cfg).await;
+        let mut store = runtime_config_store()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        store.remove(&config_path);
+
+        assert!(
+            result.is_ok(),
+            "start_channels should support routed providers without global credentials: {result:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn process_channel_message_respects_configured_max_tool_iterations_above_default() {
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
@@ -9907,7 +10026,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 12,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -9975,7 +10094,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 3,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -10155,7 +10274,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -10245,7 +10364,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -10347,7 +10466,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -10431,7 +10550,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -10500,7 +10619,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -11131,7 +11250,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -11227,7 +11346,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -11322,7 +11441,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -11421,7 +11540,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(histories)),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -12249,7 +12368,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -12325,7 +12444,7 @@ BTC is currently around $65,000 based on latest tool output."#;
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-            conversation_locks: Arc::default(),
+            conversation_locks: Default::default(),
             session_config: crate::config::AgentSessionConfig::default(),
             session_manager: None,
             provider_cache: Arc::new(Mutex::new(HashMap::new())),

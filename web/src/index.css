@@ -253,14 +253,33 @@ body {
 }
 
 .pairing-shell {
+  position: relative;
+  isolation: isolate;
   min-height: 100dvh;
   background:
     radial-gradient(circle at 20% 5%, rgba(64, 141, 255, 0.24), transparent 35%),
     radial-gradient(circle at 75% 92%, rgba(0, 193, 255, 0.13), transparent 35%),
     linear-gradient(155deg, #020816 0%, #030c20 58%, #030915 100%);
+  overflow: hidden;
+}
+
+.pairing-shell::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(84, 173, 255, 0.25), transparent 60%),
+    radial-gradient(circle at 85% 80%, rgba(0, 204, 255, 0.22), transparent 60%);
+  filter: blur(12px);
+  opacity: 0.7;
+  animation: pairingSpotlightSweep 18s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .pairing-card {
+  position: relative;
+  overflow: hidden;
   border: 1px solid #2956a8;
   background:
     linear-gradient(155deg, rgba(9, 27, 68, 0.9), rgba(4, 15, 35, 0.94));
@@ -269,6 +288,33 @@ body {
     0 30px 60px -44px rgba(47, 141, 255, 0.98),
     0 0 0 1px rgba(67, 150, 255, 0.2),
     0 0 28px -18px rgba(76, 184, 255, 0.82);
+}
+
+.pairing-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, transparent 10%, rgba(102, 186, 255, 0.5), transparent 80%);
+  mix-blend-mode: screen;
+  opacity: 0.0;
+  transform: translateX(-65%);
+  animation: pairingCardSweep 7.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.pairing-brand {
+  background-image: linear-gradient(120deg, #5bc0ff 0%, #f9e775 28%, #5bc0ff 56%, #f9e775 100%);
+  background-size: 260% 260%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  text-shadow:
+    0 0 14px rgba(96, 189, 255, 0.8),
+    0 0 32px rgba(46, 138, 255, 0.9),
+    0 0 42px rgba(252, 238, 147, 0.85);
+  letter-spacing: 0.18em;
+  animation: pairingElectricCharge 5.4s ease-in-out infinite;
 }
 
 :is(div, section, article)[class*="bg-gray-900"][class*="rounded-xl"][class*="border"],
@@ -398,6 +444,72 @@ body {
   }
 }
 
+@keyframes pairingElectricCharge {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    text-shadow:
+      0 0 14px rgba(86, 177, 255, 0.5),
+      0 0 32px rgba(36, 124, 255, 0.7),
+      0 0 38px rgba(252, 238, 147, 0.6);
+    transform: translateY(0) scale(1);
+  }
+  35% {
+    background-position: 80% 50%;
+    text-shadow:
+      0 0 26px rgba(138, 218, 255, 1),
+      0 0 52px rgba(56, 176, 255, 1),
+      0 0 60px rgba(252, 238, 147, 1);
+    transform: translateY(-1px) scale(1.06);
+  }
+  60% {
+    background-position: 50% 50%;
+    text-shadow:
+      0 0 18px rgba(86, 177, 255, 0.7),
+      0 0 36px rgba(36, 124, 255, 0.8),
+      0 0 44px rgba(252, 238, 147, 0.7);
+    transform: translateY(0) scale(1.02);
+  }
+}
+
+@keyframes pairingSpotlightSweep {
+  0% {
+    transform: translate3d(-12%, 8%, 0) scale(1);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translate3d(10%, -4%, 0) scale(1.06);
+    opacity: 0.7;
+  }
+  55% {
+    transform: translate3d(16%, 10%, 0) scale(1.1);
+    opacity: 0.6;
+  }
+  80% {
+    transform: translate3d(-8%, -6%, 0) scale(1.04);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(-12%, 8%, 0) scale(1);
+    opacity: 0.45;
+  }
+}
+
+@keyframes pairingCardSweep {
+  0%,
+  100% {
+    transform: translateX(-70%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateX(55%);
+    opacity: 0;
+  }
+}
+
 @keyframes topGlowSweep {
   0%,
   100% {
@@ -475,6 +587,8 @@ body {
   .glass-header::after,
   .electric-card::after,
   .app-shell::after,
+  .pairing-shell::after,
+  .pairing-card::before,
   .motion-rise,
   .electric-loader {
     animation: none !important;

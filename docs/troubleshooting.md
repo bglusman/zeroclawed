@@ -404,10 +404,12 @@ Both still work:
 
 ```bash
 curl -fsSL https://zeroclawlabs.ai/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/install.sh | bash
 curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/scripts/install.sh | bash
 ```
 
-`install.sh` remains a compatibility entry and forwards/falls back to bootstrap behavior for older docs and links.
+Root `install.sh` is the canonical remote entrypoint and defaults to TUI onboarding for no-arg interactive sessions.
+`scripts/install.sh` remains a compatibility entry and forwards/falls back to bootstrap behavior.
 
 ## Still Stuck?
 
