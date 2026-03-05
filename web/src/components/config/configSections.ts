@@ -271,7 +271,7 @@ export const CONFIG_SECTIONS: SectionDef[] = [
       { key: 'kind', label: 'Kind', type: 'select', defaultValue: 'native', options: [
         { value: 'native', label: 'Native' },
         { value: 'docker', label: 'Docker' },
-        { value: 'wasm', label: 'WASM' },
+        { value: 'wasm', label: 'Sandboxed' },
       ]},
       { key: 'reasoning_enabled', label: 'Reasoning Enabled', type: 'toggle', description: 'Enable model reasoning mode' },
     ],
@@ -975,8 +975,8 @@ export const CONFIG_SECTIONS: SectionDef[] = [
   {
     path: 'wasm',
     category: 'runtime',
-    title: 'WASM Plugins',
-    description: 'WebAssembly plugin engine',
+    title: 'Plugin Engine',
+    description: 'Sandboxed plugin engine',
     icon: Play,
     defaultCollapsed: true,
     fields: [
