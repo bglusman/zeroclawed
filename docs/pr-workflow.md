@@ -100,7 +100,7 @@ Maintain these branch protection rules on `master`:
 - Require pull request reviews before merge.
 - Require CODEOWNERS review for protected paths.
 - For `.github/workflows/**`, require owner approval via `CI Required Gate` (`WORKFLOW_OWNER_LOGINS`) and keep branch/ruleset bypass limited to org owners.
-- Default workflow-owner allowlist includes `theonlyhennygod` and `jordanthejet` (plus any comma-separated additions from `WORKFLOW_OWNER_LOGINS`).
+- Default workflow-owner allowlist is configured via the `WORKFLOW_OWNER_LOGINS` repository variable (see CODEOWNERS for current maintainers).
 - Dismiss stale approvals when new commits are pushed.
 - Restrict force-push on protected branches.
 - All contributor PRs target `master` directly.
