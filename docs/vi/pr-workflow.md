@@ -213,7 +213,7 @@ Chúng tôi **không** yêu cầu contributor định lượng quyền sở hữ
 - Mục tiêu triage maintainer đầu tiên: trong vòng 48 giờ.
 - Nếu PR bị chặn, maintainer để lại một checklist hành động được.
 - Tự động hóa `stale` được dùng để giữ hàng đợi lành mạnh; maintainer có thể áp dụng `no-stale` khi cần.
-- Tự động hóa `pr-hygiene` kiểm tra các PR mở mỗi 12 giờ và đăng nhắc nhở khi PR không có commit mới trong 48+ giờ và hoặc là đang tụt hậu so với `main` hoặc thiếu/thất bại `CI Required Gate` trên head commit.
+- Tự động hóa `pr-hygiene` kiểm tra các PR mở mỗi 12 giờ và đăng nhắc nhở khi PR không có commit mới trong 48+ giờ và hoặc là đang tụt hậu so với `master` hoặc thiếu/thất bại `CI Required Gate` trên head commit.
 
 ### 8.1 Kiểm soát ngân sách hàng đợi
 
@@ -270,7 +270,7 @@ Các thay đổi ở những khu vực này yêu cầu review chặt chẽ hơn 
 
 Nếu một PR đã merge gây ra hồi quy:
 
-1. Revert PR ngay lập tức trên `main`.
+1. Revert PR ngay lập tức trên `master`.
 2. Mở issue theo dõi với phân tích nguyên nhân gốc.
 3. Chỉ đưa lại bản sửa lỗi khi có test hồi quy.
 
