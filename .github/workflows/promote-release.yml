@@ -8,6 +8,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
