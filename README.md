@@ -1035,11 +1035,11 @@ Three workflows power the entire pipeline:
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| **CI** | Pull request to `main` | `cargo test` + `cargo build --release` |
-| **Beta Release** | Push (merge) to `main` | Builds multi-platform binaries, creates a GitHub prerelease tagged `vX.Y.Z-beta.<run>`, pushes Docker image to GHCR |
+| **CI** | Pull request to `master` | `cargo test` + `cargo build --release` |
+| **Beta Release** | Push (merge) to `master` | Builds multi-platform binaries, creates a GitHub prerelease tagged `vX.Y.Z-beta.<run>`, pushes Docker image to GHCR |
 | **Promote Release** | Manual `workflow_dispatch` | Validates version against `Cargo.toml`, builds release artifacts, creates a stable GitHub release, pushes Docker `:latest` |
 
-**Versioning:** Semantic versioning based on the `version` field in `Cargo.toml`. Every merge to `main` automatically produces a beta prerelease. To cut a stable release, bump `Cargo.toml`, merge, then trigger *Promote Release* with the matching version.
+**Versioning:** Semantic versioning based on the `version` field in `Cargo.toml`. Every merge to `master` automatically produces a beta prerelease. To cut a stable release, bump `Cargo.toml`, merge, then trigger *Promote Release* with the matching version.
 
 **Release targets:** `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`.
 

@@ -33,8 +33,8 @@ Equivalent allowlist patterns:
 
 | Workflow | File | Trigger |
 |----------|------|---------|
-| CI | `.github/workflows/ci.yml` | Pull requests to `main` |
-| Beta Release | `.github/workflows/release.yml` | Push to `main` |
+| CI | `.github/workflows/ci.yml` | Pull requests to `master` |
+| Beta Release | `.github/workflows/release.yml` | Push to `master` |
 | Promote Release | `.github/workflows/promote-release.yml` | Manual `workflow_dispatch` |
 
 ## Change Control
