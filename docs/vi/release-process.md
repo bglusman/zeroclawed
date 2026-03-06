@@ -22,6 +22,7 @@ Cập nhật lần cuối: **2026-02-20**.
 Automation release nằm tại:
 
 - `.github/workflows/pub-release.yml`
+- `.github/workflows/pub-homebrew-core.yml` (PR formula Homebrew thủ công, do bot sở hữu)
 
 Các chế độ:
 
@@ -91,8 +92,28 @@ Kết quả publish mong đợi:
 ### 5) Xác minh sau release
 
 1. Xác minh GitHub Release asset có thể tải xuống.
-2. Xác minh GHCR tag cho phiên bản đã release và `latest`.
+2. Xác minh GHCR tag cho phiên bản đã release (`vX.Y.Z`) và tag SHA commit release (`sha-<12>`).
 3. Xác minh các đường dẫn cài đặt phụ thuộc vào release asset (ví dụ tải xuống binary bootstrap).
+
+### 6) Publish formula Homebrew Core (do bot sở hữu)
+
+Chạy `Pub Homebrew Core` thủ công:
+
+- `release_tag`: `vX.Y.Z`
+- `dry_run`: `true` trước, sau đó `false`
+
+Cài đặt repository bắt buộc cho non-dry-run:
+
+- secret: `HOMEBREW_CORE_BOT_TOKEN` (token từ tài khoản bot chuyên dụng, không phải tài khoản maintainer cá nhân)
+- variable: `HOMEBREW_CORE_BOT_FORK_REPO` (ví dụ `zeroclaw-release-bot/homebrew-core`)
+- variable tùy chọn: `HOMEBREW_CORE_BOT_EMAIL`
+
+Các guardrail workflow:
+
+- release tag phải khớp version `Cargo.toml`
+- URL nguồn và SHA256 của formula được cập nhật từ tagged tarball
+- license formula được chuẩn hóa thành `Apache-2.0 OR MIT`
+- PR được mở từ bot fork vào `Homebrew/homebrew-core:master`
 
 ## Đường dẫn khẩn cấp / khôi phục
 
