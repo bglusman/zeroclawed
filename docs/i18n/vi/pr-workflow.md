@@ -125,6 +125,7 @@ Duy trì các quy tắc branch protection sau trên `master`:
 - `CI Required Gate` là merge gate.
 - PR chỉ thay đổi tài liệu sử dụng fast-path và bỏ qua các Rust job nặng.
 - PR không phải tài liệu phải vượt qua lint, test và kiểm tra smoke release build.
+- PR ảnh hưởng Rust sử dụng cùng bộ gate bắt buộc như push lên `master` (không có shortcut chỉ build trên PR).
 
 ### 4.3 Bước C: Review
 
