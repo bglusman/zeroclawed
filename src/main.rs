@@ -187,7 +187,7 @@ Examples:
         #[arg(long)]
         model: Option<String>,
 
-        /// Temperature (0.0 - 2.0)
+        /// Temperature override (0.0 - 2.0). Defaults to config.default_temperature when omitted.
         #[arg(short, long, value_parser = parse_temperature)]
         temperature: Option<f64>,
 
