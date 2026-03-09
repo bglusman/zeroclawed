@@ -42,10 +42,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     let t: f64 = s.parse().map_err(|e| format!("{e}"))?;
-    if !(0.0..=2.0).contains(&t) {
-        return Err("temperature must be between 0.0 and 2.0".to_string());
-    }
-    Ok(t)
+    config::schema::validate_temperature(t)
 }
 
 mod agent;

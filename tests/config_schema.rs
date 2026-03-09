@@ -43,6 +43,26 @@ default_temperature = "hot"
 }
 
 #[test]
+fn config_out_of_range_temperature_fails() {
+    let toml_str = "default_temperature = 99.0\n";
+    let result: Result<Config, _> = toml::from_str(toml_str);
+    assert!(
+        result.is_err(),
+        "temperature 99.0 should be rejected at deserialization"
+    );
+}
+
+#[test]
+fn config_negative_temperature_fails() {
+    let toml_str = "default_temperature = -0.5\n";
+    let result: Result<Config, _> = toml::from_str(toml_str);
+    assert!(
+        result.is_err(),
+        "negative temperature should be rejected at deserialization"
+    );
+}
+
+#[test]
 fn config_negative_port_fails() {
     let toml_str = r#"
 [gateway]
