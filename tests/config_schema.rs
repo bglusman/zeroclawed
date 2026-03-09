@@ -218,12 +218,14 @@ fn autonomy_config_toml_roundtrip() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[test]
-fn config_empty_toml_requires_temperature() {
+fn config_empty_toml_uses_default_temperature() {
     let result: Result<Config, _> = toml::from_str("");
     assert!(
-        result.is_err(),
-        "empty TOML should fail because default_temperature is required"
+        result.is_ok(),
+        "empty TOML should succeed and use default temperature"
     );
+    let config = result.unwrap();
+    assert!((config.default_temperature - 0.7).abs() < f64::EPSILON);
 }
 
 #[test]

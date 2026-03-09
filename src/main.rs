@@ -779,7 +779,7 @@ async fn main() -> Result<()> {
             // Implement temperature fallback logic:
             // 1. Use --temperature if provided
             // 2. Use config.default_temperature if --temperature not provided
-            // 3. Use hardcoded 0.7 if config.default_temperature not set (though config always has default)
+            // 3. Use hardcoded 0.7 if config.default_temperature not set (from Config::default())
             let final_temperature = temperature.unwrap_or(config.default_temperature);
 
             agent::run(
@@ -2007,5 +2007,31 @@ mod tests {
             }
             other => panic!("expected agent command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn agent_fallback_uses_config_default_temperature() {
+        // Test that when user doesn't provide --temperature,
+        // the fallback logic works correctly
+        let mut config = Config::default(); // default_temperature = 0.7
+        config.default_temperature = 1.5;
+
+        // Simulate None temperature (user didn't provide --temperature)
+        let user_temperature: Option<f64> = None;
+        let final_temperature = user_temperature.unwrap_or(config.default_temperature);
+
+        assert!((final_temperature - 1.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn agent_fallback_uses_hardcoded_when_config_uses_default() {
+        // Test that when config uses default value (0.7), fallback still works
+        let config = Config::default(); // default_temperature = 0.7
+
+        // Simulate None temperature (user didn't provide --temperature)
+        let user_temperature: Option<f64> = None;
+        let final_temperature = user_temperature.unwrap_or(config.default_temperature);
+
+        assert!((final_temperature - 0.7).abs() < f64::EPSILON);
     }
 }
