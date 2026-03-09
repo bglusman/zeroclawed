@@ -84,7 +84,7 @@ pub struct Config {
     #[serde(default)]
     pub model_providers: HashMap<String, ModelProviderConfig>,
     /// Default model temperature (0.0–2.0). Default: `0.7`.
-    #[serde(default)]
+    #[serde(default = "default_temperature")]
     pub default_temperature: f64,
 
     /// Observability backend configuration (`[observability]`).
@@ -267,6 +267,10 @@ pub struct DelegateAgentConfig {
     /// Maximum tool-call iterations in agentic mode.
     #[serde(default = "default_max_tool_iterations")]
     pub max_iterations: usize,
+}
+
+fn default_temperature() -> f64 {
+    0.7
 }
 
 fn default_max_depth() -> u32 {
