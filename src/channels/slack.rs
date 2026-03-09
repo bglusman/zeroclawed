@@ -715,7 +715,13 @@ impl SlackChannel {
             return Some(initial);
         };
 
-        match self.http_client().get(redirect_url.clone()).send().await {
+        match self
+            .http_client()
+            .get(redirect_url.clone())
+            .bearer_auth(&self.bot_token)
+            .send()
+            .await
+        {
             Ok(response) => Some(response),
             Err(err) => {
                 tracing::warn!(
@@ -845,28 +851,44 @@ impl SlackChannel {
         bytes: &[u8],
         source_url: &str,
     ) -> Option<String> {
+        if let Some(magic_mime) = Self::mime_from_magic(bytes) {
+            return Some(magic_mime.to_string());
+        }
+
         if let Some(header_mime) = content_type_header
             .and_then(Self::normalized_content_type)
             .filter(|mime| mime.starts_with("image/"))
         {
-            return Some(header_mime);
+            tracing::warn!(
+                "Slack image MIME mismatch for {}: HTTP header claims {}, but bytes do not match a supported image signature",
+                source_url,
+                header_mime
+            );
         }
 
         if let Some(file_mime) =
             Self::slack_file_mime(file).filter(|mime| mime.starts_with("image/"))
         {
-            return Some(file_mime);
+            tracing::warn!(
+                "Slack image MIME mismatch for {}: file metadata claims {}, but bytes do not match a supported image signature",
+                source_url,
+                file_mime
+            );
         }
 
         if let Some(ext) = Self::file_extension(source_url)
             .or_else(|| Self::file_extension(&Self::slack_file_name(file)))
         {
             if let Some(mime) = Self::mime_from_extension(&ext) {
-                return Some(mime.to_string());
+                tracing::warn!(
+                    "Slack image MIME mismatch for {}: filename extension implies {}, but bytes do not match a supported image signature",
+                    source_url,
+                    mime
+                );
             }
         }
 
-        Self::mime_from_magic(bytes).map(str::to_string)
+        None
     }
 
     fn normalized_content_type(content_type: &str) -> Option<String> {
@@ -2321,6 +2343,37 @@ mod tests {
         assert!(SlackChannel::is_image_file(&from_mime));
         assert!(SlackChannel::is_image_file(&from_ext));
         assert!(!SlackChannel::is_image_file(&non_image));
+    }
+
+    #[test]
+    fn detect_image_mime_rejects_non_image_bytes_despite_image_metadata() {
+        let file = serde_json::json!({"mimetype":"image/png","name":"wow.png"});
+        let html_bytes = b"<!DOCTYPE html><html><body>login required</body></html>";
+        assert_eq!(
+            SlackChannel::detect_image_mime(
+                Some("image/png"),
+                &file,
+                html_bytes,
+                "https://files.slack.com/files-pri/T1/F2/wow.png"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn detect_image_mime_prefers_magic_bytes_over_misleading_metadata() {
+        let file = serde_json::json!({"mimetype":"image/bmp","name":"wow.png"});
+        let png_header = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
+        assert_eq!(
+            SlackChannel::detect_image_mime(
+                Some("image/bmp"),
+                &file,
+                &png_header,
+                "https://files.slack.com/files-pri/T1/F2/wow.png"
+            )
+            .as_deref(),
+            Some("image/png")
+        );
     }
 
     #[test]
