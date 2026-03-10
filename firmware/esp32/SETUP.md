@@ -15,12 +15,12 @@ brew install python@3.12
 cargo install espflash ldproxy
 
 # 4. Build
-cd firmware/zeroclaw-esp32
+cd firmware/esp32
 export PATH="/opt/homebrew/opt/python@3.12/libexec/bin:$PATH"
 cargo build --release
 
 # 5. Flash (connect ESP32 via USB)
-espflash flash target/riscv32imc-esp-espidf/release/zeroclaw-esp32 --monitor
+espflash flash target/riscv32imc-esp-espidf/release/esp32 --monitor
 ```
 
 ---
@@ -63,7 +63,7 @@ export PATH="/opt/homebrew/opt/python@3.12/libexec/bin:$PATH"
 ### 5. Build
 
 ```sh
-cd firmware/zeroclaw-esp32
+cd firmware/esp32
 cargo build --release
 ```
 
@@ -72,7 +72,7 @@ First build downloads and compiles ESP-IDF (~5–15 min).
 ### 6. Flash
 
 ```sh
-espflash flash target/riscv32imc-esp-espidf/release/zeroclaw-esp32 --monitor
+espflash flash target/riscv32imc-esp-espidf/release/esp32 --monitor
 ```
 
 ---
@@ -104,7 +104,7 @@ This project uses **nightly Rust with build-std**, not espup. Ensure:
 
 - `rust-toolchain.toml` exists (pins nightly + rust-src)
 - You are **not** sourcing `~/export-esp.sh` (that's for Xtensa targets)
-- Run `cargo build` from `firmware/zeroclaw-esp32`
+- Run `cargo build` from `firmware/esp32`
 
 ### "externally-managed-environment" / "No module named 'virtualenv'"
 

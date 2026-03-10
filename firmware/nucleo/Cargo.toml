@@ -4,11 +4,11 @@
 # Protocol: same as Arduino/ESP32 — ping, capabilities, gpio_read, gpio_write.
 #
 # Build: cargo build --release
-# Flash: probe-rs run --chip STM32F401RETx target/thumbv7em-none-eabihf/release/zeroclaw-nucleo
+# Flash: probe-rs run --chip STM32F401RETx target/thumbv7em-none-eabihf/release/nucleo
 # Or: zeroclaw peripheral flash-nucleo
 
 [package]
-name = "zeroclaw-nucleo"
+name = "nucleo"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"

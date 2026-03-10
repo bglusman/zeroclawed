@@ -26,7 +26,7 @@ What this crate **does not** do yet:
 ## Project Structure
 
 ```text
-firmware/zeroclaw-esp32-ui/
+firmware/esp32-ui/
 ├── Cargo.toml          # Rust package and feature flags
 ├── build.rs            # Slint compilation hook
 ├── .cargo/
@@ -56,7 +56,7 @@ firmware/zeroclaw-esp32-ui/
 ### Default target (ESP32-C3, from `.cargo/config.toml`)
 
 ```bash
-cd firmware/zeroclaw-esp32-ui
+cd firmware/esp32-ui
 cargo build --release
 cargo espflash flash --release --monitor
 ```

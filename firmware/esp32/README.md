@@ -47,13 +47,13 @@ Commands: `gpio_read`, `gpio_write`.
 ## Build & Flash
 
 ```sh
-cd firmware/zeroclaw-esp32
+cd firmware/esp32
 # Use Python 3.12 (required if you have 3.14)
 export PATH="/opt/homebrew/opt/python@3.12/libexec/bin:$PATH"
 # Optional: pin MCU (esp32c3 or esp32c2)
 export MCU=esp32c3
 cargo build --release
-espflash flash target/riscv32imc-esp-espidf/release/zeroclaw-esp32 --monitor
+espflash flash target/riscv32imc-esp-espidf/release/esp32 --monitor
 ```
 
 ## Host Config
