@@ -27,4 +27,4 @@ grep -q "tokio::time::timeout" src/channels/telegram.rs && \
 echo "✓" || { echo "✗ FAILED"; exit 1; }
 
 echo ""
-echo "✅ Quick tests passed! Run ./test_telegram_integration.sh for full suite."
+echo "✅ Quick tests passed! Run ./tests/telegram/test_telegram_integration.sh for full suite."

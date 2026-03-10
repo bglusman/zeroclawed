@@ -8,10 +8,10 @@ This guide covers testing the Telegram channel integration for ZeroClaw.
 
 ```bash
 # Full test suite (20+ tests, ~2 minutes)
-./test_telegram_integration.sh
+./tests/telegram/test_telegram_integration.sh
 
 # Quick smoke test (~10 seconds)
-./quick_test.sh
+./tests/telegram/quick_test.sh
 
 # Just unit tests
 cargo test telegram --lib
@@ -176,7 +176,7 @@ Solution: Verify code changes
 
 ```bash
 # 1. Run automated tests
-./test_telegram_integration.sh
+./tests/telegram/test_telegram_integration.sh
 
 # 2. Configure Telegram
 zeroclaw onboard --interactive
@@ -197,10 +197,10 @@ zeroclaw channel start
 
 ```bash
 # 1. Quick validation
-./quick_test.sh
+./tests/telegram/quick_test.sh
 
 # 2. Full test suite
-./test_telegram_integration.sh
+./tests/telegram/test_telegram_integration.sh
 
 # 3. Manual smoke test
 zeroclaw channel start
@@ -211,7 +211,7 @@ zeroclaw channel start
 
 ```bash
 # 1. Full test suite
-./test_telegram_integration.sh
+./tests/telegram/test_telegram_integration.sh
 
 # 2. Load test (optional)
 # Send 100 messages rapidly
@@ -315,8 +315,8 @@ jobs:
 
 Before merging code:
 
-- [ ] `./quick_test.sh` passes
-- [ ] `./test_telegram_integration.sh` passes
+- [ ] `./tests/telegram/quick_test.sh` passes
+- [ ] `./tests/telegram/test_telegram_integration.sh` passes
 - [ ] Manual tests completed
 - [ ] No new clippy warnings
 - [ ] Code is formatted (`cargo fmt`)
