@@ -1,11 +1,11 @@
-name: CI
+name: Quality Gate
 
 on:
   pull_request:
     branches: [master]
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -16,6 +16,24 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -73,3 +91,26 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Audit dependencies
+        run: cargo audit
+
+      - name: Check licenses and sources
+        run: cargo deny check licenses sources

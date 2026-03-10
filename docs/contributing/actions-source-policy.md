@@ -7,7 +7,7 @@ This document defines the current GitHub Actions source-control policy for this 
 - Repository Actions permissions: enabled
 - Allowed actions mode: selected
 
-Selected allowlist (all actions currently used across CI, Beta Release, and Promote Release workflows):
+Selected allowlist (all actions currently used across Quality Gate, Release Beta, and Release Stable workflows):
 
 | Action | Used In | Purpose |
 |--------|---------|---------|
@@ -33,9 +33,9 @@ Equivalent allowlist patterns:
 
 | Workflow | File | Trigger |
 |----------|------|---------|
-| CI | `.github/workflows/ci.yml` | Pull requests to `master` |
-| Beta Release | `.github/workflows/release.yml` | Push to `master` |
-| Promote Release | `.github/workflows/promote-release.yml` | Manual `workflow_dispatch` |
+| Quality Gate | `.github/workflows/checks-on-pr.yml` | Pull requests to `master` |
+| Release Beta | `.github/workflows/release-beta-on-push.yml` | Push to `master` |
+| Release Stable | `.github/workflows/release-stable-manual.yml` | Manual `workflow_dispatch` |
 
 ## Change Control
 
@@ -62,6 +62,7 @@ gh api repos/zeroclaw-labs/zeroclaw/actions/permissions/selected-actions
 
 ## Change Log
 
+- 2026-03-10: Renamed workflows — CI → Quality Gate (`checks-on-pr.yml`), Beta Release → Release Beta (`release-beta-on-push.yml`), Promote Release → Release Stable (`release-stable-manual.yml`). Added `lint` and `security` jobs to Quality Gate. Added Cross-Platform Build (`cross-platform-build-manual.yml`).
 - 2026-03-05: Complete workflow overhaul — replaced 22 workflows with 3 (CI, Beta Release, Promote Release)
     - Removed patterns no longer in use: `DavidAnson/markdownlint-cli2-action@*`, `lycheeverse/lychee-action@*`, `EmbarkStudios/cargo-deny-action@*`, `rustsec/audit-check@*`, `rhysd/actionlint@*`, `sigstore/cosign-installer@*`, `Checkmarx/vorpal-reviewdog-github-action@*`, `useblacksmith/*`
     - Added: `Swatinem/rust-cache@*` (replaces `useblacksmith/*` rust-cache fork)

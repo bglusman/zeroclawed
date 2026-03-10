@@ -1,4 +1,4 @@
-name: CI Full Matrix
+name: Cross-Platform Build
 
 on:
   workflow_dispatch:
