@@ -13,7 +13,7 @@
 Instead, please report them responsibly:
 
 1. **Email**: Send details to the maintainers via GitHub private vulnerability reporting
-2. **GitHub**: Use [GitHub Security Advisories](https://github.com/theonlyhennygod/zeroclaw/security/advisories/new)
+2. **GitHub**: Use [GitHub Security Advisories](https://github.com/zeroclaw-labs/zeroclaw/security/advisories/new)
 
 ### What to Include
 
