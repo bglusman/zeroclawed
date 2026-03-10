@@ -112,14 +112,31 @@ jobs:
           toolchain: 1.92.0
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+      - uses: taiki-e/install-action@a37010ded18ff788be4440302bd6830b1ae50d8b # v2
+        with:
+          tool: cargo-audit
 
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      - uses: taiki-e/install-action@a37010ded18ff788be4440302bd6830b1ae50d8b # v2
+        with:
+          tool: cargo-deny
 
       - name: Audit dependencies
         run: cargo audit
 
       - name: Check licenses and sources
         run: cargo deny check licenses sources
+
+  # Composite status check — branch protection only needs to require this
+  # single job instead of tracking every matrix leg individually.
+  gate:
+    name: Gate
+    if: always()
+    needs: [lint, test, build, security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check upstream job results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::One or more upstream jobs failed or were cancelled"
+            exit 1
+          fi
