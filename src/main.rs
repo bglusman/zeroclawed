@@ -763,8 +763,7 @@ async fn main() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Onboard { .. } => unreachable!(),
-        Commands::Completions { .. } => unreachable!(),
+        Commands::Onboard { .. } | Commands::Completions { .. } => unreachable!(),
 
         Commands::Agent {
             message,
@@ -2014,7 +2013,7 @@ mod tests {
         config.default_temperature = 1.5;
 
         // Simulate None temperature (user didn't provide --temperature)
-        let user_temperature: Option<f64> = None;
+        let user_temperature: Option<f64> = std::hint::black_box(None);
         let final_temperature = user_temperature.unwrap_or(config.default_temperature);
 
         assert!((final_temperature - 1.5).abs() < f64::EPSILON);
@@ -2026,7 +2025,7 @@ mod tests {
         let config = Config::default(); // default_temperature = 0.7
 
         // Simulate None temperature (user didn't provide --temperature)
-        let user_temperature: Option<f64> = None;
+        let user_temperature: Option<f64> = std::hint::black_box(None);
         let final_temperature = user_temperature.unwrap_or(config.default_temperature);
 
         assert!((final_temperature - 0.7).abs() < f64::EPSILON);
