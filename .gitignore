@@ -30,3 +30,4 @@ venv/
 *.pem
 credentials.json
 .worktrees/
+.zeroclaw/*
