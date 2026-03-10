@@ -127,7 +127,7 @@ jobs:
   # Composite status check — branch protection only needs to require this
   # single job instead of tracking every matrix leg individually.
   gate:
-    name: Gate
+    name: CI Required Gate
     if: always()
     needs: [lint, test, build, security]
     runs-on: ubuntu-latest
