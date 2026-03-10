@@ -198,7 +198,7 @@ Sandboxing: `bubblewrap.rs`, `firejail.rs`, `landlock.rs`, `docker.rs`, `detect.
 | `tests/` | Integration and E2E tests (agent loop, config persistence, channel routing, provider resolution, webhook security) |
 | `benches/` | Performance benchmarks (`agent_benchmarks.rs`) |
 | `examples/` | Extension examples: `custom_channel.rs`, `custom_memory.rs`, `custom_provider.rs`, `custom_tool.rs` |
-| `firmware/` | Embedded firmware: `zeroclaw-arduino/`, `zeroclaw-esp32/`, `zeroclaw-esp32-ui/`, `zeroclaw-nucleo/`, `zeroclaw-uno-q-bridge/` |
+| `firmware/` | Embedded firmware: `arduino/`, `esp32/`, `esp32-ui/`, `nucleo/`, `uno-q-bridge/` |
 | `web/` | Web UI frontend (Vite + TypeScript) |
 | `python/` | Python SDK / tools bridge with its own tests |
 | `dev/` | Local development: Docker Compose, CI script (`ci.sh`), config template, sandbox configs |

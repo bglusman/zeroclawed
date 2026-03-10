@@ -41,7 +41,7 @@ ZeroClaw includes everything for Nucleo-F401RE:
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| Firmware | `firmware/zeroclaw-nucleo/` | Embassy Rust — USART2 (115200), gpio_read, gpio_write |
+| Firmware | `firmware/nucleo/` | Embassy Rust — USART2 (115200), gpio_read, gpio_write |
 | Serial peripheral | `src/peripherals/serial.rs` | JSON-over-serial protocol (same as Arduino/ESP32) |
 | Flash command | `zeroclaw peripheral flash-nucleo` | Builds firmware, flashes via probe-rs |
 
@@ -72,14 +72,14 @@ From the zeroclaw repo root:
 zeroclaw peripheral flash-nucleo
 ```
 
-This builds `firmware/zeroclaw-nucleo` and runs `probe-rs run --chip STM32F401RETx`. The firmware runs immediately after flashing.
+This builds `firmware/nucleo` and runs `probe-rs run --chip STM32F401RETx`. The firmware runs immediately after flashing.
 
 ### 1.3 Manual Flash (Alternative)
 
 ```bash
-cd firmware/zeroclaw-nucleo
+cd firmware/nucleo
 cargo build --release --target thumbv7em-none-eabihf
-probe-rs run --chip STM32F401RETx target/thumbv7em-none-eabihf/release/zeroclaw-nucleo
+probe-rs run --chip STM32F401RETx target/thumbv7em-none-eabihf/release/nucleo
 ```
 
 ---
