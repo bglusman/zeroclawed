@@ -736,12 +736,11 @@ impl SlackChannel {
 
         for redirect_hop in 0..=SLACK_MEDIA_REDIRECT_MAX_HOPS {
             let redacted_current = Self::redact_slack_url(&current_url);
-            let response = match client
-                .get(current_url.clone())
-                .bearer_auth(&self.bot_token)
-                .send()
-                .await
-            {
+            let mut req = client.get(current_url.clone());
+            if redirect_hop == 0 {
+                req = req.bearer_auth(&self.bot_token);
+            }
+            let response = match req.send().await {
                 Ok(response) => response,
                 Err(err) => {
                     tracing::warn!("Slack file fetch failed for {}: {}", redacted_current, err);
