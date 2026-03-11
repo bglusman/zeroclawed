@@ -364,16 +364,21 @@ impl EdgeTtsProvider {
     const ALLOWED_BINARIES: &[&str] = &["edge-tts", "edge-playback"];
 
     /// Create a new Edge TTS provider from config.
+    ///
+    /// `binary_path` must be a bare command name (no path separators) matching
+    /// one of [`Self::ALLOWED_BINARIES`]. This prevents arbitrary executable
+    /// paths like `/tmp/malicious/edge-tts` from passing the basename check.
     pub fn new(config: &crate::config::EdgeTtsConfig) -> Result<Self> {
-        let basename = std::path::Path::new(&config.binary_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        if !Self::ALLOWED_BINARIES.contains(&basename) {
+        let path = &config.binary_path;
+        if path.contains('/') || path.contains('\\') {
             bail!(
-                "Edge TTS binary_path must use one of {:?}, got: {}",
+                "Edge TTS binary_path must be a bare command name without path separators, got: {path}"
+            );
+        }
+        if !Self::ALLOWED_BINARIES.contains(&path.as_str()) {
+            bail!(
+                "Edge TTS binary_path must be one of {:?}, got: {path}",
                 Self::ALLOWED_BINARIES,
-                config.binary_path
             );
         }
         Ok(Self {
@@ -395,16 +400,20 @@ impl TtsProvider for EdgeTtsProvider {
             .to_str()
             .context("Failed to build temp file path for Edge TTS")?;
 
-        let output = tokio::process::Command::new(&self.binary_path)
-            .arg("--text")
-            .arg(text)
-            .arg("--voice")
-            .arg(voice)
-            .arg("--write-media")
-            .arg(output_path)
-            .output()
-            .await
-            .context("Failed to spawn edge-tts subprocess")?;
+        let output = tokio::time::timeout(
+            TTS_HTTP_TIMEOUT,
+            tokio::process::Command::new(&self.binary_path)
+                .arg("--text")
+                .arg(text)
+                .arg("--voice")
+                .arg(voice)
+                .arg("--write-media")
+                .arg(output_path)
+                .output(),
+        )
+        .await
+        .context("Edge TTS subprocess timed out")?
+        .context("Failed to spawn edge-tts subprocess")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

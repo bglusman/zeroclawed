@@ -1093,6 +1093,21 @@ impl SlackChannel {
         }
         drop(temp_file);
 
+        // Reject symlinks at the destination to prevent a symlink-following attack
+        // where an attacker places a symlink at the target path to redirect writes
+        // outside the workspace.
+        match tokio::fs::symlink_metadata(&output_path).await {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                tracing::warn!(
+                    "Slack image attachment refused: output path is a symlink: {}",
+                    output_path.display()
+                );
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return None;
+            }
+            _ => {}
+        }
+
         if let Err(err) = tokio::fs::rename(&temp_path, &output_path).await {
             tracing::warn!(
                 "Slack image attachment finalize failed for {}: {err}",
