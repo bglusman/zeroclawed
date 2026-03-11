@@ -181,6 +181,12 @@ impl TtsProvider for ElevenLabsTtsProvider {
     }
 
     async fn synthesize(&self, text: &str, voice: &str) -> Result<Vec<u8>> {
+        if !voice
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            bail!("ElevenLabs voice ID contains invalid characters: {voice}");
+        }
         let url = format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}");
         let body = serde_json::json!({
             "text": text,
@@ -280,10 +286,7 @@ impl TtsProvider for GoogleTtsProvider {
     }
 
     async fn synthesize(&self, text: &str, voice: &str) -> Result<Vec<u8>> {
-        let url = format!(
-            "https://texttospeech.googleapis.com/v1/text:synthesize?key={}",
-            self.api_key
-        );
+        let url = "https://texttospeech.googleapis.com/v1/text:synthesize";
         let body = serde_json::json!({
             "input": { "text": text },
             "voice": {
@@ -297,7 +300,8 @@ impl TtsProvider for GoogleTtsProvider {
 
         let resp = self
             .client
-            .post(&url)
+            .post(url)
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await
@@ -356,11 +360,25 @@ pub struct EdgeTtsProvider {
 }
 
 impl EdgeTtsProvider {
+    /// Allowed basenames for the Edge TTS binary.
+    const ALLOWED_BINARIES: &[&str] = &["edge-tts", "edge-playback"];
+
     /// Create a new Edge TTS provider from config.
-    pub fn new(config: &crate::config::EdgeTtsConfig) -> Self {
-        Self {
-            binary_path: config.binary_path.clone(),
+    pub fn new(config: &crate::config::EdgeTtsConfig) -> Result<Self> {
+        let basename = std::path::Path::new(&config.binary_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if !Self::ALLOWED_BINARIES.contains(&basename) {
+            bail!(
+                "Edge TTS binary_path must use one of {:?}, got: {}",
+                Self::ALLOWED_BINARIES,
+                config.binary_path
+            );
         }
+        Ok(Self {
+            binary_path: config.binary_path.clone(),
+        })
     }
 }
 
@@ -472,8 +490,14 @@ impl TtsManager {
         }
 
         if let Some(ref edge_cfg) = config.edge {
-            let p = EdgeTtsProvider::new(edge_cfg);
-            providers.insert("edge".to_string(), Box::new(p));
+            match EdgeTtsProvider::new(edge_cfg) {
+                Ok(p) => {
+                    providers.insert("edge".to_string(), Box::new(p));
+                }
+                Err(e) => {
+                    tracing::warn!("Skipping Edge TTS provider: {e}");
+                }
+            }
         }
 
         let max_text_length = if config.max_text_length == 0 {
@@ -557,7 +581,7 @@ mod tests {
         let mut config = default_tts_config();
         config.default_provider = "edge".to_string();
         config.edge = Some(crate::config::EdgeTtsConfig {
-            binary_path: "edge-tts".to_string(),
+            binary_path: "edge-tts".into(),
         });
 
         let manager = TtsManager::new(&config).unwrap();
@@ -569,7 +593,7 @@ mod tests {
         let mut config = default_tts_config();
         config.default_provider = "edge".to_string();
         config.edge = Some(crate::config::EdgeTtsConfig {
-            binary_path: "edge-tts".to_string(),
+            binary_path: "edge-tts".into(),
         });
 
         let manager = TtsManager::new(&config).unwrap();
@@ -589,7 +613,7 @@ mod tests {
         config.default_provider = "edge".to_string();
         config.max_text_length = 10;
         config.edge = Some(crate::config::EdgeTtsConfig {
-            binary_path: "edge-tts".to_string(),
+            binary_path: "edge-tts".into(),
         });
 
         let manager = TtsManager::new(&config).unwrap();
