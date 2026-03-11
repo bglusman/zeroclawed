@@ -6,7 +6,7 @@ ZeroClaw uses a five-level testing taxonomy with filesystem-based organization.
 
 | Level | What it tests | External boundaries | Directory |
 |-------|--------------|-------------------|-----------|
-| **Unit** | Single function/struct | Everything mocked | `src/**/tests.rs` |
+| **Unit** | Single function/struct | Everything mocked | `#[cfg(test)] mod tests` in `src/**/*.rs` |
 | **Component** | One subsystem within its own boundary | Subsystem real, everything else mocked | `tests/component/` |
 | **Integration** | Multiple internal components wired together | Real internals, external APIs mocked | `tests/integration/` |
 | **System** | Full request→response across ALL internal boundaries | Only external APIs mocked | `tests/system/` |
@@ -16,7 +16,7 @@ ZeroClaw uses a five-level testing taxonomy with filesystem-based organization.
 
 | Directory | Level | Description | Run command |
 |-----------|-------|-------------|-------------|
-| `src/**/tests.rs` | Unit | Single function/struct in isolation | `cargo test --lib` |
+| `src/**/*.rs` (`#[cfg(test)] mod tests`) | Unit | Single function/struct, co-located with source | `cargo test --lib` |
 | `tests/component/` | Component | One subsystem, real impl, mocked boundaries | `cargo test --test component` |
 | `tests/integration/` | Integration | Multiple components wired together | `cargo test --test integration` |
 | `tests/system/` | System | Full channel→agent→channel flow | `cargo test --test system` |
