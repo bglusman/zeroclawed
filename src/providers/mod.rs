@@ -17,6 +17,7 @@
 //! in [`create_provider_with_url`]. See `AGENTS.md` §7.1 for the full change playbook.
 
 pub mod anthropic;
+pub mod azure_openai;
 pub mod bedrock;
 pub mod compatible;
 pub mod copilot;
@@ -849,6 +850,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "vllm" => vec!["VLLM_API_KEY"],
         "osaurus" => vec!["OSAURUS_API_KEY"],
         "telnyx" => vec!["TELNYX_API_KEY"],
+        "azure_openai" | "azure-openai" | "azure" => vec!["AZURE_OPENAI_API_KEY"],
         _ => vec![],
     };
 
@@ -1125,6 +1127,19 @@ fn create_provider_with_url_and_options(
                 AuthStyle::Bearer,
             )
         )),
+        "azure_openai" | "azure-openai" | "azure" => {
+            let resource = std::env::var("AZURE_OPENAI_RESOURCE")
+                .unwrap_or_else(|_| "my-resource".to_string());
+            let deployment = std::env::var("AZURE_OPENAI_DEPLOYMENT")
+                .unwrap_or_else(|_| "gpt-4o".to_string());
+            let api_version = std::env::var("AZURE_OPENAI_API_VERSION").ok();
+            Ok(Box::new(azure_openai::AzureOpenAiProvider::new(
+                key,
+                &resource,
+                &deployment,
+                api_version.as_deref(),
+            )))
+        }
         "bedrock" | "aws-bedrock" => Ok(Box::new(bedrock::BedrockProvider::new())),
         name if is_qwen_oauth_alias(name) => {
             let base_url = api_url
