@@ -943,6 +943,14 @@ fn should_skip_memory_context_entry(key: &str, content: &str) -> bool {
         return true;
     }
 
+    // Skip entries containing image markers to prevent duplication.
+    // When auto_save stores a photo message to memory, a subsequent
+    // memory recall on the same turn would surface the marker again,
+    // causing two identical image blocks in the provider request.
+    if content.contains("[IMAGE:") {
+        return true;
+    }
+
     content.chars().count() > MEMORY_CONTEXT_MAX_CHARS
 }
 
@@ -3614,6 +3622,22 @@ mod tests {
             "fabricated memory"
         ));
         assert!(!should_skip_memory_context_entry("telegram_123_45", "hi"));
+
+        // Entries containing image markers must be skipped to prevent
+        // auto-saved photo messages from duplicating image blocks (#2403).
+        assert!(should_skip_memory_context_entry(
+            "telegram_user_msg_99",
+            "[IMAGE:/tmp/workspace/photo_1_2.jpg]"
+        ));
+        assert!(should_skip_memory_context_entry(
+            "telegram_user_msg_100",
+            "[IMAGE:/tmp/workspace/photo_1_2.jpg]\n\nCheck this screenshot"
+        ));
+        // Plain text without image markers should not be skipped.
+        assert!(!should_skip_memory_context_entry(
+            "telegram_user_msg_101",
+            "Please describe the image"
+        ));
     }
 
     #[test]
@@ -5917,6 +5941,47 @@ BTC is currently around $65,000 based on latest tool output."#
         let context = build_memory_context(&mem, "age", 0.0).await;
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("Age is 45"));
+    }
+
+    /// Auto-saved photo messages must not surface through memory context,
+    /// otherwise the image marker gets duplicated in the provider request (#2403).
+    #[tokio::test]
+    async fn build_memory_context_excludes_image_marker_entries() {
+        let tmp = TempDir::new().unwrap();
+        let mem = SqliteMemory::new(tmp.path()).unwrap();
+
+        // Simulate auto-save of a photo message containing an [IMAGE:] marker.
+        mem.store(
+            "telegram_user_msg_photo",
+            "[IMAGE:/tmp/workspace/photo_1_2.jpg]\n\nDescribe this screenshot",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
+        // Also store a plain text entry that shares a word with the query
+        // so the FTS recall returns both entries.
+        mem.store(
+            "screenshot_preference",
+            "User prefers screenshot descriptions to be concise",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let context = build_memory_context(&mem, "screenshot", 0.0).await;
+
+        // The image-marker entry must be excluded to prevent duplication.
+        assert!(
+            !context.contains("[IMAGE:"),
+            "memory context must not contain image markers, got: {context}"
+        );
+        // Plain text entries should still be included.
+        assert!(
+            context.contains("screenshot descriptions"),
+            "plain text entry should remain in context, got: {context}"
+        );
     }
 
     #[tokio::test]
