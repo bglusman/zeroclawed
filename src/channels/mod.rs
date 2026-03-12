@@ -28,6 +28,7 @@ pub mod linq;
 pub mod matrix;
 pub mod mattermost;
 pub mod nextcloud_talk;
+#[cfg(feature = "channel-nostr")]
 pub mod nostr;
 pub mod qq;
 pub mod signal;
@@ -57,6 +58,7 @@ pub use linq::LinqChannel;
 pub use matrix::MatrixChannel;
 pub use mattermost::MattermostChannel;
 pub use nextcloud_talk::NextcloudTalkChannel;
+#[cfg(feature = "channel-nostr")]
 pub use nostr::NostrChannel;
 pub use qq::QQChannel;
 pub use signal::SignalChannel;
@@ -3147,8 +3149,10 @@ fn collect_configured_channels(
 
 /// Run health checks for configured channels.
 pub async fn doctor_channels(config: Config) -> Result<()> {
+    #[allow(unused_mut)]
     let mut channels = collect_configured_channels(&config, "health check");
 
+    #[cfg(feature = "channel-nostr")]
     if let Some(ref ns) = config.channels_config.nostr {
         channels.push(ConfiguredChannel {
             display_name: "Nostr",
@@ -3384,12 +3388,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     // Collect active channels from a shared builder to keep startup and doctor parity.
+    #[allow(unused_mut)]
     let mut channels: Vec<Arc<dyn Channel>> =
         collect_configured_channels(&config, "runtime startup")
             .into_iter()
             .map(|configured| configured.channel)
             .collect();
 
+    #[cfg(feature = "channel-nostr")]
     if let Some(ref ns) = config.channels_config.nostr {
         channels.push(Arc::new(
             NostrChannel::new(&ns.private_key, ns.relays.clone(), &ns.allowed_pubkeys).await?,

@@ -2807,6 +2807,7 @@ pub struct ChannelsConfig {
     pub dingtalk: Option<DingTalkConfig>,
     /// QQ Official Bot channel configuration.
     pub qq: Option<QQConfig>,
+    #[cfg(feature = "channel-nostr")]
     pub nostr: Option<NostrConfig>,
     /// ClawdTalk voice channel configuration.
     pub clawdtalk: Option<crate::channels::ClawdTalkConfig>,
@@ -2892,6 +2893,7 @@ impl ChannelsConfig {
                 Box::new(ConfigWrapper::new(self.qq.as_ref())),
                 self.qq.is_some()
             ),
+            #[cfg(feature = "channel-nostr")]
             (
                 Box::new(ConfigWrapper::new(self.nostr.as_ref())),
                 self.nostr.is_some(),
@@ -2939,6 +2941,7 @@ impl Default for ChannelsConfig {
             feishu: None,
             dingtalk: None,
             qq: None,
+            #[cfg(feature = "channel-nostr")]
             nostr: None,
             clawdtalk: None,
             message_timeout_secs: default_channel_message_timeout_secs(),
@@ -3770,6 +3773,7 @@ impl ChannelConfig for QQConfig {
 }
 
 /// Nostr channel configuration (NIP-04 + NIP-17 private messages)
+#[cfg(feature = "channel-nostr")]
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NostrConfig {
     /// Private key in hex or nsec bech32 format
@@ -3782,6 +3786,7 @@ pub struct NostrConfig {
     pub allowed_pubkeys: Vec<String>,
 }
 
+#[cfg(feature = "channel-nostr")]
 impl ChannelConfig for NostrConfig {
     fn name() -> &'static str {
         "Nostr"
@@ -3791,6 +3796,7 @@ impl ChannelConfig for NostrConfig {
     }
 }
 
+#[cfg(feature = "channel-nostr")]
 pub fn default_nostr_relays() -> Vec<String> {
     vec![
         "wss://relay.damus.io".to_string(),
@@ -4334,6 +4340,7 @@ impl Config {
                 decrypt_optional_secret(&store, &mut google.api_key, "config.tts.google.api_key")?;
             }
 
+            #[cfg(feature = "channel-nostr")]
             if let Some(ref mut ns) = config.channels_config.nostr {
                 decrypt_secret(
                     &store,
@@ -5170,6 +5177,7 @@ impl Config {
             encrypt_optional_secret(&store, &mut google.api_key, "config.tts.google.api_key")?;
         }
 
+        #[cfg(feature = "channel-nostr")]
         if let Some(ref mut ns) = config_to_save.channels_config.nostr {
             encrypt_secret(
                 &store,
@@ -5777,6 +5785,7 @@ default_temperature = 0.7
                 feishu: None,
                 dingtalk: None,
                 qq: None,
+                #[cfg(feature = "channel-nostr")]
                 nostr: None,
                 clawdtalk: None,
                 message_timeout_secs: 300,

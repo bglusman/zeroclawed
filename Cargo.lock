@@ -7963,6 +7963,7 @@ dependencies = [
  "opentelemetry_sdk",
  "parking_lot",
  "pdf-extract",
+ "portable-atomic",
  "postgres",
  "probe-rs",
  "prometheus",
