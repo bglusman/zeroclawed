@@ -3139,8 +3139,11 @@ pub async fn run(
             print!("> ");
             let _ = std::io::stdout().flush();
 
-            let mut input = String::new();
-            match std::io::stdin().read_line(&mut input) {
+            // Read raw bytes to avoid UTF-8 validation errors when PTY
+            // transport splits multi-byte characters at frame boundaries
+            // (e.g. CJK input with spaces over kubectl exec / SSH).
+            let mut raw = Vec::new();
+            match std::io::BufRead::read_until(&mut std::io::stdin().lock(), b'\n', &mut raw) {
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(e) => {
@@ -3148,6 +3151,7 @@ pub async fn run(
                     break;
                 }
             }
+            let input = String::from_utf8_lossy(&raw).into_owned();
 
             let user_input = input.trim().to_string();
             if user_input.is_empty() {
@@ -3170,10 +3174,17 @@ pub async fn run(
                     print!("Continue? [y/N] ");
                     let _ = std::io::stdout().flush();
 
-                    let mut confirm = String::new();
-                    if std::io::stdin().read_line(&mut confirm).is_err() {
+                    let mut confirm_raw = Vec::new();
+                    if std::io::BufRead::read_until(
+                        &mut std::io::stdin().lock(),
+                        b'\n',
+                        &mut confirm_raw,
+                    )
+                    .is_err()
+                    {
                         continue;
                     }
+                    let confirm = String::from_utf8_lossy(&confirm_raw);
                     if !matches!(confirm.trim().to_lowercase().as_str(), "y" | "yes") {
                         println!("Cancelled.\n");
                         continue;
