@@ -2831,7 +2831,84 @@ pub(crate) async fn handle_command(command: crate::ChannelCommands, config: &Con
         crate::ChannelCommands::BindTelegram { identity } => {
             bind_telegram_identity(config, &identity).await
         }
+        crate::ChannelCommands::Send {
+            message,
+            channel_id,
+            recipient,
+        } => send_channel_message(config, &channel_id, &recipient, &message).await,
     }
+}
+
+/// Build a single channel instance by config section name (e.g. "telegram").
+fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Channel>> {
+    match channel_id {
+        "telegram" => {
+            let tg = config
+                .channels_config
+                .telegram
+                .as_ref()
+                .context("Telegram channel is not configured")?;
+            Ok(Arc::new(
+                TelegramChannel::new(
+                    tg.bot_token.clone(),
+                    tg.allowed_users.clone(),
+                    tg.mention_only,
+                )
+                .with_streaming(tg.stream_mode, tg.draft_update_interval_ms)
+                .with_transcription(config.transcription.clone())
+                .with_workspace_dir(config.workspace_dir.clone()),
+            ))
+        }
+        "discord" => {
+            let dc = config
+                .channels_config
+                .discord
+                .as_ref()
+                .context("Discord channel is not configured")?;
+            Ok(Arc::new(DiscordChannel::new(
+                dc.bot_token.clone(),
+                dc.guild_id.clone(),
+                dc.allowed_users.clone(),
+                dc.listen_to_bots,
+                dc.mention_only,
+            )))
+        }
+        "slack" => {
+            let sl = config
+                .channels_config
+                .slack
+                .as_ref()
+                .context("Slack channel is not configured")?;
+            Ok(Arc::new(
+                SlackChannel::new(
+                    sl.bot_token.clone(),
+                    sl.app_token.clone(),
+                    sl.channel_id.clone(),
+                    Vec::new(),
+                    sl.allowed_users.clone(),
+                )
+                .with_workspace_dir(config.workspace_dir.clone()),
+            ))
+        }
+        other => anyhow::bail!("Unknown channel '{other}'. Supported: telegram, discord, slack"),
+    }
+}
+
+/// Send a one-off message to a configured channel.
+async fn send_channel_message(
+    config: &Config,
+    channel_id: &str,
+    recipient: &str,
+    message: &str,
+) -> Result<()> {
+    let channel = build_channel_by_id(config, channel_id)?;
+    let msg = SendMessage::new(message, recipient);
+    channel
+        .send(&msg)
+        .await
+        .with_context(|| format!("Failed to send message via {channel_id}"))?;
+    println!("Message sent via {channel_id}.");
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6807,5 +6884,52 @@ This is an example JSON object for profile settings."#;
             turns.iter().all(|turn| !turn.content.contains("[IMAGE:")),
             "failed vision turn must not persist image marker content"
         );
+    }
+
+    #[test]
+    fn build_channel_by_id_unknown_channel_returns_error() {
+        let config = Config::default();
+        match build_channel_by_id(&config, "nonexistent") {
+            Err(e) => {
+                let err_msg = e.to_string();
+                assert!(
+                    err_msg.contains("Unknown channel"),
+                    "expected 'Unknown channel' in error, got: {err_msg}"
+                );
+            }
+            Ok(_) => panic!("should fail for unknown channel"),
+        }
+    }
+
+    #[test]
+    fn build_channel_by_id_unconfigured_telegram_returns_error() {
+        let config = Config::default();
+        match build_channel_by_id(&config, "telegram") {
+            Err(e) => {
+                let err_msg = e.to_string();
+                assert!(
+                    err_msg.contains("not configured"),
+                    "expected 'not configured' in error, got: {err_msg}"
+                );
+            }
+            Ok(_) => panic!("should fail when telegram is not configured"),
+        }
+    }
+
+    #[test]
+    fn build_channel_by_id_configured_telegram_succeeds() {
+        let mut config = Config::default();
+        config.channels_config.telegram = Some(crate::config::schema::TelegramConfig {
+            bot_token: "test-token".to_string(),
+            allowed_users: vec![],
+            stream_mode: crate::config::StreamMode::Off,
+            draft_update_interval_ms: 1000,
+            interrupt_on_new_message: false,
+            mention_only: false,
+        });
+        match build_channel_by_id(&config, "telegram") {
+            Ok(channel) => assert_eq!(channel.name(), "telegram"),
+            Err(e) => panic!("should succeed when telegram is configured: {e}"),
+        }
     }
 }
