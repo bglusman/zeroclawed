@@ -39,6 +39,8 @@ pub struct OpenAiCompatibleProvider {
     native_tool_calling: bool,
     /// HTTP request timeout in seconds for LLM API calls. Default: 120.
     timeout_secs: u64,
+    /// Extra HTTP headers to include in all API requests.
+    extra_headers: std::collections::HashMap<String, String>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -173,12 +175,22 @@ impl OpenAiCompatibleProvider {
             merge_system_into_user,
             native_tool_calling: !merge_system_into_user,
             timeout_secs: 120,
+            extra_headers: std::collections::HashMap::new(),
         }
     }
 
     /// Override the HTTP request timeout for LLM API calls.
     pub fn with_timeout_secs(mut self, timeout_secs: u64) -> Self {
         self.timeout_secs = timeout_secs;
+        self
+    }
+
+    /// Set extra HTTP headers to include in all API requests.
+    pub fn with_extra_headers(
+        mut self,
+        headers: std::collections::HashMap<String, String>,
+    ) -> Self {
+        self.extra_headers = headers;
         self
     }
 
@@ -215,10 +227,28 @@ impl OpenAiCompatibleProvider {
 
     fn http_client(&self) -> Client {
         let timeout = self.timeout_secs;
-        if let Some(ua) = self.user_agent.as_deref() {
+        let has_user_agent = self.user_agent.is_some();
+        let has_extra_headers = !self.extra_headers.is_empty();
+
+        if has_user_agent || has_extra_headers {
             let mut headers = HeaderMap::new();
-            if let Ok(value) = HeaderValue::from_str(ua) {
-                headers.insert(USER_AGENT, value);
+            if let Some(ua) = self.user_agent.as_deref() {
+                if let Ok(value) = HeaderValue::from_str(ua) {
+                    headers.insert(USER_AGENT, value);
+                }
+            }
+            for (key, value) in &self.extra_headers {
+                match (
+                    reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                    HeaderValue::from_str(value),
+                ) {
+                    (Ok(name), Ok(val)) => {
+                        headers.insert(name, val);
+                    }
+                    _ => {
+                        tracing::warn!(header = key, "Skipping invalid extra header name or value");
+                    }
+                }
             }
 
             let builder = Client::builder()
@@ -229,7 +259,9 @@ impl OpenAiCompatibleProvider {
                 crate::config::apply_runtime_proxy_to_builder(builder, "provider.compatible");
 
             return builder.build().unwrap_or_else(|error| {
-                tracing::warn!("Failed to build proxied timeout client with user-agent: {error}");
+                tracing::warn!(
+                    "Failed to build proxied timeout client with custom headers: {error}"
+                );
                 Client::new()
             });
         }
@@ -2920,5 +2952,63 @@ mod tests {
     fn with_timeout_secs_overrides_default() {
         let p = make_provider("test", "https://example.com", None).with_timeout_secs(300);
         assert_eq!(p.timeout_secs, 300);
+    }
+
+    #[test]
+    fn extra_headers_default_empty() {
+        let p = make_provider("test", "https://example.com", None);
+        assert!(p.extra_headers.is_empty());
+    }
+
+    #[test]
+    fn with_extra_headers_sets_headers() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Title".to_string(), "zeroclaw".to_string());
+        headers.insert(
+            "HTTP-Referer".to_string(),
+            "https://example.com".to_string(),
+        );
+        let p = make_provider("test", "https://example.com", None).with_extra_headers(headers);
+        assert_eq!(p.extra_headers.len(), 2);
+        assert_eq!(p.extra_headers.get("X-Title").unwrap(), "zeroclaw");
+        assert_eq!(
+            p.extra_headers.get("HTTP-Referer").unwrap(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn http_client_with_extra_headers_builds_successfully() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Title".to_string(), "zeroclaw".to_string());
+        headers.insert("User-Agent".to_string(), "TestAgent/1.0".to_string());
+        let p = make_provider("test", "https://example.com", None).with_extra_headers(headers);
+        // Should not panic
+        let _client = p.http_client();
+    }
+
+    #[test]
+    fn http_client_without_extra_headers_or_user_agent() {
+        let p = make_provider("test", "https://example.com", None);
+        // Should use the cached proxy client path
+        let _client = p.http_client();
+    }
+
+    #[test]
+    fn extra_headers_combined_with_user_agent() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Title".to_string(), "zeroclaw".to_string());
+        let p = OpenAiCompatibleProvider::new_with_user_agent(
+            "test",
+            "https://example.com",
+            None,
+            AuthStyle::Bearer,
+            "CustomAgent/1.0",
+        )
+        .with_extra_headers(headers);
+        assert_eq!(p.user_agent.as_deref(), Some("CustomAgent/1.0"));
+        assert_eq!(p.extra_headers.len(), 1);
+        // Should not panic
+        let _client = p.http_client();
     }
 }

@@ -345,6 +345,7 @@ pub fn all_tools_with_runtime(
                 secrets_encrypt: root_config.secrets.encrypt,
                 reasoning_enabled: root_config.runtime.reasoning_enabled,
                 provider_timeout_secs: Some(root_config.provider_timeout_secs),
+                extra_headers: root_config.extra_headers.clone(),
             },
         )
         .with_parent_tools(parent_tools)

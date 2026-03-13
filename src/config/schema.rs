@@ -97,6 +97,17 @@ pub struct Config {
     #[serde(default = "default_provider_timeout_secs")]
     pub provider_timeout_secs: u64,
 
+    /// Extra HTTP headers to include in LLM provider API requests.
+    ///
+    /// Some providers require specific headers (e.g., `User-Agent`, `HTTP-Referer`,
+    /// `X-Title`) for request routing or policy enforcement. Headers defined here
+    /// augment (and override) the program's default headers.
+    ///
+    /// Can also be set via `ZEROCLAW_EXTRA_HEADERS` environment variable using
+    /// the format `Key:Value,Key2:Value2`. Env var headers override config file headers.
+    #[serde(default)]
+    pub extra_headers: HashMap<String, String>,
+
     /// Observability backend configuration (`[observability]`).
     #[serde(default)]
     pub observability: ObservabilityConfig,
@@ -3968,6 +3979,7 @@ impl Default for Config {
             model_providers: HashMap::new(),
             default_temperature: default_temperature(),
             provider_timeout_secs: default_provider_timeout_secs(),
+            extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
             security: SecurityConfig::default(),
@@ -4353,6 +4365,34 @@ fn has_ollama_cloud_credential(config_api_key: Option<&str>) -> bool {
                 .ok()
                 .is_some_and(|value| !value.trim().is_empty())
         })
+}
+
+/// Parse the `ZEROCLAW_EXTRA_HEADERS` environment variable value.
+///
+/// Format: `Key:Value,Key2:Value2`
+///
+/// Entries without a colon or with an empty key are silently skipped.
+/// Leading/trailing whitespace on both key and value is trimmed.
+pub fn parse_extra_headers_env(raw: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = entry.split_once(':') {
+            let key = key.trim();
+            let value = value.trim();
+            if key.is_empty() {
+                tracing::warn!("Ignoring extra header with empty name in ZEROCLAW_EXTRA_HEADERS");
+                continue;
+            }
+            result.push((key.to_string(), value.to_string()));
+        } else {
+            tracing::warn!("Ignoring malformed extra header entry (missing ':'): {entry}");
+        }
+    }
+    result
 }
 
 fn normalize_wire_api(raw: &str) -> Option<&'static str> {
@@ -5036,6 +5076,15 @@ impl Config {
                 if timeout_secs > 0 {
                     self.provider_timeout_secs = timeout_secs;
                 }
+            }
+        }
+
+        // Extra provider headers: ZEROCLAW_EXTRA_HEADERS
+        // Format: "Key:Value,Key2:Value2"
+        // Env var headers override config file headers with the same name.
+        if let Ok(raw) = std::env::var("ZEROCLAW_EXTRA_HEADERS") {
+            for header in parse_extra_headers_env(&raw) {
+                self.extra_headers.insert(header.0, header.1);
             }
         }
 
@@ -5882,6 +5931,7 @@ default_temperature = 0.7
             model_providers: HashMap::new(),
             default_temperature: 0.5,
             provider_timeout_secs: 120,
+            extra_headers: HashMap::new(),
             observability: ObservabilityConfig {
                 backend: "log".into(),
                 ..ObservabilityConfig::default()
@@ -6038,6 +6088,97 @@ provider_timeout_secs = 300
     }
 
     #[test]
+    async fn parse_extra_headers_env_basic() {
+        let headers = parse_extra_headers_env("User-Agent:MyApp/1.0,X-Title:zeroclaw");
+        assert_eq!(headers.len(), 2);
+        assert_eq!(
+            headers[0],
+            ("User-Agent".to_string(), "MyApp/1.0".to_string())
+        );
+        assert_eq!(headers[1], ("X-Title".to_string(), "zeroclaw".to_string()));
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_with_url_value() {
+        let headers =
+            parse_extra_headers_env("HTTP-Referer:https://github.com/zeroclaw-labs/zeroclaw");
+        assert_eq!(headers.len(), 1);
+        // Only splits on first colon, preserving URL colons in value
+        assert_eq!(headers[0].0, "HTTP-Referer");
+        assert_eq!(headers[0].1, "https://github.com/zeroclaw-labs/zeroclaw");
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_empty_string() {
+        let headers = parse_extra_headers_env("");
+        assert!(headers.is_empty());
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_whitespace_trimming() {
+        let headers = parse_extra_headers_env("  X-Title : zeroclaw , User-Agent : cli/1.0 ");
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0], ("X-Title".to_string(), "zeroclaw".to_string()));
+        assert_eq!(
+            headers[1],
+            ("User-Agent".to_string(), "cli/1.0".to_string())
+        );
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_skips_malformed() {
+        let headers = parse_extra_headers_env("X-Valid:value,no-colon-here,Another:ok");
+        assert_eq!(headers.len(), 2);
+        assert_eq!(headers[0], ("X-Valid".to_string(), "value".to_string()));
+        assert_eq!(headers[1], ("Another".to_string(), "ok".to_string()));
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_skips_empty_key() {
+        let headers = parse_extra_headers_env(":value,X-Valid:ok");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0], ("X-Valid".to_string(), "ok".to_string()));
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_allows_empty_value() {
+        let headers = parse_extra_headers_env("X-Empty:");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0], ("X-Empty".to_string(), String::new()));
+    }
+
+    #[test]
+    async fn parse_extra_headers_env_trailing_comma() {
+        let headers = parse_extra_headers_env("X-Title:zeroclaw,");
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0], ("X-Title".to_string(), "zeroclaw".to_string()));
+    }
+
+    #[test]
+    async fn extra_headers_parses_from_toml() {
+        let raw = r#"
+default_temperature = 0.7
+
+[extra_headers]
+User-Agent = "MyApp/1.0"
+X-Title = "zeroclaw"
+"#;
+        let parsed: Config = toml::from_str(raw).unwrap();
+        assert_eq!(parsed.extra_headers.len(), 2);
+        assert_eq!(parsed.extra_headers.get("User-Agent").unwrap(), "MyApp/1.0");
+        assert_eq!(parsed.extra_headers.get("X-Title").unwrap(), "zeroclaw");
+    }
+
+    #[test]
+    async fn extra_headers_defaults_to_empty() {
+        let raw = r#"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(raw).unwrap();
+        assert!(parsed.extra_headers.is_empty());
+    }
+
+    #[test]
     async fn storage_provider_dburl_alias_deserializes() {
         let raw = r#"
 default_temperature = 0.7
@@ -6136,6 +6277,7 @@ tool_dispatcher = "xml"
             model_providers: HashMap::new(),
             default_temperature: 0.9,
             provider_timeout_secs: 120,
+            extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
             security: SecurityConfig::default(),
