@@ -3,7 +3,11 @@
 //! Supports multiple transports: stdio (spawn local process), HTTP, and SSE.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(target_has_atomic = "64"))]
+use std::sync::atomic::AtomicU32;
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -32,7 +36,10 @@ const MAX_TOOL_TIMEOUT_SECS: u64 = 600;
 struct McpServerInner {
     config: McpServerConfig,
     transport: Box<dyn McpTransportConn>,
+    #[cfg(target_has_atomic = "64")]
     next_id: AtomicU64,
+    #[cfg(not(target_has_atomic = "64"))]
+    next_id: AtomicU32,
     tools: Vec<McpToolDef>,
 }
 
@@ -123,7 +130,10 @@ impl McpServer {
         let inner = McpServerInner {
             config,
             transport,
+            #[cfg(target_has_atomic = "64")]
             next_id: AtomicU64::new(3), // Start at 3 since we used 1 and 2
+            #[cfg(not(target_has_atomic = "64"))]
+            next_id: AtomicU32::new(3), // Start at 3 since we used 1 and 2
             tools: tool_list.tools,
         };
 
@@ -155,7 +165,7 @@ impl McpServer {
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value> {
         let mut inner = self.inner.lock().await;
-        let id = inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = inner.next_id.fetch_add(1, Ordering::Relaxed) as u64;
         let req = JsonRpcRequest::new(
             id,
             "tools/call",
