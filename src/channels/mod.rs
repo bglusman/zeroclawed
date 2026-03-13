@@ -2987,6 +2987,7 @@ fn collect_configured_channels(
     config: &Config,
     matrix_skip_context: &str,
 ) -> Vec<ConfiguredChannel> {
+    let _ = matrix_skip_context;
     let mut channels = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
