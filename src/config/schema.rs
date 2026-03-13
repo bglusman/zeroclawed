@@ -4090,7 +4090,8 @@ async fn load_persisted_workspace_dirs(
         return Ok(None);
     }
 
-    let parsed_dir = PathBuf::from(raw_config_dir);
+    let expanded_dir = shellexpand::tilde(raw_config_dir);
+    let parsed_dir = PathBuf::from(expanded_dir.as_ref());
     let config_dir = if parsed_dir.is_absolute() {
         parsed_dir
     } else {
@@ -4233,7 +4234,7 @@ async fn resolve_runtime_config_dirs(
     if let Ok(custom_config_dir) = std::env::var("ZEROCLAW_CONFIG_DIR") {
         let custom_config_dir = custom_config_dir.trim();
         if !custom_config_dir.is_empty() {
-            let zeroclaw_dir = PathBuf::from(custom_config_dir);
+            let zeroclaw_dir = PathBuf::from(shellexpand::tilde(custom_config_dir).as_ref());
             return Ok((
                 zeroclaw_dir.clone(),
                 zeroclaw_dir.join("workspace"),
@@ -4244,8 +4245,9 @@ async fn resolve_runtime_config_dirs(
 
     if let Ok(custom_workspace) = std::env::var("ZEROCLAW_WORKSPACE") {
         if !custom_workspace.is_empty() {
+            let expanded = shellexpand::tilde(&custom_workspace);
             let (zeroclaw_dir, workspace_dir) =
-                resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace));
+                resolve_config_dir_for_workspace(&PathBuf::from(expanded.as_ref()));
             return Ok((
                 zeroclaw_dir,
                 workspace_dir,
@@ -5094,8 +5096,9 @@ impl Config {
         // Workspace directory: ZEROCLAW_WORKSPACE
         if let Ok(workspace) = std::env::var("ZEROCLAW_WORKSPACE") {
             if !workspace.is_empty() {
+                let expanded = shellexpand::tilde(&workspace);
                 let (_, workspace_dir) =
-                    resolve_config_dir_for_workspace(&PathBuf::from(workspace));
+                    resolve_config_dir_for_workspace(&PathBuf::from(expanded.as_ref()));
                 self.workspace_dir = workspace_dir;
             }
         }
