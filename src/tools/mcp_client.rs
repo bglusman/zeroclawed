@@ -91,6 +91,7 @@ impl McpServer {
         }
 
         // Notify server that client is initialized (no response expected for notifications)
+        // For notifications, we send but don't wait for response
         let notif = JsonRpcRequest::notification("notifications/initialized", json!({}));
         // Best effort - ignore errors for notifications
         let _ = transport.send_and_recv(&notif).await;
@@ -143,7 +144,6 @@ impl McpServer {
     }
 
     /// Server display name.
-    #[allow(dead_code)]
     pub async fn name(&self) -> String {
         self.inner.lock().await.config.name.clone()
     }
@@ -201,7 +201,7 @@ impl McpServer {
 /// Registry of all connected MCP servers, with a flat tool index.
 pub struct McpRegistry {
     servers: Vec<McpServer>,
-    /// prefixed_name -> (server_index, original_tool_name)
+    /// prefixed_name → (server_index, original_tool_name)
     tool_index: HashMap<String, (usize, String)>,
 }
 
@@ -301,11 +301,11 @@ mod tests {
             name: "nonexistent".to_string(),
             command: "/usr/bin/this_binary_does_not_exist_zeroclaw_test".to_string(),
             args: vec![],
-            env: HashMap::default(),
+            env: std::collections::HashMap::default(),
             tool_timeout_secs: None,
             transport: McpTransport::Stdio,
             url: None,
-            headers: HashMap::default(),
+            headers: std::collections::HashMap::default(),
         };
         let result = McpServer::connect(config).await;
         assert!(result.is_err());
@@ -320,11 +320,11 @@ mod tests {
             name: "bad".to_string(),
             command: "/usr/bin/does_not_exist_zc_test".to_string(),
             args: vec![],
-            env: HashMap::default(),
+            env: std::collections::HashMap::default(),
             tool_timeout_secs: None,
             transport: McpTransport::Stdio,
             url: None,
-            headers: HashMap::default(),
+            headers: std::collections::HashMap::default(),
         }];
         let registry = McpRegistry::connect_all(&configs)
             .await
@@ -353,5 +353,57 @@ mod tests {
         };
         let result = create_transport(&config);
         assert!(result.is_err());
+    }
+
+    // ── Empty registry (no servers) ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn empty_registry_is_empty() {
+        let registry = McpRegistry::connect_all(&[])
+            .await
+            .expect("connect_all on empty slice should succeed");
+        assert!(registry.is_empty());
+        assert_eq!(registry.server_count(), 0);
+        assert_eq!(registry.tool_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn empty_registry_tool_names_is_empty() {
+        let registry = McpRegistry::connect_all(&[])
+            .await
+            .expect("connect_all should succeed");
+        assert!(registry.tool_names().is_empty());
+    }
+
+    #[tokio::test]
+    async fn empty_registry_get_tool_def_returns_none() {
+        let registry = McpRegistry::connect_all(&[])
+            .await
+            .expect("connect_all should succeed");
+        let result = registry.get_tool_def("nonexistent__tool").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn empty_registry_call_tool_unknown_name_returns_error() {
+        let registry = McpRegistry::connect_all(&[])
+            .await
+            .expect("connect_all should succeed");
+        let err = registry
+            .call_tool("nonexistent__tool", serde_json::json!({}))
+            .await
+            .expect_err("should fail for unknown tool");
+        assert!(err.to_string().contains("unknown MCP tool"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn connect_all_empty_gives_zero_servers() {
+        let registry = McpRegistry::connect_all(&[])
+            .await
+            .expect("connect_all should succeed");
+        // Verify all three count methods agree on zero.
+        assert_eq!(registry.server_count(), 0);
+        assert_eq!(registry.tool_count(), 0);
+        assert!(registry.is_empty());
     }
 }

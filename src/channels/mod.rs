@@ -3408,7 +3408,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     };
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
-    let mut built_tools = tools::all_tools_with_runtime(
+    let mut built_tools: Vec<Box<dyn Tool>> = tools::all_tools_with_runtime(
         Arc::new(config.clone()),
         &security,
         runtime,
@@ -3430,14 +3430,14 @@ pub async fn start_channels(config: Config) -> Result<()> {
             "Initializing MCP client — {} server(s) configured",
             config.mcp.servers.len()
         );
-        match crate::tools::mcp_client::McpRegistry::connect_all(&config.mcp.servers).await {
+        match crate::tools::McpRegistry::connect_all(&config.mcp.servers).await {
             Ok(registry) => {
                 let registry = std::sync::Arc::new(registry);
                 let names = registry.tool_names();
                 let mut registered = 0usize;
                 for name in names {
                     if let Some(def) = registry.get_tool_def(&name).await {
-                        let wrapper = crate::tools::mcp_tool::McpToolWrapper::new(
+                        let wrapper = crate::tools::McpToolWrapper::new(
                             name,
                             def,
                             std::sync::Arc::clone(&registry),
