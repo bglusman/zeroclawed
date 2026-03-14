@@ -5509,11 +5509,38 @@ impl Config {
         set_runtime_proxy_config(self.proxy.clone());
     }
 
+    async fn resolve_config_path_for_save(&self) -> Result<PathBuf> {
+        if self
+            .config_path
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty())
+        {
+            return Ok(self.config_path.clone());
+        }
+
+        let (default_zeroclaw_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
+        let (zeroclaw_dir, _workspace_dir, source) =
+            resolve_runtime_config_dirs(&default_zeroclaw_dir, &default_workspace_dir).await?;
+        let file_name = self
+            .config_path
+            .file_name()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| std::ffi::OsStr::new("config.toml"));
+        let resolved = zeroclaw_dir.join(file_name);
+        tracing::warn!(
+            path = %self.config_path.display(),
+            resolved = %resolved.display(),
+            source = source.as_str(),
+            "Config path missing parent directory; resolving from runtime environment"
+        );
+        Ok(resolved)
+    }
+
     pub async fn save(&self) -> Result<()> {
         // Encrypt secrets before serialization
         let mut config_to_save = self.clone();
-        let zeroclaw_dir = self
-            .config_path
+        let config_path = self.resolve_config_path_for_save().await?;
+        let zeroclaw_dir = config_path
             .parent()
             .context("Config path must have a parent directory")?;
         let store = crate::security::SecretStore::new(zeroclaw_dir, self.secrets.encrypt);
@@ -5767,8 +5794,7 @@ impl Config {
         let toml_str =
             toml::to_string_pretty(&config_to_save).context("Failed to serialize config")?;
 
-        let parent_dir = self
-            .config_path
+        let parent_dir = config_path
             .parent()
             .context("Config path must have a parent directory")?;
 
@@ -5779,8 +5805,7 @@ impl Config {
             )
         })?;
 
-        let file_name = self
-            .config_path
+        let file_name = config_path
             .file_name()
             .and_then(|v| v.to_str())
             .unwrap_or("config.toml");
@@ -5808,9 +5833,9 @@ impl Config {
             .context("Failed to fsync temporary config file")?;
         drop(temp_file);
 
-        let had_existing_config = self.config_path.exists();
+        let had_existing_config = config_path.exists();
         if had_existing_config {
-            fs::copy(&self.config_path, &backup_path)
+            fs::copy(&config_path, &backup_path)
                 .await
                 .with_context(|| {
                     format!(
@@ -5820,10 +5845,10 @@ impl Config {
                 })?;
         }
 
-        if let Err(e) = fs::rename(&temp_path, &self.config_path).await {
+        if let Err(e) = fs::rename(&temp_path, &config_path).await {
             let _ = fs::remove_file(&temp_path).await;
             if had_existing_config && backup_path.exists() {
-                fs::copy(&backup_path, &self.config_path)
+                fs::copy(&backup_path, &config_path)
                     .await
                     .context("Failed to restore config backup")?;
             }
@@ -5833,12 +5858,11 @@ impl Config {
         #[cfg(unix)]
         {
             use std::{fs::Permissions, os::unix::fs::PermissionsExt};
-            if let Err(err) =
-                fs::set_permissions(&self.config_path, Permissions::from_mode(0o600)).await
+            if let Err(err) = fs::set_permissions(&config_path, Permissions::from_mode(0o600)).await
             {
                 tracing::warn!(
                     "Failed to harden config permissions to 0600 at {}: {}",
-                    self.config_path.display(),
+                    config_path.display(),
                     err
                 );
             }
@@ -7702,6 +7726,40 @@ requires_openai_auth = true
         assert_eq!(config.default_provider.as_deref(), Some("openai-codex"));
         assert_eq!(config.api_url.as_deref(), Some("https://api.tonsof.blue"));
         assert_eq!(config.api_key.as_deref(), Some("sk-test-codex-key"));
+    }
+
+    #[test]
+    async fn save_repairs_bare_config_filename_using_runtime_resolution() {
+        let _env_guard = env_override_lock().await;
+        let temp_home =
+            std::env::temp_dir().join(format!("zeroclaw_test_home_{}", uuid::Uuid::new_v4()));
+        let workspace_dir = temp_home.join("workspace");
+        let resolved_config_path = temp_home.join(".zeroclaw").join("config.toml");
+
+        let original_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("ZEROCLAW_WORKSPACE", &workspace_dir);
+
+        let mut config = Config::default();
+        config.workspace_dir = workspace_dir;
+        config.config_path = PathBuf::from("config.toml");
+        config.default_temperature = 0.5;
+        config.save().await.unwrap();
+
+        assert!(resolved_config_path.exists());
+        let saved = tokio::fs::read_to_string(&resolved_config_path)
+            .await
+            .unwrap();
+        let parsed: Config = toml::from_str(&saved).unwrap();
+        assert_eq!(parsed.default_temperature, 0.5);
+
+        std::env::remove_var("ZEROCLAW_WORKSPACE");
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        let _ = tokio::fs::remove_dir_all(temp_home).await;
     }
 
     #[test]
