@@ -1,6 +1,8 @@
+#[cfg(feature = "channel-nostr")]
+use crate::config::schema::{default_nostr_relays, NostrConfig};
 use crate::config::schema::{
-    default_nostr_relays, DingTalkConfig, IrcConfig, LarkReceiveMode, LinqConfig,
-    NextcloudTalkConfig, NostrConfig, QQConfig, SignalConfig, StreamMode, WhatsAppConfig,
+    DingTalkConfig, IrcConfig, LarkReceiveMode, LinqConfig, NextcloudTalkConfig, QQConfig,
+    SignalConfig, StreamMode, WhatsAppConfig,
 };
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
@@ -132,10 +134,13 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
             Some(api_key)
         },
         api_url: provider_api_url,
+        api_path: None,
         default_provider: Some(provider),
         default_model: Some(model),
         model_providers: std::collections::HashMap::new(),
         default_temperature: 0.7,
+        provider_timeout_secs: 120,
+        extra_headers: std::collections::HashMap::new(),
         observability: ObservabilityConfig::default(),
         autonomy: AutonomyConfig::default(),
         security: crate::config::SecurityConfig::default(),
@@ -165,11 +170,16 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
+        swarms: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         tts: crate::config::TtsConfig::default(),
+        mcp: crate::config::McpConfig::default(),
+        nodes: crate::config::NodesConfig::default(),
+        workspace: crate::config::WorkspaceConfig::default(),
+        notion: crate::config::NotionConfig::default(),
     };
 
     println!(
@@ -353,7 +363,6 @@ fn apply_provider_update(
 
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `zeroclaw onboard` or `zeroclaw onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
-/// Use `zeroclaw onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
         .get(choice)
@@ -420,7 +429,7 @@ fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
     if let Ok(custom_config_dir) = std::env::var("ZEROCLAW_CONFIG_DIR") {
         let trimmed = custom_config_dir.trim();
         if !trimmed.is_empty() {
-            let config_dir = PathBuf::from(trimmed);
+            let config_dir = PathBuf::from(shellexpand::tilde(trimmed).as_ref());
             return (config_dir.clone(), config_dir.join("workspace"));
         }
     }
@@ -428,8 +437,9 @@ fn resolve_quick_setup_dirs_with_home(home: &Path) -> (PathBuf, PathBuf) {
     if let Ok(custom_workspace) = std::env::var("ZEROCLAW_WORKSPACE") {
         let trimmed = custom_workspace.trim();
         if !trimmed.is_empty() {
+            let expanded = shellexpand::tilde(trimmed);
             return crate::config::schema::resolve_config_dir_for_workspace(&PathBuf::from(
-                trimmed,
+                expanded.as_ref(),
             ));
         }
     }
@@ -484,10 +494,13 @@ async fn run_quick_setup_with_home(
             s
         }),
         api_url: None,
+        api_path: None,
         default_provider: Some(provider_name.clone()),
         default_model: Some(model.clone()),
         model_providers: std::collections::HashMap::new(),
         default_temperature: 0.7,
+        provider_timeout_secs: 120,
+        extra_headers: std::collections::HashMap::new(),
         observability: ObservabilityConfig::default(),
         autonomy: AutonomyConfig::default(),
         security: crate::config::SecurityConfig::default(),
@@ -517,11 +530,16 @@ async fn run_quick_setup_with_home(
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
+        swarms: std::collections::HashMap::new(),
         hooks: crate::config::HooksConfig::default(),
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
         transcription: crate::config::TranscriptionConfig::default(),
         tts: crate::config::TtsConfig::default(),
+        mcp: crate::config::McpConfig::default(),
+        nodes: crate::config::NodesConfig::default(),
+        workspace: crate::config::WorkspaceConfig::default(),
+        notion: crate::config::NotionConfig::default(),
     };
 
     config.save().await?;
@@ -711,7 +729,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "qwen-code" => "qwen3-coder-plus".into(),
         "ollama" => "llama3.2".into(),
         "llamacpp" => "ggml-org/gpt-oss-20b-GGUF".into(),
-        "sglang" | "vllm" | "osaurus" => "default".into(),
+        "sglang" | "vllm" | "osaurus" | "opencode-go" => "default".into(),
         "gemini" => "gemini-2.5-pro".into(),
         "kimi-code" => "kimi-for-coding".into(),
         "bedrock" => "anthropic.claude-sonnet-4-5-20250929-v1:0".into(),
@@ -1163,6 +1181,7 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
             | "zai"
             | "qwen"
             | "nvidia"
+            | "opencode-go"
     )
 }
 
@@ -1194,6 +1213,7 @@ fn models_endpoint_for_provider(provider_name: &str) -> Option<&'static str> {
             "sglang" => Some("http://localhost:30000/v1/models"),
             "vllm" => Some("http://localhost:8000/v1/models"),
             "osaurus" => Some("http://localhost:1337/v1/models"),
+            "opencode-go" => Some("https://opencode.ai/zen/go/v1/models"),
             _ => None,
         },
     }
@@ -2031,26 +2051,37 @@ fn ensure_onboard_overwrite_allowed(config_path: &Path, force: bool) -> Result<(
         return Ok(());
     }
 
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+    #[cfg(test)]
+    {
         bail!(
-            "Refusing to overwrite existing config at {} in non-interactive mode. Re-run with --force if overwrite is intentional.",
+            "Refusing to overwrite existing config at {} in test mode. Re-run with --force if overwrite is intentional.",
             config_path.display()
         );
     }
 
-    let confirmed = Confirm::new()
-        .with_prompt(format!(
-            "  Existing config found at {}. Re-running onboarding will overwrite config.toml and may create missing workspace files (including BOOTSTRAP.md). Continue?",
-            config_path.display()
-        ))
-        .default(false)
-        .interact()?;
+    #[cfg(not(test))]
+    {
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+            bail!(
+                "Refusing to overwrite existing config at {} in non-interactive mode. Re-run with --force if overwrite is intentional.",
+                config_path.display()
+            );
+        }
 
-    if !confirmed {
-        bail!("Onboarding canceled: existing configuration was left unchanged.");
+        let confirmed = Confirm::new()
+            .with_prompt(format!(
+                "  Existing config found at {}. Re-running onboarding will overwrite config.toml and may create missing workspace files (including BOOTSTRAP.md). Continue?",
+                config_path.display()
+            ))
+            .default(false)
+            .interact()?;
+
+        if !confirmed {
+            bail!("Onboarding canceled: existing configuration was left unchanged.");
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
 
 async fn persist_workspace_selection(config_path: &Path) -> Result<()> {
@@ -2195,6 +2226,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ("zai-cn", "Z.AI — China coding endpoint (open.bigmodel.cn)"),
             ("synthetic", "Synthetic — Synthetic AI models"),
             ("opencode", "OpenCode Zen — code-focused AI"),
+            ("opencode-go", "OpenCode Go — Subsidized code-focused AI"),
             ("cohere", "Cohere — Command R+ & embeddings"),
         ],
         4 => local_provider_choices(),
@@ -2879,6 +2911,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "zai" => "ZAI_API_KEY",
         "synthetic" => "SYNTHETIC_API_KEY",
         "opencode" | "opencode-zen" => "OPENCODE_API_KEY",
+        "opencode-go" => "OPENCODE_GO_API_KEY",
         "vercel" | "vercel-ai" => "VERCEL_API_KEY",
         "cloudflare" | "cloudflare-ai" => "CLOUDFLARE_API_KEY",
         "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
@@ -3337,6 +3370,7 @@ enum ChannelMenuChoice {
     QqOfficial,
     Lark,
     Feishu,
+    #[cfg(feature = "channel-nostr")]
     Nostr,
     Done,
 }
@@ -3357,6 +3391,7 @@ const CHANNEL_MENU_CHOICES: &[ChannelMenuChoice] = &[
     ChannelMenuChoice::QqOfficial,
     ChannelMenuChoice::Lark,
     ChannelMenuChoice::Feishu,
+    #[cfg(feature = "channel-nostr")]
     ChannelMenuChoice::Nostr,
     ChannelMenuChoice::Done,
 ];
@@ -3500,6 +3535,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                         "— Feishu Bot"
                     }
                 ),
+                #[cfg(feature = "channel-nostr")]
                 ChannelMenuChoice::Nostr => format!(
                     "Nostr {}",
                     if config.nostr.is_some() {
@@ -3846,6 +3882,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                         Some(channel)
                     },
                     allowed_users,
+                    interrupt_on_new_message: false,
                 });
             }
             ChannelMenuChoice::IMessage => {
@@ -4116,6 +4153,23 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .interact()?;
 
                 if mode_idx == 0 {
+                    // Compile-time check: warn early if the feature is not enabled.
+                    #[cfg(not(feature = "whatsapp-web"))]
+                    {
+                        println!();
+                        println!(
+                            "  {} {}",
+                            style("⚠").yellow().bold(),
+                            style("The 'whatsapp-web' feature is not compiled in. WhatsApp Web will not work at runtime.").yellow()
+                        );
+                        println!(
+                            "  {} Rebuild with: {}",
+                            style("→").dim(),
+                            style("cargo build --features whatsapp-web").white().bold()
+                        );
+                        println!();
+                    }
+
                     println!("  {}", style("Mode: WhatsApp Web").dim());
                     print_bullet("1. Build with --features whatsapp-web");
                     print_bullet(
@@ -4945,6 +4999,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     port,
                 });
             }
+            #[cfg(feature = "channel-nostr")]
             ChannelMenuChoice::Nostr => {
                 // ── Nostr ──
                 println!();
@@ -7051,6 +7106,7 @@ mod tests {
         assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("astrai"), "ASTRAI_API_KEY");
+        assert_eq!(provider_env_var("opencode-go"), "OPENCODE_GO_API_KEY");
     }
 
     #[test]

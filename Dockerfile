@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ── Stage 1: Build ────────────────────────────────────────────
-FROM rust:1.94-slim@sha256:d6782f2b326a10eaf593eb90cafc34a03a287b4a25fe4d0c693c90304b06f6d7 AS builder
+FROM rust:1.93-slim@sha256:9663b80a1621253d30b146454f903de48f0af925c967be48c84745537cd35d8b AS builder
 
 WORKDIR /app
 
@@ -18,6 +18,7 @@ COPY crates/robot-kit/Cargo.toml crates/robot-kit/Cargo.toml
 # Create dummy targets declared in Cargo.toml so manifest parsing succeeds.
 RUN mkdir -p src benches crates/robot-kit/src \
     && echo "fn main() {}" > src/main.rs \
+    && echo "" > src/lib.rs \
     && echo "fn main() {}" > benches/agent_benchmarks.rs \
     && echo "pub fn placeholder() {}" > crates/robot-kit/src/lib.rs
 RUN --mount=type=cache,id=zeroclaw-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
@@ -90,6 +91,8 @@ COPY dev/config.template.toml /zeroclaw-data/.zeroclaw/config.toml
 RUN chown 65534:65534 /zeroclaw-data/.zeroclaw/config.toml
 
 # Environment setup
+# Ensure UTF-8 locale so CJK / multibyte input is handled correctly
+ENV LANG=C.UTF-8
 # Use consistent workspace path
 ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
@@ -114,6 +117,8 @@ COPY --from=builder /app/zeroclaw /usr/local/bin/zeroclaw
 COPY --from=builder /zeroclaw-data /zeroclaw-data
 
 # Environment setup
+# Ensure UTF-8 locale so CJK / multibyte input is handled correctly
+ENV LANG=C.UTF-8
 ENV ZEROCLAW_WORKSPACE=/zeroclaw-data/workspace
 ENV HOME=/zeroclaw-data
 # Default provider and model are set in config.toml, not here,
