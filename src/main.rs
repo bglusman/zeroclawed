@@ -75,6 +75,7 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
+mod commands;
 mod rag {
     pub use zeroclaw::rag::*;
 }
@@ -464,6 +465,52 @@ Examples:
     Config {
         #[command(subcommand)]
         config_command: ConfigCommands,
+    },
+
+    /// Check for and apply updates
+    #[command(long_about = "\
+Check for and apply ZeroClaw updates.
+
+By default, downloads and installs the latest release with a \
+6-phase pipeline: preflight, download, backup, validate, swap, \
+and smoke test. Automatic rollback on failure.
+
+Use --check to only check for updates without installing.
+Use --force to skip the confirmation prompt.
+Use --version to target a specific release instead of latest.
+
+Examples:
+  zeroclaw update                      # download and install latest
+  zeroclaw update --check              # check only, don't install
+  zeroclaw update --force              # install without confirmation
+  zeroclaw update --version 0.6.0      # install specific version")]
+    Update {
+        /// Only check for updates, don't install
+        #[arg(long)]
+        check: bool,
+        /// Skip confirmation prompt
+        #[arg(long)]
+        force: bool,
+        /// Target version (default: latest)
+        #[arg(long)]
+        version: Option<String>,
+    },
+
+    /// Run diagnostic self-tests
+    #[command(long_about = "\
+Run diagnostic self-tests to verify the ZeroClaw installation.
+
+By default, runs the full test suite including network checks \
+(gateway health, memory round-trip). Use --quick to skip network \
+checks for faster offline validation.
+
+Examples:
+  zeroclaw self-test             # full suite
+  zeroclaw self-test --quick     # quick checks only (no network)")]
+    SelfTest {
+        /// Run quick checks only (no network)
+        #[arg(long)]
+        quick: bool,
     },
 
     /// Generate shell completion script to stdout
@@ -1231,6 +1278,41 @@ async fn main() -> Result<()> {
                 &config,
             ))
             .await
+        }
+
+        Commands::Update {
+            check,
+            force: _force,
+            version,
+        } => {
+            if check {
+                let info = commands::update::check(version.as_deref()).await?;
+                if info.is_newer {
+                    println!(
+                        "Update available: v{} -> v{}",
+                        info.current_version, info.latest_version
+                    );
+                } else {
+                    println!("Already up to date (v{}).", info.current_version);
+                }
+                Ok(())
+            } else {
+                commands::update::run(version.as_deref()).await
+            }
+        }
+
+        Commands::SelfTest { quick } => {
+            let results = if quick {
+                commands::self_test::run_quick(&config).await?
+            } else {
+                commands::self_test::run_full(&config).await?
+            };
+            commands::self_test::print_results(&results);
+            let failed = results.iter().filter(|r| !r.passed).count();
+            if failed > 0 {
+                std::process::exit(1);
+            }
+            Ok(())
         }
 
         Commands::Config { config_command } => match config_command {
