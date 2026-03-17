@@ -78,7 +78,7 @@ impl Tool for FileWriteTool {
             });
         }
 
-        let full_path = self.security.workspace_dir.join(path);
+        let full_path = self.security.resolve_tool_path(path);
 
         let Some(parent) = full_path.parent() else {
             return Ok(ToolResult {
@@ -245,6 +245,36 @@ mod tests {
         assert_eq!(content, "deep");
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn file_write_normalizes_workspace_prefixed_relative_path() {
+        let root = std::env::temp_dir().join("zeroclaw_test_file_write_workspace_prefixed");
+        let workspace = root.join("workspace");
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+
+        let tool = FileWriteTool::new(test_security(workspace.clone()));
+        let workspace_prefixed = workspace
+            .strip_prefix(std::path::Path::new("/"))
+            .unwrap()
+            .join("nested/out.txt");
+        let result = tool
+            .execute(json!({
+                "path": workspace_prefixed.to_string_lossy(),
+                "content": "written!"
+            }))
+            .await
+            .unwrap();
+        assert!(result.success);
+
+        let content = tokio::fs::read_to_string(workspace.join("nested/out.txt"))
+            .await
+            .unwrap();
+        assert_eq!(content, "written!");
+        assert!(!workspace.join(workspace_prefixed).exists());
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 
     #[tokio::test]
