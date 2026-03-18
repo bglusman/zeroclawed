@@ -289,6 +289,7 @@ const OPENRC_RESTART_ARGS: [&str; 2] = ["zeroclaw", "restart"];
 struct InterruptOnNewMessageConfig {
     telegram: bool,
     slack: bool,
+    mattermost: bool,
 }
 
 impl InterruptOnNewMessageConfig {
@@ -296,6 +297,7 @@ impl InterruptOnNewMessageConfig {
         match channel {
             "telegram" => self.telegram,
             "slack" => self.slack,
+            "mattermost" => self.mattermost,
             _ => false,
         }
     }
@@ -4183,6 +4185,11 @@ pub async fn start_channels(config: Config) -> Result<()> {
         .slack
         .as_ref()
         .is_some_and(|sl| sl.interrupt_on_new_message);
+    let interrupt_on_new_message_mattermost = config
+        .channels_config
+        .mattermost
+        .as_ref()
+        .is_some_and(|mm| mm.interrupt_on_new_message);
 
     let runtime_ctx = Arc::new(ChannelRuntimeContext {
         channels_by_name,
@@ -4209,6 +4216,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         interrupt_on_new_message: InterruptOnNewMessageConfig {
             telegram: interrupt_on_new_message,
             slack: interrupt_on_new_message_slack,
+            mattermost: interrupt_on_new_message_mattermost,
         },
         multimodal: config.multimodal.clone(),
         hooks: if config.hooks.enabled {
@@ -4523,6 +4531,7 @@ mod tests {
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -4632,6 +4641,7 @@ mod tests {
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -4697,6 +4707,7 @@ mod tests {
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -4781,6 +4792,7 @@ mod tests {
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5318,6 +5330,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
             tool_call_dedup_exempt: Arc::new(Vec::new()),
@@ -5391,6 +5404,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             non_cli_excluded_tools: Arc::new(Vec::new()),
             tool_call_dedup_exempt: Arc::new(Vec::new()),
@@ -5478,6 +5492,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5550,6 +5565,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5632,6 +5648,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5735,6 +5752,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5819,6 +5837,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -5918,6 +5937,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6002,6 +6022,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6076,6 +6097,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6261,6 +6283,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6354,6 +6377,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: true,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6462,6 +6486,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: true,
+                mattermost: false,
             },
             ack_reactions: true,
             show_tool_calls: true,
@@ -6567,6 +6592,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: true,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6654,6 +6680,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -6726,6 +6753,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -7356,6 +7384,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -7454,6 +7483,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -7552,6 +7582,7 @@ BTC is currently around $65,000 based on latest tool output."#
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -7881,6 +7912,7 @@ This is an example JSON object for profile settings."#;
             allowed_users: vec![],
             thread_replies: Some(true),
             mention_only: Some(false),
+            interrupt_on_new_message: false,
         });
 
         let channels = collect_configured_channels(&config, "test");
@@ -8114,6 +8146,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8193,6 +8226,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8346,6 +8380,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8449,6 +8484,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8544,6 +8580,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8659,6 +8696,7 @@ This is an example JSON object for profile settings."#;
             interrupt_on_new_message: InterruptOnNewMessageConfig {
                 telegram: false,
                 slack: false,
+                mattermost: false,
             },
             multimodal: crate::config::MultimodalConfig::default(),
             hooks: None,
@@ -8777,5 +8815,25 @@ This is an example JSON object for profile settings."#;
     fn is_stop_command_rejects_stop_as_substring() {
         assert!(!is_stop_command("/stopwatch"));
         assert!(!is_stop_command("/stop-all"));
+    }
+
+    #[test]
+    fn interrupt_on_new_message_enabled_for_mattermost_when_true() {
+        let cfg = InterruptOnNewMessageConfig {
+            telegram: false,
+            slack: false,
+            mattermost: true,
+        };
+        assert!(cfg.enabled_for_channel("mattermost"));
+    }
+
+    #[test]
+    fn interrupt_on_new_message_disabled_for_mattermost_by_default() {
+        let cfg = InterruptOnNewMessageConfig {
+            telegram: false,
+            slack: false,
+            mattermost: false,
+        };
+        assert!(!cfg.enabled_for_channel("mattermost"));
     }
 }
