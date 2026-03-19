@@ -7360,6 +7360,7 @@ mod tests {
             allowed_users: vec!["*".into()],
             thread_replies: Some(true),
             mention_only: Some(false),
+            interrupt_on_new_message: false,
         });
         assert!(has_launchable_channels(&channels));
 
