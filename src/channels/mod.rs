@@ -7804,6 +7804,7 @@ BTC is currently around $65,000 based on latest tool output."#
             approval_manager: Arc::new(ApprovalManager::for_non_interactive(
                 &crate::config::AutonomyConfig::default(),
             )),
+            autonomy_level: AutonomyLevel::default(),
             activated_tools: None,
         });
 
