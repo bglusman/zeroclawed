@@ -160,6 +160,12 @@ impl OpenRouterProvider {
         }
     }
 
+    /// Override the HTTP request timeout for LLM API calls.
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        self.timeout_secs = secs;
+        self
+    }
+
     fn convert_tools(tools: Option<&[ToolSpec]>) -> Option<Vec<NativeToolSpec>> {
         let items = tools?;
         if items.is_empty() {
@@ -1114,5 +1120,21 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("reasoning_content"));
         assert!(json.contains("thinking..."));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // timeout_secs configuration tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn default_timeout_is_120() {
+        let provider = OpenRouterProvider::new(Some("key"), None);
+        assert_eq!(provider.timeout_secs, 120);
+    }
+
+    #[test]
+    fn with_timeout_secs_overrides_default() {
+        let provider = OpenRouterProvider::new(Some("key"), None).with_timeout_secs(300);
+        assert_eq!(provider.timeout_secs, 300);
     }
 }
