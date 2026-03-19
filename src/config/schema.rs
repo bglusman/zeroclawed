@@ -137,7 +137,12 @@ pub struct Config {
     pub cloud_ops: CloudOpsConfig,
 
     /// Conversational AI agent builder configuration (`[conversational_ai]`).
-    #[serde(default)]
+    ///
+    /// Experimental / future feature — not yet wired into the agent runtime.
+    /// Omitted from generated config files when disabled (the default).
+    /// Existing configs that already contain this section will continue to
+    /// deserialize correctly thanks to `#[serde(default)]`.
+    #[serde(default, skip_serializing_if = "ConversationalAiConfig::is_disabled")]
     pub conversational_ai: ConversationalAiConfig,
 
     /// Managed cybersecurity service configuration (`[security_ops]`).
@@ -4045,7 +4050,8 @@ pub struct ClassificationRule {
 pub struct HeartbeatConfig {
     /// Enable periodic heartbeat pings. Default: `false`.
     pub enabled: bool,
-    /// Interval in minutes between heartbeat pings. Default: `30`.
+    /// Interval in minutes between heartbeat pings. Default: `5`.
+    #[serde(default = "default_heartbeat_interval")]
     pub interval_minutes: u32,
     /// Enable two-phase heartbeat: Phase 1 asks LLM whether to run, Phase 2
     /// executes only when the LLM decides there is work to do. Saves API cost
@@ -4089,6 +4095,10 @@ pub struct HeartbeatConfig {
     pub max_run_history: u32,
 }
 
+fn default_heartbeat_interval() -> u32 {
+    5
+}
+
 fn default_two_phase() -> bool {
     true
 }
@@ -4109,7 +4119,7 @@ impl Default for HeartbeatConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            interval_minutes: 30,
+            interval_minutes: default_heartbeat_interval(),
             two_phase: true,
             message: None,
             target: None,
@@ -4133,6 +4143,15 @@ pub struct CronConfig {
     /// Enable the cron subsystem. Default: `true`.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Run all overdue jobs at scheduler startup. Default: `true`.
+    ///
+    /// When the machine boots late or the daemon restarts, jobs whose
+    /// `next_run` is in the past are considered "missed". With this
+    /// option enabled the scheduler fires them once before entering
+    /// the normal polling loop. Disable if you prefer missed jobs to
+    /// simply wait for their next scheduled occurrence.
+    #[serde(default = "default_true")]
+    pub catch_up_on_startup: bool,
     /// Maximum number of historical cron run records to retain. Default: `50`.
     #[serde(default = "default_max_run_history")]
     pub max_run_history: u32,
@@ -4146,6 +4165,7 @@ impl Default for CronConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            catch_up_on_startup: true,
             max_run_history: default_max_run_history(),
         }
     }
@@ -5872,8 +5892,8 @@ fn default_conversational_ai_timeout_secs() -> u64 {
 
 /// Conversational AI agent builder configuration (`[conversational_ai]` section).
 ///
-/// Controls language detection, escalation behavior, conversation limits, and
-/// analytics for conversational agent workflows. Disabled by default.
+/// **Status: Reserved for future use.** This configuration is parsed but not yet
+/// consumed by the runtime. Setting `enabled = true` will produce a startup warning.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConversationalAiConfig {
     /// Enable conversational AI features. Default: false.
@@ -5903,6 +5923,17 @@ pub struct ConversationalAiConfig {
     /// Optional tool name for RAG-based knowledge base lookup during conversations.
     #[serde(default)]
     pub knowledge_base_tool: Option<String>,
+}
+
+impl ConversationalAiConfig {
+    /// Returns `true` when the feature is disabled (the default).
+    ///
+    /// Used by `#[serde(skip_serializing_if)]` to omit the entire
+    /// `[conversational_ai]` section from newly-generated config files,
+    /// avoiding user confusion over an undocumented / experimental section.
+    pub fn is_disabled(&self) -> bool {
+        !self.enabled
+    }
 }
 
 impl Default for ConversationalAiConfig {
@@ -7728,6 +7759,13 @@ impl Config {
         }
 
         set_runtime_proxy_config(self.proxy.clone());
+
+        if self.conversational_ai.enabled {
+            tracing::warn!(
+                "conversational_ai.enabled = true but conversational AI features are not yet \
+                 implemented; this section is reserved for future use and will be ignored"
+            );
+        }
     }
 
     async fn resolve_config_path_for_save(&self) -> Result<PathBuf> {
@@ -8335,7 +8373,7 @@ mod tests {
     async fn heartbeat_config_default() {
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
-        assert_eq!(h.interval_minutes, 30);
+        assert_eq!(h.interval_minutes, 5);
         assert!(h.message.is_none());
         assert!(h.target.is_none());
         assert!(h.to.is_none());
@@ -8369,11 +8407,13 @@ recipient = "42"
     async fn cron_config_serde_roundtrip() {
         let c = CronConfig {
             enabled: false,
+            catch_up_on_startup: false,
             max_run_history: 100,
         };
         let json = serde_json::to_string(&c).unwrap();
         let parsed: CronConfig = serde_json::from_str(&json).unwrap();
         assert!(!parsed.enabled);
+        assert!(!parsed.catch_up_on_startup);
         assert_eq!(parsed.max_run_history, 100);
     }
 
@@ -8387,6 +8427,7 @@ default_temperature = 0.7
 
         let parsed: Config = toml::from_str(toml_str).unwrap();
         assert!(parsed.cron.enabled);
+        assert!(parsed.cron.catch_up_on_startup);
         assert_eq!(parsed.cron.max_run_history, 50);
     }
 
