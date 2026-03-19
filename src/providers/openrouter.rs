@@ -4,12 +4,14 @@ use crate::providers::traits::{
     Provider, ProviderCapabilities, TokenUsage, ToolCall as ProviderToolCall,
 };
 use crate::tools::ToolSpec;
+use anyhow::Context as _;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 pub struct OpenRouterProvider {
     credential: Option<String>,
+    timeout_secs: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,7 +151,14 @@ impl OpenRouterProvider {
     pub fn new(credential: Option<&str>) -> Self {
         Self {
             credential: credential.map(ToString::to_string),
+            timeout_secs: 120,
         }
+    }
+
+    /// Override the HTTP request timeout for LLM API calls.
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        self.timeout_secs = secs;
+        self
     }
 
     fn convert_tools(tools: Option<&[ToolSpec]>) -> Option<Vec<NativeToolSpec>> {
@@ -296,7 +305,11 @@ impl OpenRouterProvider {
     }
 
     fn http_client(&self) -> Client {
-        crate::config::build_runtime_proxy_client_with_timeouts("provider.openrouter", 120, 10)
+        crate::config::build_runtime_proxy_client_with_timeouts(
+            "provider.openrouter",
+            self.timeout_secs,
+            10,
+        )
     }
 }
 
@@ -368,7 +381,13 @@ impl Provider for OpenRouterProvider {
             return Err(super::api_error("OpenRouter", response).await);
         }
 
-        let chat_response: ApiChatResponse = response.json().await?;
+        let text = response.text().await?;
+        let chat_response: ApiChatResponse = serde_json::from_str(&text).with_context(|| {
+            format!(
+                "OpenRouter: failed to decode response body: {}",
+                &text[..text.len().min(500)]
+            )
+        })?;
 
         chat_response
             .choices
@@ -415,7 +434,13 @@ impl Provider for OpenRouterProvider {
             return Err(super::api_error("OpenRouter", response).await);
         }
 
-        let chat_response: ApiChatResponse = response.json().await?;
+        let text = response.text().await?;
+        let chat_response: ApiChatResponse = serde_json::from_str(&text).with_context(|| {
+            format!(
+                "OpenRouter: failed to decode response body: {}",
+                &text[..text.len().min(500)]
+            )
+        })?;
 
         chat_response
             .choices
@@ -460,7 +485,14 @@ impl Provider for OpenRouterProvider {
             return Err(super::api_error("OpenRouter", response).await);
         }
 
-        let native_response: NativeChatResponse = response.json().await?;
+        let text = response.text().await?;
+        let native_response: NativeChatResponse =
+            serde_json::from_str(&text).with_context(|| {
+                format!(
+                    "OpenRouter: failed to decode response body: {}",
+                    &text[..text.len().min(500)]
+                )
+            })?;
         let usage = native_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
@@ -552,7 +584,14 @@ impl Provider for OpenRouterProvider {
             return Err(super::api_error("OpenRouter", response).await);
         }
 
-        let native_response: NativeChatResponse = response.json().await?;
+        let text = response.text().await?;
+        let native_response: NativeChatResponse =
+            serde_json::from_str(&text).with_context(|| {
+                format!(
+                    "OpenRouter: failed to decode response body: {}",
+                    &text[..text.len().min(500)]
+                )
+            })?;
         let usage = native_response.usage.map(|u| TokenUsage {
             input_tokens: u.prompt_tokens,
             output_tokens: u.completion_tokens,
@@ -1016,5 +1055,21 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("reasoning_content"));
         assert!(json.contains("thinking..."));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // timeout_secs configuration tests
+    // ═══════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn default_timeout_is_120() {
+        let provider = OpenRouterProvider::new(Some("key"));
+        assert_eq!(provider.timeout_secs, 120);
+    }
+
+    #[test]
+    fn with_timeout_secs_overrides_default() {
+        let provider = OpenRouterProvider::new(Some("key")).with_timeout_secs(300);
+        assert_eq!(provider.timeout_secs, 300);
     }
 }
