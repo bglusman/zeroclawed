@@ -40,6 +40,12 @@ pub struct SlackChannel {
     /// downloaded, transcribed, and their text inlined into the message.
     transcription: Option<crate::config::TranscriptionConfig>,
     transcription_manager: Option<std::sync::Arc<super::transcription::TranscriptionManager>>,
+    /// Enable progressive draft message updates via `chat.update`.
+    stream_drafts: bool,
+    /// Minimum interval (ms) between draft edits to stay within Slack rate limits.
+    draft_update_interval_ms: u64,
+    /// Per-channel rate-limit tracker for draft edits.
+    last_draft_edit: Mutex<HashMap<String, Instant>>,
 }
 
 const SLACK_HISTORY_MAX_RETRIES: u32 = 3;
@@ -98,6 +104,13 @@ fn unicode_emoji_to_slack_name(emoji: &str) -> &str {
         _ => emoji.trim_matches(':'),
     }
 }
+/// Default minimum interval between Slack draft edits.
+/// Slack's `chat.update` is rate-limited to ~1 req/sec per channel.
+const SLACK_DRAFT_UPDATE_INTERVAL_MS: u64 = 1200;
+
+/// Maximum text length for a single Slack message (approx 40k chars).
+const SLACK_MESSAGE_MAX_CHARS: usize = 40_000;
+
 const SLACK_ATTACHMENT_RENDER_CONCURRENCY: usize = 3;
 const SLACK_POLL_ACTIVE_THREAD_MAX: usize = 50;
 const SLACK_POLL_THREAD_EXPIRE_SECS: u64 = 24 * 60 * 60;
@@ -136,6 +149,9 @@ impl SlackChannel {
             proxy_url: None,
             transcription: None,
             transcription_manager: None,
+            stream_drafts: false,
+            draft_update_interval_ms: SLACK_DRAFT_UPDATE_INTERVAL_MS,
+            last_draft_edit: Mutex::new(HashMap::new()),
         }
     }
 
@@ -194,6 +210,43 @@ impl SlackChannel {
         }
         self
     }
+
+    /// Enable progressive draft message streaming via `chat.update`.
+    pub fn with_streaming(mut self, enabled: bool, interval_ms: u64) -> Self {
+        self.stream_drafts = enabled;
+        if interval_ms > 0 {
+            self.draft_update_interval_ms = interval_ms;
+        }
+        self
+    }
+
+    /// Delete a Slack message by channel + timestamp.
+    async fn delete_message(&self, channel_id: &str, ts: &str) -> anyhow::Result<()> {
+        let body = serde_json::json!({
+            "channel": channel_id,
+            "ts": ts,
+        });
+
+        let resp = self
+            .http_client()
+            .post("https://slack.com/api/chat.delete")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        if resp_body.get("ok") != Some(&serde_json::Value::Bool(true)) {
+            let err = resp_body
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            tracing::debug!("Slack chat.delete failed: {err}");
+        }
+
+        Ok(())
+    }
+
 
     fn http_client(&self) -> reqwest::Client {
         crate::config::build_channel_proxy_client_with_timeouts(
@@ -2755,6 +2808,187 @@ impl Channel for SlackChannel {
         }
 
         Ok(())
+    }
+
+    fn supports_draft_updates(&self) -> bool {
+        self.stream_drafts
+    }
+
+    async fn send_draft(&self, message: &SendMessage) -> anyhow::Result<Option<String>> {
+        if !self.stream_drafts {
+            return Ok(None);
+        }
+
+        let channel_id = &message.recipient;
+        let initial_text = if message.content.is_empty() {
+            "..."
+        } else {
+            &message.content
+        };
+
+        let mut body = serde_json::json!({
+            "channel": channel_id,
+            "text": initial_text,
+        });
+
+        if let Some(ts) = self.outbound_thread_ts(message) {
+            body["thread_ts"] = serde_json::json!(ts);
+        }
+
+        let resp = self
+            .http_client()
+            .post("https://slack.com/api/chat.postMessage")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        if resp_body.get("ok") != Some(&serde_json::Value::Bool(true)) {
+            let err = resp_body
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            anyhow::bail!("Slack chat.postMessage (draft) failed: {err}");
+        }
+
+        let ts = resp_body
+            .get("ts")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        if ts.is_some() {
+            self.last_draft_edit
+                .lock()
+                .expect("last_draft_edit lock")
+                .insert(channel_id.to_string(), Instant::now());
+        }
+
+        Ok(ts)
+    }
+
+    async fn update_draft(
+        &self,
+        recipient: &str,
+        message_id: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        // Rate-limit edits per channel
+        {
+            let last_edits = self.last_draft_edit.lock().expect("last_draft_edit lock");
+            if let Some(last_time) = last_edits.get(recipient) {
+                let elapsed_ms = u64::try_from(last_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if elapsed_ms < self.draft_update_interval_ms {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Truncate to Slack's message limit for mid-stream edits
+        let display_text = if text.len() > SLACK_MESSAGE_MAX_CHARS {
+            &text[..text
+                .char_indices()
+                .take_while(|(idx, _)| *idx < SLACK_MESSAGE_MAX_CHARS)
+                .last()
+                .map_or(0, |(idx, ch)| idx + ch.len_utf8())]
+        } else {
+            text
+        };
+
+        let body = serde_json::json!({
+            "channel": recipient,
+            "ts": message_id,
+            "text": display_text,
+        });
+
+        let resp = self
+            .http_client()
+            .post("https://slack.com/api/chat.update")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        if resp_body.get("ok") == Some(&serde_json::Value::Bool(true)) {
+            self.last_draft_edit
+                .lock()
+                .expect("last_draft_edit lock")
+                .insert(recipient.to_string(), Instant::now());
+        } else {
+            let err = resp_body
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            tracing::debug!("Slack chat.update (draft) failed: {err}");
+        }
+
+        Ok(())
+    }
+
+    async fn finalize_draft(
+        &self,
+        recipient: &str,
+        message_id: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        // Clean up rate-limit tracking
+        self.last_draft_edit
+            .lock()
+            .expect("last_draft_edit lock")
+            .remove(recipient);
+
+        // If text exceeds Slack limit, delete draft and send as regular message
+        if text.len() > SLACK_MESSAGE_MAX_CHARS {
+            let _ = self.delete_message(recipient, message_id).await;
+            return self.send(&SendMessage::new(text, recipient)).await;
+        }
+
+        // Edit the draft with the final formatted content
+        let mut body = serde_json::json!({
+            "channel": recipient,
+            "ts": message_id,
+            "text": text,
+        });
+
+        // Use markdown blocks for rich formatting when it fits
+        if text.len() <= SLACK_MARKDOWN_BLOCK_MAX_CHARS {
+            body["blocks"] = serde_json::json!([{
+                "type": "markdown",
+                "text": text
+            }]);
+        }
+
+        let resp = self
+            .http_client()
+            .post("https://slack.com/api/chat.update")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        if resp_body.get("ok") == Some(&serde_json::Value::Bool(true)) {
+            return Ok(());
+        }
+
+        // Fallback: delete draft and send fresh
+        let err = resp_body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("unknown");
+        tracing::debug!("Slack chat.update (finalize) failed: {err}; falling back to delete+send");
+
+        let _ = self.delete_message(recipient, message_id).await;
+        self.send(&SendMessage::new(text, recipient)).await
+    }
+
+    async fn cancel_draft(&self, recipient: &str, message_id: &str) -> anyhow::Result<()> {
+        self.last_draft_edit
+            .lock()
+            .expect("last_draft_edit lock")
+            .remove(recipient);
+        self.delete_message(recipient, message_id).await
     }
 
     async fn add_reaction(

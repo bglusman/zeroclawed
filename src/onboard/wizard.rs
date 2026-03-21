@@ -4055,6 +4055,8 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     mention_only: false,
                     use_markdown_blocks: false,
                     proxy_url: None,
+                    stream_drafts: false,
+                    draft_update_interval_ms: 1200,
                 });
             }
             ChannelMenuChoice::IMessage => {

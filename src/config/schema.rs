@@ -6297,6 +6297,16 @@ pub struct SlackConfig {
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
     pub proxy_url: Option<String>,
+    /// Enable progressive draft message streaming via `chat.update`.
+    #[serde(default)]
+    pub stream_drafts: bool,
+    /// Minimum interval (ms) between draft message edits to avoid Slack rate limits.
+    #[serde(default = "default_slack_draft_update_interval_ms")]
+    pub draft_update_interval_ms: u64,
+}
+
+fn default_slack_draft_update_interval_ms() -> u64 {
+    1200
 }
 
 impl ChannelConfig for SlackConfig {
