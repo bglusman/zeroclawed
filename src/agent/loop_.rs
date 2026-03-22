@@ -3539,6 +3539,7 @@ pub async fn run(
         &config.agents,
         config.api_key.as_deref(),
         &config,
+        None,
     );
 
     let peripheral_tools: Vec<Box<dyn Tool>> =
@@ -3833,6 +3834,8 @@ pub async fn run(
         Some(&config.autonomy),
         native_tools,
         config.skills.prompt_injection_mode,
+        config.agent.compact_context,
+        config.agent.max_system_prompt_chars,
     );
 
     // Append structured tool-use instructions with schemas (only for non-native providers)
@@ -4297,6 +4300,7 @@ pub async fn process_message(
             &config.agents,
             config.api_key.as_deref(),
             &config,
+            None,
         );
     let peripheral_tools: Vec<Box<dyn Tool>> =
         crate::peripherals::create_peripheral_tools(&config.peripherals).await?;
@@ -4493,6 +4497,8 @@ pub async fn process_message(
         Some(&config.autonomy),
         native_tools,
         config.skills.prompt_injection_mode,
+        config.agent.compact_context,
+        config.agent.max_system_prompt_chars,
     );
     if !native_tools {
         system_prompt.push_str(&build_tool_instructions(&tools_registry, Some(&i18n_descs)));

@@ -569,11 +569,29 @@ MSG
         exit 0
       fi
       # Detect un-accepted Xcode/CLT license (causes `cc` to exit 69).
-      if ! /usr/bin/xcrun --show-sdk-path >/dev/null 2>&1; then
-        warn "Xcode license has not been accepted. Run:"
-        warn "  sudo xcodebuild -license accept"
-        warn "then re-run this installer."
-        exit 1
+      # xcrun --show-sdk-path can succeed even without an accepted license,
+      # so we test-compile a trivial C file which reliably triggers the error.
+      _xcode_test_file="$(mktemp /tmp/zeroclaw-xcode-check.XXXXXX.c)"
+      printf 'int main(){return 0;}\n' > "$_xcode_test_file"
+      if ! cc -x c "$_xcode_test_file" -o /dev/null 2>/dev/null; then
+        rm -f "$_xcode_test_file"
+        warn "Xcode/CLT license has not been accepted. Attempting to accept it now..."
+        _xcode_accept_ok=false
+        if [[ "$(id -u)" -eq 0 ]]; then
+          xcodebuild -license accept && _xcode_accept_ok=true
+        elif [[ -c /dev/tty ]] && have_cmd sudo; then
+          sudo xcodebuild -license accept < /dev/tty && _xcode_accept_ok=true
+        fi
+        if [[ "$_xcode_accept_ok" == true ]]; then
+          step_ok "Xcode license accepted"
+        else
+          error "Could not accept Xcode license. Run manually:"
+          error "  sudo xcodebuild -license accept"
+          error "then re-run this installer."
+          exit 1
+        fi
+      else
+        rm -f "$_xcode_test_file"
       fi
       if ! have_cmd git; then
         warn "git is not available. Install git (e.g., Homebrew) and re-run bootstrap."
@@ -1175,6 +1193,43 @@ else
     install_system_deps
   fi
 
+  # Always check Xcode/CLT license on macOS, regardless of --install-system-deps.
+  # An un-accepted license causes `cc` to exit 69, breaking all Rust builds.
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    _xcode_test_file="$(mktemp /tmp/zeroclaw-xcode-check.XXXXXX.c)"
+    printf 'int main(){return 0;}\n' > "$_xcode_test_file"
+    if ! cc -x c "$_xcode_test_file" -o /dev/null 2>/dev/null; then
+      rm -f "$_xcode_test_file"
+      warn "Xcode/CLT license has not been accepted. Attempting to accept it now..."
+      # Use /dev/tty so sudo can prompt for a password even in a curl|bash pipe.
+      _xcode_accept_ok=false
+      if [[ "$(id -u)" -eq 0 ]]; then
+        xcodebuild -license accept && _xcode_accept_ok=true
+      elif [[ -c /dev/tty ]] && have_cmd sudo; then
+        sudo xcodebuild -license accept < /dev/tty && _xcode_accept_ok=true
+      fi
+      if [[ "$_xcode_accept_ok" == true ]]; then
+        step_ok "Xcode license accepted"
+        # Re-test compilation to confirm it's fixed.
+        _xcode_test_file="$(mktemp /tmp/zeroclaw-xcode-check.XXXXXX.c)"
+        printf 'int main(){return 0;}\n' > "$_xcode_test_file"
+        if ! cc -x c "$_xcode_test_file" -o /dev/null 2>/dev/null; then
+          rm -f "$_xcode_test_file"
+          error "C compiler still failing after license accept. Check your Xcode/CLT installation."
+          exit 1
+        fi
+        rm -f "$_xcode_test_file"
+      else
+        error "Could not accept Xcode license. Run manually:"
+        error "  sudo xcodebuild -license accept"
+        error "then re-run this installer."
+        exit 1
+      fi
+    else
+      rm -f "$_xcode_test_file"
+    fi
+  fi
+
   if [[ "$INSTALL_RUST" == true ]]; then
     install_rust_toolchain
   fi
@@ -1467,25 +1522,6 @@ if [[ -n "$ZEROCLAW_BIN" ]]; then
     if "$ZEROCLAW_BIN" service restart 2>/dev/null; then
       step_ok "Gateway service restarted"
 
-      # Fetch and display pairing code from running gateway
-      PAIR_CODE=""
-      for i in 1 2 3 4 5; do
-        sleep 2
-        if PAIR_CODE=$("$ZEROCLAW_BIN" gateway get-paircode 2>/dev/null | grep -oE '[0-9]{6}'); then
-          break
-        fi
-      done
-      if [[ -n "$PAIR_CODE" ]]; then
-        echo
-        echo -e "  ${BOLD_BLUE}🔐 Gateway Pairing Code${RESET}"
-        echo
-        echo -e "  ${BOLD_BLUE}┌──────────────┐${RESET}"
-        echo -e "  ${BOLD_BLUE}│${RESET}  ${BOLD}${PAIR_CODE}${RESET}  ${BOLD_BLUE}│${RESET}"
-        echo -e "  ${BOLD_BLUE}└──────────────┘${RESET}"
-        echo
-        echo -e "  ${DIM}Enter this code in the dashboard to pair your device.${RESET}"
-        echo -e "  ${DIM}Run 'zeroclaw gateway get-paircode --new' anytime to generate a fresh code.${RESET}"
-      fi
     else
       step_fail "Gateway service restart failed — re-run with zeroclaw service start"
     fi
@@ -1532,7 +1568,6 @@ GATEWAY_PORT=42617
 DASHBOARD_URL="http://127.0.0.1:${GATEWAY_PORT}"
 echo
 echo -e "${BOLD}Dashboard URL:${RESET} ${BLUE}${DASHBOARD_URL}${RESET}"
-echo -e "${DIM}  Run 'zeroclaw gateway get-paircode' to get your pairing code.${RESET}"
 
 # --- Copy to clipboard ---
 COPIED_TO_CLIPBOARD=false
