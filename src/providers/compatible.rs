@@ -770,7 +770,6 @@ struct StreamToolCallDelta {
     arguments: Option<String>,
 }
 
-
 #[derive(Debug, Deserialize)]
 struct StreamFunctionDelta {
     #[serde(default)]
@@ -1083,7 +1082,6 @@ fn sse_bytes_to_events(
     })
     .boxed()
 }
-
 
 fn first_nonempty(text: Option<&str>) -> Option<String> {
     text.and_then(|value| {
@@ -2108,7 +2106,6 @@ impl Provider for OpenAiCompatibleProvider {
         })
         .boxed()
     }
-
 
     fn stream_chat_with_system(
         &self,
