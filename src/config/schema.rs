@@ -1919,6 +1919,10 @@ pub struct GatewayConfig {
     /// Pairing dashboard configuration
     #[serde(default)]
     pub pairing_dashboard: PairingDashboardConfig,
+
+    /// TLS configuration for the gateway server (`[gateway.tls]`).
+    #[serde(default)]
+    pub tls: Option<GatewayTlsConfig>,
 }
 
 fn default_gateway_port() -> u16 {
@@ -1975,6 +1979,7 @@ impl Default for GatewayConfig {
             session_persistence: true,
             session_ttl_hours: 0,
             pairing_dashboard: PairingDashboardConfig::default(),
+            tls: None,
         }
     }
 }
@@ -2025,6 +2030,38 @@ impl Default for PairingDashboardConfig {
             lockout_secs: default_pairing_lockout_secs(),
         }
     }
+}
+
+/// TLS configuration for the gateway server (`[gateway.tls]`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GatewayTlsConfig {
+    /// Enable TLS for the gateway (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the PEM-encoded server certificate file.
+    pub cert_path: String,
+    /// Path to the PEM-encoded server private key file.
+    pub key_path: String,
+    /// Client certificate authentication (mutual TLS) settings.
+    #[serde(default)]
+    pub client_auth: Option<GatewayClientAuthConfig>,
+}
+
+/// Client certificate authentication (mTLS) configuration (`[gateway.tls.client_auth]`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GatewayClientAuthConfig {
+    /// Enable client certificate verification (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Path to the PEM-encoded CA certificate used to verify client certs.
+    pub ca_cert_path: String,
+    /// Reject connections that do not present a valid client certificate (default: true).
+    #[serde(default = "default_true")]
+    pub require_client_cert: bool,
+    /// Optional SHA-256 fingerprints for certificate pinning.
+    /// When non-empty, only client certs matching one of these fingerprints are accepted.
+    #[serde(default)]
+    pub pinned_certs: Vec<String>,
 }
 
 /// Secure transport configuration for inter-node communication (`[node_transport]`).
@@ -12384,6 +12421,7 @@ channel_ids = ["C123", "D456"]
             session_persistence: true,
             session_ttl_hours: 0,
             pairing_dashboard: PairingDashboardConfig::default(),
+            tls: None,
         };
         let toml_str = toml::to_string(&g).unwrap();
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
