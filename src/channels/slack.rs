@@ -583,11 +583,9 @@ impl SlackChannel {
             return None;
         }
 
-        Some(if require_mention {
-            Self::strip_bot_mentions(text, bot_user_id)
-        } else {
-            text.trim().to_string()
-        })
+        // Always strip bot mentions so the model sees clean text,
+        // even in threads where the mention wasn't required.
+        Some(Self::strip_bot_mentions(text, bot_user_id))
     }
 
     fn normalize_incoming_content(
@@ -2200,10 +2198,13 @@ impl SlackChannel {
                 }
 
                 let is_group_message = Self::is_group_channel_id(&channel_id);
+                let is_thread_reply = event.get("thread_ts").and_then(|v| v.as_str()).is_some();
                 let allow_sender_without_mention =
                     is_group_message && self.is_group_sender_trigger_enabled(user);
-                let require_mention =
-                    self.mention_only && is_group_message && !allow_sender_without_mention;
+                let require_mention = self.mention_only
+                    && is_group_message
+                    && !allow_sender_without_mention
+                    && !is_thread_reply;
 
                 let Some(normalized_text) = self
                     .build_incoming_content(event, require_mention, bot_user_id)
@@ -2977,10 +2978,14 @@ impl Channel for SlackChannel {
                         }
 
                         let is_group_message = Self::is_group_channel_id(&channel_id);
+                        let is_thread_reply =
+                            msg.get("thread_ts").and_then(|v| v.as_str()).is_some();
                         let allow_sender_without_mention =
                             is_group_message && self.is_group_sender_trigger_enabled(user);
-                        let require_mention =
-                            self.mention_only && is_group_message && !allow_sender_without_mention;
+                        let require_mention = self.mention_only
+                            && is_group_message
+                            && !allow_sender_without_mention
+                            && !is_thread_reply;
                         let Some(normalized_text) = self
                             .build_incoming_content(msg, require_mention, &bot_user_id)
                             .await
@@ -3059,11 +3064,9 @@ impl Channel for SlackChannel {
                         continue;
                     }
 
-                    let is_group_message = Self::is_group_channel_id(&thread_channel_id);
-                    let allow_sender_without_mention =
-                        is_group_message && self.is_group_sender_trigger_enabled(user);
-                    let require_mention =
-                        self.mention_only && is_group_message && !allow_sender_without_mention;
+                    // Thread replies never require a mention — we always respond
+                    // inside threads the bot is already participating in.
+                    let require_mention = false;
                     let Some(normalized_text) = self
                         .build_incoming_content(reply, require_mention, &bot_user_id)
                         .await
