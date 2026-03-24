@@ -6938,6 +6938,53 @@ pub struct SecurityConfig {
     /// Nevis IAM integration for SSO/MFA authentication and role-based access.
     #[serde(default)]
     pub nevis: NevisConfig,
+
+    /// WebAuthn / FIDO2 hardware key authentication configuration.
+    #[serde(default)]
+    pub webauthn: WebAuthnConfig,
+}
+
+/// WebAuthn / FIDO2 hardware key authentication configuration (`[security.webauthn]`).
+///
+/// Enables registration and authentication via hardware security keys
+/// (YubiKey, SoloKey, etc.) and platform authenticators (Touch ID, Windows Hello).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct WebAuthnConfig {
+    /// Enable WebAuthn authentication. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Relying Party ID (domain name, e.g. "example.com"). Default: "localhost".
+    #[serde(default = "default_webauthn_rp_id")]
+    pub rp_id: String,
+    /// Relying Party origin URL (e.g. "https://example.com"). Default: "http://localhost:42617".
+    #[serde(default = "default_webauthn_rp_origin")]
+    pub rp_origin: String,
+    /// Relying Party display name. Default: "ZeroClaw".
+    #[serde(default = "default_webauthn_rp_name")]
+    pub rp_name: String,
+}
+
+impl Default for WebAuthnConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            rp_id: default_webauthn_rp_id(),
+            rp_origin: default_webauthn_rp_origin(),
+            rp_name: default_webauthn_rp_name(),
+        }
+    }
+}
+
+fn default_webauthn_rp_id() -> String {
+    "localhost".into()
+}
+
+fn default_webauthn_rp_origin() -> String {
+    "http://localhost:42617".into()
+}
+
+fn default_webauthn_rp_name() -> String {
+    "ZeroClaw".into()
 }
 
 /// OTP validation strategy.
