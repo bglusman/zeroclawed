@@ -357,7 +357,6 @@ impl SlackChannel {
             .await;
     }
 
-
     fn http_client(&self) -> reqwest::Client {
         crate::config::build_channel_proxy_client_with_timeouts(
             "channel.slack",
