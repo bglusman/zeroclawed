@@ -49,6 +49,7 @@ pub mod traits;
 pub mod transcription;
 pub mod tts;
 pub mod twitter;
+pub mod voice_call;
 #[cfg(feature = "voice-wake")]
 pub mod voice_wake;
 pub mod wati;
@@ -90,6 +91,8 @@ pub use traits::{Channel, SendMessage};
 #[allow(unused_imports)]
 pub use tts::{TtsManager, TtsProvider};
 pub use twitter::TwitterChannel;
+#[allow(unused_imports)]
+pub use voice_call::{VoiceCallChannel, VoiceCallConfig};
 #[cfg(feature = "voice-wake")]
 pub use voice_wake::VoiceWakeChannel;
 pub use wati::WatiChannel;

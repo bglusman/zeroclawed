@@ -6020,6 +6020,8 @@ pub struct ChannelsConfig {
     pub reddit: Option<RedditConfig>,
     /// Bluesky channel configuration (AT Protocol).
     pub bluesky: Option<BlueskyConfig>,
+    /// Voice call channel configuration (Twilio/Telnyx/Plivo).
+    pub voice_call: Option<crate::channels::voice_call::VoiceCallConfig>,
     /// Voice wake word detection channel configuration.
     #[cfg(feature = "voice-wake")]
     pub voice_wake: Option<VoiceWakeConfig>,
@@ -6208,6 +6210,7 @@ impl Default for ChannelsConfig {
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            voice_call: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
             message_timeout_secs: default_channel_message_timeout_secs(),
@@ -11141,6 +11144,7 @@ auto_save = true
                 clawdtalk: None,
                 reddit: None,
                 bluesky: None,
+                voice_call: None,
                 #[cfg(feature = "voice-wake")]
                 voice_wake: None,
                 message_timeout_secs: 300,
@@ -12144,6 +12148,7 @@ allowed_users = ["@ops:matrix.org"]
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            voice_call: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
             message_timeout_secs: 300,
@@ -12496,6 +12501,7 @@ channel_ids = ["C123", "D456"]
             clawdtalk: None,
             reddit: None,
             bluesky: None,
+            voice_call: None,
             #[cfg(feature = "voice-wake")]
             voice_wake: None,
             message_timeout_secs: 300,
