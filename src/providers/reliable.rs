@@ -96,7 +96,7 @@ pub fn is_tool_schema_error(err: &anyhow::Error) -> bool {
     hints.iter().any(|hint| lower.contains(hint))
 }
 
-fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
+pub(crate) fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
     let lower = err.to_string().to_lowercase();
     let hints = [
         "exceeds the context window",

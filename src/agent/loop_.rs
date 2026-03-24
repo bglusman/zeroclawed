@@ -4396,18 +4396,24 @@ pub async fn run(
             }
             observer.record_event(&ObserverEvent::TurnComplete);
 
-            // Auto-compaction before hard trimming to preserve long-context signal.
-            if let Ok(compacted) = auto_compact_history(
-                &mut history,
-                provider.as_ref(),
-                &model_name,
-                config.agent.max_history_messages,
-                config.agent.max_context_tokens,
-            )
-            .await
+            // Context compression before hard trimming to preserve long-context signal.
             {
-                if compacted {
-                    println!("🧹 Auto-compaction complete");
+                let compressor = crate::agent::context_compressor::ContextCompressor::new(
+                    config.agent.context_compression.clone(),
+                    config.agent.max_context_tokens,
+                );
+                if let Ok(result) = compressor
+                    .compress_if_needed(&mut history, provider.as_ref(), &model_name)
+                    .await
+                {
+                    if result.compressed {
+                        tracing::info!(
+                            passes = result.passes_used,
+                            before = result.tokens_before,
+                            after = result.tokens_after,
+                            "Context compression complete"
+                        );
+                    }
                 }
             }
 
