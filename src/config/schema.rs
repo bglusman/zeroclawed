@@ -102,6 +102,14 @@ pub struct Config {
     #[serde(default = "default_provider_timeout_secs")]
     pub provider_timeout_secs: u64,
 
+    /// Maximum output tokens to include in LLM provider API requests.
+    ///
+    /// When set, overrides each provider's built-in default. This is especially
+    /// important for OpenRouter where the platform default (65536) can cause 402
+    /// errors for models with lower output limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_max_tokens: Option<u32>,
+
     /// Extra HTTP headers to include in LLM provider API requests.
     ///
     /// Some providers require specific headers (e.g., `User-Agent`, `HTTP-Referer`,
@@ -494,6 +502,12 @@ pub struct ModelProviderConfig {
     /// Azure OpenAI API version (defaults to "2024-08-01-preview").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub azure_openai_api_version: Option<String>,
+    /// Optional maximum output tokens to send in API requests.
+    /// When set, overrides the provider's default `max_tokens` value.
+    /// Useful for providers like OpenRouter where the platform default (65536)
+    /// may exceed a model's actual limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
 }
 
 // ── Delegate Tool Configuration ─────────────────────────────────
@@ -8045,6 +8059,7 @@ impl Default for Config {
             model_providers: HashMap::new(),
             default_temperature: default_temperature(),
             provider_timeout_secs: default_provider_timeout_secs(),
+            provider_max_tokens: None,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
@@ -9147,6 +9162,13 @@ impl Config {
                 if !trimmed.is_empty() {
                     self.api_path = Some(trimmed.to_string());
                 }
+            }
+        }
+
+        // Propagate max_tokens from the profile when not already set at top level.
+        if self.provider_max_tokens.is_none() {
+            if let Some(max_tokens) = profile.max_tokens {
+                self.provider_max_tokens = Some(max_tokens);
             }
         }
 
@@ -11106,6 +11128,7 @@ auto_save = true
             model_providers: HashMap::new(),
             default_temperature: 0.5,
             provider_timeout_secs: 120,
+            provider_max_tokens: None,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig {
                 backend: "log".into(),
@@ -11706,6 +11729,7 @@ default_temperature = 0.7
             model_providers: HashMap::new(),
             default_temperature: 0.9,
             provider_timeout_secs: 120,
+            provider_max_tokens: None,
             extra_headers: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
@@ -13148,6 +13172,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    max_tokens: None,
                 },
             )]),
             ..Config::default()
@@ -13180,6 +13205,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    max_tokens: None,
                 },
             )]),
             api_key: None,
@@ -13280,6 +13306,7 @@ requires_openai_auth = true
                     azure_openai_deployment: None,
                     azure_openai_api_version: None,
                     api_path: None,
+                    max_tokens: None,
                 },
             )]),
             ..Config::default()
