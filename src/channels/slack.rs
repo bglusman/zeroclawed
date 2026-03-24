@@ -19,6 +19,7 @@ struct CachedSlackDisplayName {
 }
 
 /// Slack channel — polls conversations.history via Web API
+#[allow(clippy::struct_excessive_bools)]
 pub struct SlackChannel {
     bot_token: String,
     app_token: Option<String>,
