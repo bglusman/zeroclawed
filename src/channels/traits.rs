@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tokio_util::sync::CancellationToken;
 
 /// A message received from or sent to a channel
 #[derive(Debug, Clone)]
@@ -31,6 +32,8 @@ pub struct SendMessage {
     pub subject: Option<String>,
     /// Platform thread identifier for threaded replies (e.g. Slack `thread_ts`).
     pub thread_ts: Option<String>,
+    /// Optional cancellation token for interruptible delivery (e.g. multi-message mode).
+    pub cancellation_token: Option<CancellationToken>,
 }
 
 impl SendMessage {
@@ -41,6 +44,7 @@ impl SendMessage {
             recipient: recipient.into(),
             subject: None,
             thread_ts: None,
+            cancellation_token: None,
         }
     }
 
@@ -55,12 +59,19 @@ impl SendMessage {
             recipient: recipient.into(),
             subject: Some(subject.into()),
             thread_ts: None,
+            cancellation_token: None,
         }
     }
 
     /// Set the thread identifier for threaded replies.
     pub fn in_thread(mut self, thread_ts: Option<String>) -> Self {
         self.thread_ts = thread_ts;
+        self
+    }
+
+    /// Attach a cancellation token for interruptible delivery.
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation_token = Some(token);
         self
     }
 }

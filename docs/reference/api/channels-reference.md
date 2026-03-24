@@ -172,7 +172,18 @@ guild_id = "123456789012345678"   # optional
 allowed_users = ["*"]
 listen_to_bots = false
 mention_only = false
+stream_mode = "off"               # optional: off | partial | multi_message
+draft_update_interval_ms = 1000   # optional: edit throttle for partial streaming
+multi_message_delay_ms = 800      # optional: delay between messages for multi_message mode
 ```
+
+Discord notes:
+
+- `stream_mode = "partial"` sends an editable draft message that updates as tool calls complete, then finalizes with the full response.
+- `stream_mode = "multi_message"` splits the final response at paragraph boundaries and sends each as a separate message with a configurable delay.
+- `draft_update_interval_ms` controls edit throttling in partial mode (default: 1000ms).
+- `multi_message_delay_ms` controls delay between messages in multi_message mode (default: 800ms).
+- Code fences are never split in multi_message mode.
 
 ### 4.3 Slack
 

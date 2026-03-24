@@ -2650,7 +2650,14 @@ async fn process_channel_message(
         }
     }
 
-    let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());
+    // Skip typing when streaming — draft updates provide visual feedback
+    // and Discord does not clear its typing indicator on message edits
+    // (PATCH), only on new message sends (POST).
+    let typing_cancellation = if use_streaming {
+        None
+    } else {
+        target_channel.as_ref().map(|_| CancellationToken::new())
+    };
     let typing_task = match (target_channel.as_ref(), typing_cancellation.as_ref()) {
         (Some(channel), Some(token)) => Some(spawn_scoped_typing_task(
             Arc::clone(channel),
@@ -3013,7 +3020,8 @@ async fn process_channel_message(
                 } else if let Err(e) = channel
                     .send(
                         &SendMessage::new(&delivered_response, &msg.reply_target)
-                            .in_thread(msg.thread_ts.clone()),
+                            .in_thread(msg.thread_ts.clone())
+                            .with_cancellation(cancellation_token.clone()),
                     )
                     .await
                 {
@@ -3962,6 +3970,11 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                     dc.listen_to_bots,
                     dc.mention_only,
                 )
+                .with_streaming(
+                    dc.stream_mode,
+                    dc.draft_update_interval_ms,
+                    dc.multi_message_delay_ms,
+                )
                 .with_transcription(config.transcription.clone()),
             ))
         }
@@ -4067,6 +4080,11 @@ fn collect_configured_channels(
                     dc.allowed_users.clone(),
                     dc.listen_to_bots,
                     dc.mention_only,
+                )
+                .with_streaming(
+                    dc.stream_mode,
+                    dc.draft_update_interval_ms,
+                    dc.multi_message_delay_ms,
                 )
                 .with_proxy_url(dc.proxy_url.clone())
                 .with_transcription(config.transcription.clone()),
