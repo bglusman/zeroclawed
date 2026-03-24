@@ -1680,6 +1680,42 @@ pub struct CostConfig {
     /// Per-model pricing (USD per 1M tokens)
     #[serde(default)]
     pub prices: std::collections::HashMap<String, ModelPricing>,
+
+    /// Cost enforcement behavior when budget limits are approached or exceeded.
+    #[serde(default)]
+    pub enforcement: CostEnforcementConfig,
+}
+
+/// Configuration for cost enforcement behavior when budget limits are reached.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CostEnforcementConfig {
+    /// Enforcement mode: "warn", "block", or "route_down".
+    #[serde(default = "default_cost_enforcement_mode")]
+    pub mode: String,
+    /// Model hint to route to when budget is exceeded (used with "route_down" mode).
+    #[serde(default)]
+    pub route_down_model: Option<String>,
+    /// Reserve this percentage of budget for critical operations.
+    #[serde(default = "default_reserve_percent")]
+    pub reserve_percent: u8,
+}
+
+fn default_cost_enforcement_mode() -> String {
+    "warn".to_string()
+}
+
+fn default_reserve_percent() -> u8 {
+    10
+}
+
+impl Default for CostEnforcementConfig {
+    fn default() -> Self {
+        Self {
+            mode: default_cost_enforcement_mode(),
+            route_down_model: None,
+            reserve_percent: default_reserve_percent(),
+        }
+    }
 }
 
 /// Per-model pricing entry (USD per 1M tokens).
@@ -1719,6 +1755,7 @@ impl Default for CostConfig {
             warn_at_percent: default_warn_percent(),
             allow_override: false,
             prices: get_default_pricing(),
+            enforcement: CostEnforcementConfig::default(),
         }
     }
 }
@@ -15398,5 +15435,20 @@ auto_approve = ["file_read", "file_write", "file_edit", "memory_recall", "memory
                 "Docker config auto_approve missing expected tool: {tool}"
             );
         }
+    }
+
+    #[test]
+    async fn cost_enforcement_config_defaults() {
+        let config = CostEnforcementConfig::default();
+        assert_eq!(config.mode, "warn");
+        assert_eq!(config.route_down_model, None);
+        assert_eq!(config.reserve_percent, 10);
+    }
+
+    #[test]
+    async fn cost_config_includes_enforcement() {
+        let config = CostConfig::default();
+        assert_eq!(config.enforcement.mode, "warn");
+        assert_eq!(config.enforcement.reserve_percent, 10);
     }
 }
