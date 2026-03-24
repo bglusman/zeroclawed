@@ -7161,6 +7161,9 @@ pub enum SandboxBackend {
     Bubblewrap,
     /// Docker container isolation
     Docker,
+    /// macOS sandbox-exec (Seatbelt)
+    #[serde(alias = "sandbox-exec")]
+    SandboxExec,
     /// No sandboxing (application-layer only)
     None,
 }
