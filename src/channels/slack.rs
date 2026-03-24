@@ -46,6 +46,10 @@ pub struct SlackChannel {
     draft_update_interval_ms: u64,
     /// Per-channel rate-limit tracker for draft edits.
     last_draft_edit: Mutex<HashMap<String, Instant>>,
+    /// Maps lazy placeholder IDs to real Slack message timestamps.
+    /// `send_draft` returns a placeholder without posting; the real message
+    /// is created on the first `update_draft` call.
+    lazy_draft_ts: tokio::sync::Mutex<HashMap<String, String>>,
 }
 
 const SLACK_HISTORY_MAX_RETRIES: u32 = 3;
@@ -111,6 +115,9 @@ const SLACK_DRAFT_UPDATE_INTERVAL_MS: u64 = 1200;
 /// Maximum text length for a single Slack message (approx 40k chars).
 const SLACK_MESSAGE_MAX_CHARS: usize = 40_000;
 
+/// Prefix for lazy draft IDs that haven't been posted to Slack yet.
+const LAZY_DRAFT_PREFIX: &str = "lazy:";
+
 const SLACK_ATTACHMENT_RENDER_CONCURRENCY: usize = 3;
 const SLACK_POLL_ACTIVE_THREAD_MAX: usize = 50;
 const SLACK_POLL_THREAD_EXPIRE_SECS: u64 = 24 * 60 * 60;
@@ -152,6 +159,7 @@ impl SlackChannel {
             stream_drafts: false,
             draft_update_interval_ms: SLACK_DRAFT_UPDATE_INTERVAL_MS,
             last_draft_edit: Mutex::new(HashMap::new()),
+            lazy_draft_ts: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -245,6 +253,108 @@ impl SlackChannel {
         }
 
         Ok(())
+    }
+
+    /// Resolve a possibly-lazy draft ID to a real Slack message ts.
+    /// If the ID starts with `LAZY_DRAFT_PREFIX`, the message hasn't been
+    /// posted yet — this method returns `None`. Otherwise returns the ID as-is,
+    /// or the previously resolved real ts from the lazy map.
+    async fn resolve_draft_ts(&self, message_id: &str) -> Option<String> {
+        if !message_id.starts_with(LAZY_DRAFT_PREFIX) {
+            return Some(message_id.to_string());
+        }
+        self.lazy_draft_ts.lock().await.get(message_id).cloned()
+    }
+
+    /// Post the initial draft message and store the mapping from
+    /// lazy placeholder ID to real Slack ts.
+    async fn materialize_lazy_draft(
+        &self,
+        lazy_id: &str,
+        text: &str,
+    ) -> anyhow::Result<Option<String>> {
+        // Parse channel + thread_ts from the lazy ID: "lazy:{channel}:{thread_ts}"
+        let rest = lazy_id.strip_prefix(LAZY_DRAFT_PREFIX).unwrap_or(lazy_id);
+        let (channel_id, thread_ts) = match rest.find(':') {
+            Some(pos) => {
+                let ts = &rest[pos + 1..];
+                (&rest[..pos], if ts.is_empty() { None } else { Some(ts) })
+            }
+            None => (rest, None),
+        };
+
+        let mut body = serde_json::json!({
+            "channel": channel_id,
+            "text": text,
+        });
+        if text.len() <= SLACK_MARKDOWN_BLOCK_MAX_CHARS {
+            body["blocks"] = serde_json::json!([{
+                "type": "markdown",
+                "text": text
+            }]);
+        }
+        if let Some(ts) = thread_ts {
+            body["thread_ts"] = serde_json::json!(ts);
+        }
+
+        let resp = self
+            .http_client()
+            .post("https://slack.com/api/chat.postMessage")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_body: serde_json::Value = resp.json().await?;
+        if resp_body.get("ok") != Some(&serde_json::Value::Bool(true)) {
+            let err = resp_body
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
+            anyhow::bail!("Slack chat.postMessage (lazy draft) failed: {err}");
+        }
+
+        let ts = resp_body
+            .get("ts")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+
+        if let Some(ref real_ts) = ts {
+            self.lazy_draft_ts
+                .lock()
+                .await
+                .insert(lazy_id.to_string(), real_ts.clone());
+        }
+
+        Ok(ts)
+    }
+
+    /// Set the Assistants API status bar text for a channel's active thread.
+    async fn set_assistant_status(&self, channel_id: &str, status: &str) {
+        let thread_ts = {
+            let map = match self.active_assistant_thread.lock() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            match map.get(channel_id) {
+                Some(ts) => ts.clone(),
+                None => return,
+            }
+        };
+
+        let body = serde_json::json!({
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "status": status,
+        });
+
+        let _ = self
+            .http_client()
+            .post("https://slack.com/api/assistant.threads.setStatus")
+            .bearer_auth(&self.bot_token)
+            .json(&body)
+            .send()
+            .await;
     }
 
 
@@ -2819,52 +2929,11 @@ impl Channel for SlackChannel {
             return Ok(None);
         }
 
-        let channel_id = &message.recipient;
-        let initial_text = if message.content.is_empty() {
-            "..."
-        } else {
-            &message.content
-        };
-
-        let mut body = serde_json::json!({
-            "channel": channel_id,
-            "text": initial_text,
-        });
-
-        if let Some(ts) = self.outbound_thread_ts(message) {
-            body["thread_ts"] = serde_json::json!(ts);
-        }
-
-        let resp = self
-            .http_client()
-            .post("https://slack.com/api/chat.postMessage")
-            .bearer_auth(&self.bot_token)
-            .json(&body)
-            .send()
-            .await?;
-
-        let resp_body: serde_json::Value = resp.json().await?;
-        if resp_body.get("ok") != Some(&serde_json::Value::Bool(true)) {
-            let err = resp_body
-                .get("error")
-                .and_then(|e| e.as_str())
-                .unwrap_or("unknown");
-            anyhow::bail!("Slack chat.postMessage (draft) failed: {err}");
-        }
-
-        let ts = resp_body
-            .get("ts")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string);
-
-        if ts.is_some() {
-            self.last_draft_edit
-                .lock()
-                .expect("last_draft_edit lock")
-                .insert(channel_id.to_string(), Instant::now());
-        }
-
-        Ok(ts)
+        // Return a lazy placeholder — the real message is posted on the
+        // first update_draft call so we don't show "..." before any output.
+        let thread_ts = self.outbound_thread_ts(message).unwrap_or_default();
+        let lazy_id = format!("{LAZY_DRAFT_PREFIX}{}:{}", message.recipient, thread_ts);
+        Ok(Some(lazy_id))
     }
 
     async fn update_draft(
@@ -2873,6 +2942,26 @@ impl Channel for SlackChannel {
         message_id: &str,
         text: &str,
     ) -> anyhow::Result<()> {
+        // with the first real content (instead of showing "...").
+        if message_id.starts_with(LAZY_DRAFT_PREFIX)
+            && self.resolve_draft_ts(message_id).await.is_none()
+        {
+            // First call — post the message. This blocks intentionally so the
+            // ts is stored before any subsequent update_draft or finalize_draft.
+            let _ = self.materialize_lazy_draft(message_id, text).await;
+            self.last_draft_edit
+                .lock()
+                .expect("last_draft_edit lock")
+                .insert(recipient.to_string(), Instant::now());
+            return Ok(());
+        }
+
+        // Resolve the real ts (may be a lazy ID that was already materialized).
+        let real_ts = match self.resolve_draft_ts(message_id).await {
+            Some(ts) => ts,
+            None => return Ok(()),
+        };
+
         // Rate-limit edits per channel
         {
             let last_edits = self.last_draft_edit.lock().expect("last_draft_edit lock");
@@ -2884,45 +2973,81 @@ impl Channel for SlackChannel {
             }
         }
 
-        // Truncate to Slack's message limit for mid-stream edits
+        // Mark as sent NOW (before the HTTP call) to prevent queuing
+        // another update while this one is in flight.
+        self.last_draft_edit
+            .lock()
+            .expect("last_draft_edit lock")
+            .insert(recipient.to_string(), Instant::now());
+
+        // Fire-and-forget: spawn the HTTP call so we don't block the
+        // draft updater task (which would back-pressure the tool loop).
         let display_text = if text.len() > SLACK_MESSAGE_MAX_CHARS {
-            &text[..text
+            text[..text
                 .char_indices()
                 .take_while(|(idx, _)| *idx < SLACK_MESSAGE_MAX_CHARS)
                 .last()
                 .map_or(0, |(idx, ch)| idx + ch.len_utf8())]
+                .to_string()
         } else {
-            text
+            text.to_string()
         };
 
-        let body = serde_json::json!({
-            "channel": recipient,
-            "ts": message_id,
-            "text": display_text,
+        let client = self.http_client();
+        let token = self.bot_token.clone();
+        let channel = recipient.to_string();
+        tokio::spawn(async move {
+            let mut body = serde_json::json!({
+                "channel": channel,
+                "ts": real_ts,
+                "text": &display_text,
+            });
+            if display_text.len() <= SLACK_MARKDOWN_BLOCK_MAX_CHARS {
+                body["blocks"] = serde_json::json!([{
+                    "type": "markdown",
+                    "text": &display_text
+                }]);
+            }
+            match client
+                .post("https://slack.com/api/chat.update")
+                .bearer_auth(&token)
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    if let Ok(resp_body) = resp.json::<serde_json::Value>().await {
+                        if resp_body.get("ok") != Some(&serde_json::Value::Bool(true)) {
+                            let err = resp_body
+                                .get("error")
+                                .and_then(|e| e.as_str())
+                                .unwrap_or("unknown");
+                            tracing::debug!("Slack chat.update (draft) failed: {err}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("Slack chat.update (draft) HTTP error: {e}");
+                }
+            }
         });
 
-        let resp = self
-            .http_client()
-            .post("https://slack.com/api/chat.update")
-            .bearer_auth(&self.bot_token)
-            .json(&body)
-            .send()
-            .await?;
+        Ok(())
+    }
 
-        let resp_body: serde_json::Value = resp.json().await?;
-        if resp_body.get("ok") == Some(&serde_json::Value::Bool(true)) {
-            self.last_draft_edit
-                .lock()
-                .expect("last_draft_edit lock")
-                .insert(recipient.to_string(), Instant::now());
-        } else {
-            let err = resp_body
-                .get("error")
-                .and_then(|e| e.as_str())
-                .unwrap_or("unknown");
-            tracing::debug!("Slack chat.update (draft) failed: {err}");
+    async fn update_draft_progress(
+        &self,
+        recipient: &str,
+        _message_id: &str,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let status_line = text.trim().lines().last().unwrap_or("").trim();
+        // Skip "Thinking..." — the typing indicator already conveys that.
+        // Only show tool-related progress in the status bar.
+        if status_line.is_empty() || status_line.starts_with("\u{1f914}") {
+            return Ok(());
         }
-
+        self.set_assistant_status(recipient, status_line).await;
         Ok(())
     }
 
@@ -2932,22 +3057,31 @@ impl Channel for SlackChannel {
         message_id: &str,
         text: &str,
     ) -> anyhow::Result<()> {
-        // Clean up rate-limit tracking
+        // Clean up rate-limit tracking and lazy draft map
         self.last_draft_edit
             .lock()
             .expect("last_draft_edit lock")
             .remove(recipient);
 
+        let real_ts = self.resolve_draft_ts(message_id).await;
+        // Clean up lazy mapping
+        self.lazy_draft_ts.lock().await.remove(message_id);
+
+        let Some(real_ts) = real_ts else {
+            // Draft was never materialized — just send as a fresh message
+            return self.send(&SendMessage::new(text, recipient)).await;
+        };
+
         // If text exceeds Slack limit, delete draft and send as regular message
         if text.len() > SLACK_MESSAGE_MAX_CHARS {
-            let _ = self.delete_message(recipient, message_id).await;
+            let _ = self.delete_message(recipient, &real_ts).await;
             return self.send(&SendMessage::new(text, recipient)).await;
         }
 
         // Edit the draft with the final formatted content
         let mut body = serde_json::json!({
             "channel": recipient,
-            "ts": message_id,
+            "ts": real_ts,
             "text": text,
         });
 
@@ -2979,7 +3113,7 @@ impl Channel for SlackChannel {
             .unwrap_or("unknown");
         tracing::debug!("Slack chat.update (finalize) failed: {err}; falling back to delete+send");
 
-        let _ = self.delete_message(recipient, message_id).await;
+        let _ = self.delete_message(recipient, &real_ts).await;
         self.send(&SendMessage::new(text, recipient)).await
     }
 
@@ -2988,7 +3122,13 @@ impl Channel for SlackChannel {
             .lock()
             .expect("last_draft_edit lock")
             .remove(recipient);
-        self.delete_message(recipient, message_id).await
+        let real_ts = self.resolve_draft_ts(message_id).await;
+        self.lazy_draft_ts.lock().await.remove(message_id);
+        if let Some(ts) = real_ts {
+            self.delete_message(recipient, &ts).await
+        } else {
+            Ok(())
+        }
     }
 
     async fn add_reaction(
@@ -3400,8 +3540,13 @@ impl Channel for SlackChannel {
         Ok(())
     }
 
-    async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
-        // Status auto-clears when the bot sends a message via chat.postMessage.
+    async fn stop_typing(&self, recipient: &str) -> anyhow::Result<()> {
+        // When using draft streaming, the final response is delivered via
+        // chat.update (not chat.postMessage), so the Assistants API status
+        // does not auto-clear. Explicitly clear it.
+        if self.stream_drafts {
+            self.set_assistant_status(recipient, "").await;
+        }
         Ok(())
     }
 }
