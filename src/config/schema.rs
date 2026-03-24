@@ -3081,6 +3081,38 @@ pub struct PluginsConfig {
     /// Maximum number of plugins that can be loaded
     #[serde(default = "default_max_plugins")]
     pub max_plugins: usize,
+    /// Plugin signature verification security settings
+    #[serde(default)]
+    pub security: PluginSecurityConfig,
+}
+
+/// Plugin signature verification configuration (`[plugins.security]`).
+///
+/// Controls Ed25519 signature verification for plugin manifests.
+/// In `strict` mode, only plugins signed by a trusted publisher key are loaded.
+/// In `permissive` mode, unsigned or untrusted plugins produce warnings but are
+/// still loaded. In `disabled` mode (the default), no signature checking occurs.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PluginSecurityConfig {
+    /// Signature enforcement mode: "disabled", "permissive", or "strict".
+    #[serde(default = "default_signature_mode")]
+    pub signature_mode: String,
+    /// Hex-encoded Ed25519 public keys of trusted plugin publishers.
+    #[serde(default)]
+    pub trusted_publisher_keys: Vec<String>,
+}
+
+fn default_signature_mode() -> String {
+    "disabled".to_string()
+}
+
+impl Default for PluginSecurityConfig {
+    fn default() -> Self {
+        Self {
+            signature_mode: default_signature_mode(),
+            trusted_publisher_keys: Vec::new(),
+        }
+    }
 }
 
 fn default_plugins_dir() -> String {
@@ -3098,6 +3130,7 @@ impl Default for PluginsConfig {
             plugins_dir: default_plugins_dir(),
             auto_discover: false,
             max_plugins: default_max_plugins(),
+            security: PluginSecurityConfig::default(),
         }
     }
 }
