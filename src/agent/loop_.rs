@@ -361,13 +361,18 @@ fn estimate_history_tokens(history: &[ChatMessage]) -> usize {
 /// Minimum interval between progress sends to avoid flooding the draft channel.
 pub(crate) const PROGRESS_MIN_INTERVAL_MS: u64 = 500;
 
-/// Sentinel value sent through on_delta to signal the draft updater to clear accumulated text.
-/// Used before streaming the final answer so progress lines are replaced by the clean response.
-pub(crate) const DRAFT_CLEAR_SENTINEL: &str = "\x00CLEAR\x00";
-
-/// Sentinel prefix sent through on_delta to convey progress updates (e.g. tool execution status).
-/// Test helpers filter these out when asserting on visible output.
-pub(crate) const DRAFT_PROGRESS_SENTINEL: &str = "\x00PROGRESS\x00";
+/// Structured event sent through the draft channel so channels can
+/// differentiate between status/progress updates and actual response content.
+#[derive(Debug, Clone)]
+pub enum DraftEvent {
+    /// Clear accumulated draft content (e.g. before streaming a new response).
+    Clear,
+    /// Progress / status text — channels can show this in a status bar
+    /// rather than in the message body (e.g. "🤔 Thinking...", "⏳ shell_command").
+    Progress(String),
+    /// Actual response content delta to append to the draft message.
+    Content(String),
+}
 
 tokio::task_local! {
     pub(crate) static TOOL_CHOICE_OVERRIDE: Option<String>;
@@ -1460,13 +1465,13 @@ fn default_param_for_tool(tool: &str) -> &'static str {
         "file_read" | "fileread" | "readfile" | "read_file" | "file" | "file_write"
         | "filewrite" | "writefile" | "write_file" | "file_edit" | "fileedit" | "editfile"
         | "edit_file" | "file_list" | "filelist" | "listfiles" | "list_files" => "path",
-        // Memory recall and forget both default to "query"
+        // Memory recall/forget and web search tools all default to "query"
         "memory_recall" | "memoryrecall" | "recall" | "memrecall" | "memory_forget"
-        | "memoryforget" | "forget" | "memforget" => "query",
+        | "memoryforget" | "forget" | "memforget" | "web_search_tool" | "web_search"
+        | "websearch" | "search" => "query",
         "memory_store" | "memorystore" | "store" | "memstore" => "content",
         // HTTP and browser tools default to "url"
-        "http_request" | "http" | "fetch" | "curl" | "wget" | "browser_open" | "browser"
-        | "web_search" => "url",
+        "http_request" | "http" | "fetch" | "curl" | "wget" | "browser_open" | "browser" => "url",
         _ => "input",
     }
 }
@@ -2347,7 +2352,7 @@ async fn consume_provider_streaming_response(
     model: &str,
     temperature: f64,
     cancellation_token: Option<&CancellationToken>,
-    on_delta: Option<&tokio::sync::mpsc::Sender<String>>,
+    on_delta: Option<&tokio::sync::mpsc::Sender<DraftEvent>>,
 ) -> Result<StreamedChatOutcome> {
     let mut provider_stream = provider.stream_chat(
         ChatRequest {
@@ -2385,7 +2390,7 @@ async fn consume_provider_streaming_response(
                 suppress_forwarding = true;
                 if outcome.forwarded_live_deltas {
                     if let Some(tx) = delta_sender {
-                        let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                        let _ = tx.send(DraftEvent::Clear).await;
                     }
                     outcome.forwarded_live_deltas = false;
                 }
@@ -2411,7 +2416,7 @@ async fn consume_provider_streaming_response(
                     suppress_forwarding = true;
                     if outcome.forwarded_live_deltas {
                         if let Some(tx) = delta_sender {
-                            let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                            let _ = tx.send(DraftEvent::Clear).await;
                         }
                         outcome.forwarded_live_deltas = false;
                     }
@@ -2423,10 +2428,10 @@ async fn consume_provider_streaming_response(
 
                 if let Some(tx) = delta_sender {
                     if !outcome.forwarded_live_deltas {
-                        let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                        let _ = tx.send(DraftEvent::Clear).await;
                         outcome.forwarded_live_deltas = true;
                     }
-                    if tx.send(chunk.delta).await.is_err() {
+                    if tx.send(DraftEvent::Content(chunk.delta)).await.is_err() {
                         delta_sender = None;
                     }
                 }
@@ -2785,7 +2790,7 @@ pub(crate) async fn run_tool_call_loop(
     multimodal_config: &crate::config::MultimodalConfig,
     max_tool_iterations: usize,
     cancellation_token: Option<CancellationToken>,
-    on_delta: Option<tokio::sync::mpsc::Sender<String>>,
+    on_delta: Option<tokio::sync::mpsc::Sender<DraftEvent>>,
     hooks: Option<&crate::hooks::HookRunner>,
     excluded_tools: &[String],
     dedup_exempt_tools: &[String],
@@ -2923,7 +2928,7 @@ pub(crate) async fn run_tool_call_loop(
             } else {
                 format!("\u{1f914} Thinking (round {})...\n", iteration + 1)
             };
-            let _ = tx.send(phase).await;
+            let _ = tx.send(DraftEvent::Progress(phase)).await;
         }
 
         observer.record_event(&ObserverEvent::LlmRequest {
@@ -3019,7 +3024,7 @@ pub(crate) async fn run_tool_call_loop(
                         }),
                     );
                     if let Some(ref tx) = on_delta {
-                        let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                        let _ = tx.send(DraftEvent::Clear).await;
                     }
                     call_provider_chat(
                         active_provider,
@@ -3240,10 +3245,10 @@ pub(crate) async fn run_tool_call_loop(
             let llm_secs = llm_started_at.elapsed().as_secs();
             if !tool_calls.is_empty() {
                 let _ = tx
-                    .send(format!(
+                    .send(DraftEvent::Progress(format!(
                         "\u{1f4ac} Got {} tool call(s) ({llm_secs}s)\n",
                         tool_calls.len()
-                    ))
+                    )))
                     .await;
             }
         }
@@ -3273,7 +3278,7 @@ pub(crate) async fn run_tool_call_loop(
                     return Ok(display_text);
                 }
                 // Clear accumulated progress lines before streaming the final answer.
-                let _ = tx.send(DRAFT_CLEAR_SENTINEL.to_string()).await;
+                let _ = tx.send(DraftEvent::Clear).await;
                 // Split on whitespace boundaries, accumulating chunks of at least
                 // STREAM_CHUNK_MIN_CHARS characters for progressive draft updates.
                 let mut chunk = String::new();
@@ -3286,13 +3291,16 @@ pub(crate) async fn run_tool_call_loop(
                     }
                     chunk.push_str(word);
                     if chunk.len() >= STREAM_CHUNK_MIN_CHARS
-                        && tx.send(std::mem::take(&mut chunk)).await.is_err()
+                        && tx
+                            .send(DraftEvent::Content(std::mem::take(&mut chunk)))
+                            .await
+                            .is_err()
                     {
                         break; // receiver dropped
                     }
                 }
                 if !chunk.is_empty() {
-                    let _ = tx.send(chunk).await;
+                    let _ = tx.send(DraftEvent::Content(chunk)).await;
                 }
             }
             history.push(ChatMessage::assistant(response_text.clone()));
@@ -3308,7 +3316,7 @@ pub(crate) async fn run_tool_call_loop(
                     if !narration.ends_with('\n') {
                         narration.push('\n');
                     }
-                    let _ = tx.send(narration).await;
+                    let _ = tx.send(DraftEvent::Content(narration)).await;
                 }
             }
             if !silent {
@@ -3358,11 +3366,11 @@ pub(crate) async fn run_tool_call_loop(
                         );
                         if let Some(ref tx) = on_delta {
                             let _ = tx
-                                .send(format!(
+                                .send(DraftEvent::Progress(format!(
                                     "\u{274c} {}: {}\n",
                                     call.name,
                                     truncate_with_ellipsis(&scrub_credentials(&cancelled), 200)
-                                ))
+                                )))
                                 .await;
                         }
                         ordered_results[idx] = Some((
@@ -3428,7 +3436,10 @@ pub(crate) async fn run_tool_call_loop(
                         );
                         if let Some(ref tx) = on_delta {
                             let _ = tx
-                                .send(format!("\u{274c} {}: {}\n", tool_name, denied))
+                                .send(DraftEvent::Progress(format!(
+                                    "\u{274c} {}: {}\n",
+                                    tool_name, denied
+                                )))
                                 .await;
                         }
                         ordered_results[idx] = Some((
@@ -3469,7 +3480,10 @@ pub(crate) async fn run_tool_call_loop(
                 );
                 if let Some(ref tx) = on_delta {
                     let _ = tx
-                        .send(format!("\u{274c} {}: {}\n", tool_name, duplicate))
+                        .send(DraftEvent::Progress(format!(
+                            "\u{274c} {}: {}\n",
+                            tool_name, duplicate
+                        )))
                         .await;
                 }
                 ordered_results[idx] = Some((
@@ -3509,7 +3523,7 @@ pub(crate) async fn run_tool_call_loop(
                     format!("\u{23f3} {}: {hint}\n", tool_name)
                 };
                 tracing::debug!(tool = %tool_name, "Sending progress start to draft");
-                let _ = tx.send(progress).await;
+                let _ = tx.send(DraftEvent::Progress(progress)).await;
             }
 
             executable_indices.push(idx);
@@ -3588,7 +3602,7 @@ pub(crate) async fn run_tool_call_loop(
                     format!("\u{274c} {} ({secs}s)\n", call.name)
                 };
                 tracing::debug!(tool = %call.name, secs, "Sending progress complete to draft");
-                let _ = tx.send(progress_msg).await;
+                let _ = tx.send(DraftEvent::Progress(progress_msg)).await;
             }
 
             ordered_results[*idx] = Some((call.name.clone(), call.tool_call_id.clone(), outcome));
@@ -4541,6 +4555,47 @@ pub async fn run(
                 &effective_input,
             );
 
+            // Set up streaming channel so tool progress and response
+            // content are printed progressively instead of buffered.
+            let (delta_tx, mut delta_rx) = tokio::sync::mpsc::channel::<DraftEvent>(64);
+            let content_was_streamed =
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let content_streamed_flag = content_was_streamed.clone();
+            let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+
+            let consumer_handle = tokio::spawn(async move {
+                use std::io::Write;
+                while let Some(event) = delta_rx.recv().await {
+                    match event {
+                        DraftEvent::Clear => {
+                            let _ = writeln!(std::io::stderr());
+                        }
+                        DraftEvent::Progress(text) => {
+                            if is_tty {
+                                let _ = write!(std::io::stderr(), "\x1b[2m{text}\x1b[0m");
+                            } else {
+                                let _ = write!(std::io::stderr(), "{text}");
+                            }
+                            let _ = std::io::stderr().flush();
+                        }
+                        DraftEvent::Content(text) => {
+                            content_streamed_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                            print!("{text}");
+                            let _ = std::io::stdout().flush();
+                        }
+                    }
+                }
+            });
+
+            // Ctrl+C cancels the in-flight turn instead of killing the process.
+            let cancel_token = CancellationToken::new();
+            let cancel_token_clone = cancel_token.clone();
+            let ctrlc_handle = tokio::spawn(async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    cancel_token_clone.cancel();
+                }
+            });
+
             let response = loop {
                 match run_tool_call_loop(
                     provider.as_ref(),
@@ -4550,14 +4605,14 @@ pub async fn run(
                     &provider_name,
                     &model_name,
                     turn_temperature,
-                    false,
+                    true,
                     approval_manager.as_ref(),
                     channel_name,
                     None,
                     &config.multimodal,
                     config.agent.max_tool_iterations,
-                    None,
-                    None,
+                    Some(cancel_token.clone()),
+                    Some(delta_tx.clone()),
                     None,
                     &excluded_tools,
                     &config.agent.tool_call_dedup_exempt,
@@ -4569,6 +4624,10 @@ pub async fn run(
                 {
                     Ok(resp) => break resp,
                     Err(e) => {
+                        if is_tool_loop_cancelled(&e) {
+                            eprintln!("\n\x1b[2m(cancelled)\x1b[0m");
+                            break String::new();
+                        }
                         if let Some((new_provider, new_model)) = is_model_switch_requested(&e) {
                             tracing::info!(
                                 "Model switch requested, switching from {} {} to {} {}",
@@ -4605,8 +4664,16 @@ pub async fn run(
                     }
                 }
             };
+
+            // Clean up: stop the Ctrl+C listener and flush streaming events.
+            ctrlc_handle.abort();
+            drop(delta_tx);
+            let _ = consumer_handle.await;
+
             final_output = response.clone();
-            if let Err(e) = crate::channels::Channel::send(
+            if content_was_streamed.load(std::sync::atomic::Ordering::Relaxed) {
+                println!();
+            } else if let Err(e) = crate::channels::Channel::send(
                 &cli,
                 &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
             )
@@ -6849,24 +6916,24 @@ mod tests {
         .await
         .expect("native tool-call text should be relayed through on_delta");
 
-        let mut deltas: Vec<String> = Vec::new();
+        let mut deltas: Vec<DraftEvent> = Vec::new();
         while let Some(delta) = rx.recv().await {
             deltas.push(delta);
         }
 
         let explanation_idx = deltas
             .iter()
-            .position(|delta| delta == "Task started. Waiting 30 seconds before checking status.\n")
+            .position(|delta| matches!(delta, DraftEvent::Content(t) if t == "Task started. Waiting 30 seconds before checking status.\n"))
             .expect("native assistant text should be relayed to on_delta");
         let clear_idx = deltas
             .iter()
-            .position(|delta| delta == DRAFT_CLEAR_SENTINEL)
+            .position(|delta| matches!(delta, DraftEvent::Clear))
             .expect("final answer streaming should clear prior draft state");
 
         assert!(
             deltas
                 .iter()
-                .any(|delta| delta.starts_with("\u{1f4ac} Got 1 tool call(s)")),
+                .any(|delta| matches!(delta, DraftEvent::Progress(t) if t.starts_with("\u{1f4ac} Got 1 tool call(s)"))),
             "tool-call progress line should still be relayed"
         );
         assert!(
@@ -6887,7 +6954,7 @@ mod tests {
             ChatMessage::user("say hi"),
         ];
         let observer = NoopObserver;
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DraftEvent>(32);
 
         let result = run_tool_call_loop(
             &provider,
@@ -6917,14 +6984,15 @@ mod tests {
 
         let mut visible_deltas = String::new();
         while let Some(delta) = rx.recv().await {
-            if delta == DRAFT_CLEAR_SENTINEL {
-                visible_deltas.clear();
-                continue;
+            match delta {
+                DraftEvent::Clear => {
+                    visible_deltas.clear();
+                }
+                DraftEvent::Progress(_) => {}
+                DraftEvent::Content(text) => {
+                    visible_deltas.push_str(&text);
+                }
             }
-            if delta.starts_with(DRAFT_PROGRESS_SENTINEL) {
-                continue;
-            }
-            visible_deltas.push_str(&delta);
         }
 
         assert_eq!(result, "streamed final answer");
@@ -6954,7 +7022,7 @@ mod tests {
             ChatMessage::user("run tool calls"),
         ];
         let observer = NoopObserver;
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DraftEvent>(64);
 
         let result = run_tool_call_loop(
             &provider,
@@ -6984,14 +7052,15 @@ mod tests {
 
         let mut visible_deltas = String::new();
         while let Some(delta) = rx.recv().await {
-            if delta == DRAFT_CLEAR_SENTINEL {
-                visible_deltas.clear();
-                continue;
+            match delta {
+                DraftEvent::Clear => {
+                    visible_deltas.clear();
+                }
+                DraftEvent::Progress(_) => {}
+                DraftEvent::Content(text) => {
+                    visible_deltas.push_str(&text);
+                }
             }
-            if delta.starts_with(DRAFT_PROGRESS_SENTINEL) {
-                continue;
-            }
-            visible_deltas.push_str(&delta);
         }
 
         assert_eq!(result, "done");
@@ -7025,7 +7094,7 @@ mod tests {
             ChatMessage::user("run native tools"),
         ];
         let observer = NoopObserver;
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DraftEvent>(64);
 
         let result = run_tool_call_loop(
             &provider,
@@ -7055,14 +7124,15 @@ mod tests {
 
         let mut visible_deltas = String::new();
         while let Some(delta) = rx.recv().await {
-            if delta == DRAFT_CLEAR_SENTINEL {
-                visible_deltas.clear();
-                continue;
+            match delta {
+                DraftEvent::Clear => {
+                    visible_deltas.clear();
+                }
+                DraftEvent::Progress(_) => {}
+                DraftEvent::Content(text) => {
+                    visible_deltas.push_str(&text);
+                }
             }
-            if delta.starts_with(DRAFT_PROGRESS_SENTINEL) {
-                continue;
-            }
-            visible_deltas.push_str(&delta);
         }
 
         assert_eq!(result, "done");
@@ -7105,7 +7175,7 @@ mod tests {
             ChatMessage::user("say hi"),
         ];
         let observer = NoopObserver;
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DraftEvent>(32);
 
         let result = run_tool_call_loop(
             &router,
@@ -7135,14 +7205,15 @@ mod tests {
 
         let mut visible_deltas = String::new();
         while let Some(delta) = rx.recv().await {
-            if delta == DRAFT_CLEAR_SENTINEL {
-                visible_deltas.clear();
-                continue;
+            match delta {
+                DraftEvent::Clear => {
+                    visible_deltas.clear();
+                }
+                DraftEvent::Progress(_) => {}
+                DraftEvent::Content(text) => {
+                    visible_deltas.push_str(&text);
+                }
             }
-            if delta.starts_with(DRAFT_PROGRESS_SENTINEL) {
-                continue;
-            }
-            visible_deltas.push_str(&delta);
         }
 
         assert_eq!(result, "routed streamed answer");
@@ -8846,6 +8917,9 @@ Let me check the result."#;
         assert_eq!(default_param_for_tool("file_read"), "path");
         assert_eq!(default_param_for_tool("memory_recall"), "query");
         assert_eq!(default_param_for_tool("memory_store"), "content");
+        assert_eq!(default_param_for_tool("web_search_tool"), "query");
+        assert_eq!(default_param_for_tool("web_search"), "query");
+        assert_eq!(default_param_for_tool("search"), "query");
         assert_eq!(default_param_for_tool("http_request"), "url");
         assert_eq!(default_param_for_tool("browser_open"), "url");
         assert_eq!(default_param_for_tool("unknown_tool"), "input");
@@ -9097,7 +9171,7 @@ Let me check the result."#;
         ];
         let observer = NoopObserver;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<DraftEvent>(64);
 
         let result = run_tool_call_loop(
             &provider,
@@ -9131,7 +9205,13 @@ Let me check the result."#;
             deltas.push(msg);
         }
 
-        let all_deltas = deltas.join("");
+        let all_deltas: String = deltas
+            .iter()
+            .filter_map(|d| match d {
+                DraftEvent::Progress(t) | DraftEvent::Content(t) => Some(t.as_str()),
+                DraftEvent::Clear => None,
+            })
+            .collect();
 
         // The failure reason should appear in the progress messages.
         assert!(
