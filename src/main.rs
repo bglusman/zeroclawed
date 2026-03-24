@@ -2647,9 +2647,11 @@ mod tests {
     fn onboard_cli_quick_and_channels_only_conflict() {
         // --quick and --channels-only should both parse at the CLI level
         // (the conflict is checked at runtime), but we verify both flags parse.
-        let cli =
-            Cli::try_parse_from(["zeroclaw", "onboard", "--quick", "--channels-only"]);
-        assert!(cli.is_ok(), "--quick --channels-only should parse at CLI level");
+        let cli = Cli::try_parse_from(["zeroclaw", "onboard", "--quick", "--channels-only"]);
+        assert!(
+            cli.is_ok(),
+            "--quick --channels-only should parse at CLI level"
+        );
     }
 
     #[test]
