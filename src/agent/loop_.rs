@@ -2429,6 +2429,11 @@ async fn consume_provider_streaming_response(
 
                 // Forward to MultiMessage text sink if present.
                 if let Some(sink) = stream_text_sink {
+                    tracing::debug!(
+                        delta_len = chunk.delta.len(),
+                        total_text_len = outcome.response_text.len(),
+                        "Forwarding text delta to stream_text_sink"
+                    );
                     let _ = sink.send(chunk.delta.clone()).await;
                     if !outcome.forwarded_live_deltas {
                         outcome.forwarded_live_deltas = true;
@@ -2990,9 +2995,18 @@ pub(crate) async fn run_tool_call_loop(
         } else {
             None
         };
-        let should_consume_provider_stream = on_delta.is_some()
+        let has_any_stream_sink = on_delta.is_some() || stream_text_sink.is_some();
+        let should_consume_provider_stream = has_any_stream_sink
             && provider.supports_streaming()
             && (request_tools.is_none() || provider.supports_streaming_tool_events());
+        tracing::debug!(
+            has_on_delta = on_delta.is_some(),
+            has_stream_text_sink = stream_text_sink.is_some(),
+            supports_streaming = provider.supports_streaming(),
+            should_consume_provider_stream,
+            "Streaming decision for iteration {}",
+            iteration + 1,
+        );
         let mut streamed_live_deltas = false;
 
         let chat_result = if should_consume_provider_stream {

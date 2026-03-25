@@ -2664,11 +2664,18 @@ async fn process_channel_message(
             let channel = Arc::clone(channel_ref);
             let reply_target = msg.reply_target.clone();
             let thread_ts = msg.thread_ts.clone();
+            let delay_ms = channel_ref.multi_message_delay_ms();
             Some(tokio::spawn(async move {
                 let mut buffer = String::new();
                 let mut in_fence = false;
+                tracing::debug!("MultiMessage updater started, waiting for deltas");
 
                 while let Some(delta) = rx.recv().await {
+                    tracing::trace!(
+                        delta_len = delta.len(),
+                        buffer_len = buffer.len(),
+                        "MultiMessage received delta"
+                    );
                     buffer.push_str(&delta);
 
                     // Check for paragraph boundaries outside code fences.
@@ -2713,10 +2720,19 @@ async fn process_channel_message(
                             in_fence = fence_state;
 
                             if !paragraph.is_empty() {
+                                tracing::debug!(
+                                    paragraph_len = paragraph.len(),
+                                    remaining_buffer_len = buffer.len(),
+                                    "MultiMessage: sending paragraph to channel"
+                                );
                                 let msg = SendMessage::new(&paragraph, &reply_target)
                                     .in_thread(thread_ts.clone());
                                 if let Err(e) = channel.send(&msg).await {
                                     tracing::debug!("Multi-message send failed: {e}");
+                                }
+                                if delay_ms > 0 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms))
+                                        .await;
                                 }
                             }
                         } else {
@@ -2728,6 +2744,10 @@ async fn process_channel_message(
 
                 // Flush any remaining buffered text.
                 let remaining = buffer.trim().to_string();
+                tracing::debug!(
+                    remaining_len = remaining.len(),
+                    "MultiMessage: flushing remaining buffer"
+                );
                 if !remaining.is_empty() {
                     let msg =
                         SendMessage::new(&remaining, &reply_target).in_thread(thread_ts.clone());

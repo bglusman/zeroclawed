@@ -116,6 +116,12 @@ pub trait Channel: Send + Sync {
         false
     }
 
+    /// Minimum delay (ms) between sending each paragraph in multi-message mode.
+    /// Channels should override this to avoid platform rate limits.
+    fn multi_message_delay_ms(&self) -> u64 {
+        800
+    }
+
     /// Send an initial draft message. Returns a platform-specific message ID for later edits.
     async fn send_draft(&self, _message: &SendMessage) -> anyhow::Result<Option<String>> {
         Ok(None)

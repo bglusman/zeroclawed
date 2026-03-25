@@ -1232,6 +1232,10 @@ impl Channel for DiscordChannel {
         self.stream_mode == crate::config::StreamMode::MultiMessage
     }
 
+    fn multi_message_delay_ms(&self) -> u64 {
+        self.multi_message_delay_ms
+    }
+
     async fn send_draft(&self, message: &SendMessage) -> anyhow::Result<Option<String>> {
         if self.stream_mode != crate::config::StreamMode::Partial {
             return Ok(None);
