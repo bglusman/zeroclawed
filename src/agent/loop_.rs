@@ -2429,7 +2429,7 @@ async fn consume_provider_streaming_response(
 
                 // Forward to MultiMessage text sink if present.
                 if let Some(sink) = stream_text_sink {
-                    tracing::debug!(
+                    tracing::trace!(
                         delta_len = chunk.delta.len(),
                         total_text_len = outcome.response_text.len(),
                         "Forwarding text delta to stream_text_sink"
