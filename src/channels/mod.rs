@@ -2657,10 +2657,12 @@ async fn process_channel_message(
         }
     }
 
-    // Skip typing when draft streaming — draft updates provide visual feedback
-    // and Discord does not clear its typing indicator on message edits (PATCH).
-    // MultiMessage and Off both keep typing active (POST clears it naturally).
-    let typing_cancellation = if use_draft_streaming {
+    // Skip typing only for Partial mode — the draft message itself provides
+    // visual feedback. MultiMessage and Off both keep typing active.
+    let is_partial_draft = target_channel
+        .as_ref()
+        .is_some_and(|ch| ch.supports_draft_updates() && !ch.supports_multi_message_streaming());
+    let typing_cancellation = if is_partial_draft {
         None
     } else {
         target_channel.as_ref().map(|_| CancellationToken::new())
