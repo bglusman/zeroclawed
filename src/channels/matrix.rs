@@ -53,6 +53,8 @@ pub struct MatrixChannel {
     /// Tracks how much text has been sent in MultiMessage mode so we can
     /// detect new paragraphs from the accumulated text passed to `update_draft`.
     multi_message_sent_len: Arc<Mutex<HashMap<String, usize>>>,
+    /// Thread context captured from `send_draft()` for MultiMessage paragraph delivery.
+    multi_message_thread_ts: Arc<Mutex<HashMap<String, Option<String>>>>,
 }
 
 impl std::fmt::Debug for MatrixChannel {
@@ -233,6 +235,7 @@ impl MatrixChannel {
             multi_message_delay_ms: 800,
             last_draft_edit: Arc::new(Mutex::new(HashMap::new())),
             multi_message_sent_len: Arc::new(Mutex::new(HashMap::new())),
+            multi_message_thread_ts: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1388,7 +1391,13 @@ impl Channel for MatrixChannel {
             StreamMode::MultiMessage => {
                 // MultiMessage: no initial draft — paragraphs are sent as new messages.
                 // Return a synthetic ID so the draft_updater task runs.
+                // Capture thread context for paragraph delivery.
+                let room_id = Self::extract_room_id(&message.recipient, &self.room_id);
                 self.multi_message_sent_len.lock().await.clear();
+                self.multi_message_thread_ts
+                    .lock()
+                    .await
+                    .insert(room_id, message.thread_ts.clone());
                 Ok(Some("multi_message_synthetic".to_string()))
             }
         }
@@ -1433,10 +1442,23 @@ impl Channel for MatrixChannel {
             StreamMode::MultiMessage => {
                 // The draft_updater passes the full accumulated text each call.
                 // Track how much we've already sent and only process new content.
+                let thread_ts = self
+                    .multi_message_thread_ts
+                    .lock()
+                    .await
+                    .get(&room_id)
+                    .cloned()
+                    .flatten();
                 let mut sent_map = self.multi_message_sent_len.lock().await;
                 let sent_so_far = sent_map.get(&room_id).copied().unwrap_or(0);
 
-                if text.len() <= sent_so_far {
+                // If accumulated text is shorter than what we've tracked, a
+                // DraftEvent::Clear reset the accumulator — reset our counter.
+                if text.len() < sent_so_far {
+                    sent_map.insert(room_id.clone(), 0);
+                    return Ok(());
+                }
+                if text.len() == sent_so_far {
                     return Ok(());
                 }
 
@@ -1469,9 +1491,8 @@ impl Channel for MatrixChannel {
                     {
                         let paragraph = new_text[..scan_pos].trim().to_string();
                         if !paragraph.is_empty() {
-                            // Send paragraph as a new message (with thread context).
-                            // We don't have thread_ts here, but the recipient encodes it.
-                            let msg = SendMessage::new(&paragraph, recipient);
+                            let msg = SendMessage::new(&paragraph, recipient)
+                                .in_thread(thread_ts.clone());
                             if let Err(e) = self.send(&msg).await {
                                 tracing::debug!("Multi-message paragraph send failed: {e}");
                             }
@@ -1542,7 +1563,14 @@ impl Channel for MatrixChannel {
                 if text.len() > sent_so_far {
                     let remaining = text[sent_so_far..].trim().to_string();
                     if !remaining.is_empty() {
-                        let msg = SendMessage::new(&remaining, recipient);
+                        let thread_ts = self
+                            .multi_message_thread_ts
+                            .lock()
+                            .await
+                            .get(&room_id)
+                            .cloned()
+                            .flatten();
+                        let msg = SendMessage::new(&remaining, recipient).in_thread(thread_ts);
                         if let Err(e) = self.send(&msg).await {
                             tracing::debug!("Multi-message final flush failed: {e}");
                         }
@@ -1550,6 +1578,7 @@ impl Channel for MatrixChannel {
                 }
 
                 sent_map.remove(&room_id);
+                self.multi_message_thread_ts.lock().await.remove(&room_id);
                 Ok(())
             }
         }
@@ -1569,6 +1598,7 @@ impl Channel for MatrixChannel {
             StreamMode::MultiMessage => {
                 // Paragraphs already sent can't be unsent. Just clean up state.
                 self.multi_message_sent_len.lock().await.remove(&room_id);
+                self.multi_message_thread_ts.lock().await.remove(&room_id);
                 Ok(())
             }
         }
