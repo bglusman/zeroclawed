@@ -377,10 +377,7 @@ impl MatrixChannel {
                 let stored = tokio::fs::read_to_string(&path).await?;
                 let stored = stored.trim().to_string();
                 if !stored.is_empty() {
-                    tracing::info!(
-                        "Matrix using persisted device_id from {}",
-                        path.display()
-                    );
+                    tracing::info!("Matrix using persisted device_id from {}", path.display());
                     return Ok(stored);
                 }
             }
@@ -2257,8 +2254,7 @@ mod tests {
 
     #[test]
     fn sanitize_error_for_log_scrubs_secret_prefixes() {
-        let sanitized =
-            MatrixChannel::sanitize_error_for_log(&"auth failed: sk-proj-abc123xyz");
+        let sanitized = MatrixChannel::sanitize_error_for_log(&"auth failed: sk-proj-abc123xyz");
         assert!(!sanitized.contains("sk-proj-abc123xyz"));
         assert!(sanitized.contains("[REDACTED]"));
     }

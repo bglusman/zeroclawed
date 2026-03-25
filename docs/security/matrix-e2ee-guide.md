@@ -126,7 +126,7 @@ After updating config, restart daemon and send a new message (not just old timel
 
 ZeroClaw needs a stable `device_id` for E2EE session restore. Without it, a new device is registered on every restart, breaking key sharing and device verification.
 
-**Option 1: From `whoami` (easiest)**
+#### Option 1: From `whoami` (easiest)
 
 ```bash
 curl -sS -H "Authorization: Bearer $MATRIX_TOKEN" \
@@ -141,7 +141,7 @@ Response includes `device_id` if the token is bound to a device session:
 
 If `device_id` is missing, the token was created without a device login (e.g., via admin API). Use Option 2 instead.
 
-**Option 2: From a password login**
+#### Option 2: From a password login
 
 ```bash
 curl -sS -X POST "https://your.homeserver/_matrix/client/v3/login" \
@@ -157,7 +157,7 @@ Response:
 
 Use both the returned `access_token` and `device_id` in your config. This creates a proper device session.
 
-**Option 3: From Element or another Matrix client**
+#### Option 3: From Element or another Matrix client
 
 1. Log in as the bot account in Element
 2. Go to Settings → Sessions
@@ -179,7 +179,7 @@ Keep `device_id` stable — changing it forces a new device registration, which 
 
 **Cause:** The bot's local crypto store was reset (e.g., deleted data directory, reinstalled) without deregistering the old device on the homeserver. The homeserver still has old one-time keys for this device, and the SDK fails to upload new ones.
 
-**Fix:**
+#### Fix
 
 1. Stop ZeroClaw.
 
