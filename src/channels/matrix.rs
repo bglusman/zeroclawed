@@ -366,6 +366,47 @@ impl MatrixChannel {
             .map(|dir| dir.join("state").join("matrix"))
     }
 
+    fn device_id_path(&self) -> Option<PathBuf> {
+        self.matrix_store_dir().map(|dir| dir.join("device_id"))
+    }
+
+    async fn load_or_generate_device_id(&self) -> anyhow::Result<String> {
+        // Try to load a previously persisted device_id
+        if let Some(path) = self.device_id_path() {
+            if path.exists() {
+                let stored = tokio::fs::read_to_string(&path).await?;
+                let stored = stored.trim().to_string();
+                if !stored.is_empty() {
+                    tracing::info!(
+                        "Matrix using persisted device_id from {}",
+                        path.display()
+                    );
+                    return Ok(stored);
+                }
+            }
+        }
+
+        // Generate a new device_id
+        let device_id = format!("ZEROCLAW_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        tracing::info!(
+            "Matrix auto-generated device_id '{}'. \
+             To keep this device stable, it has been saved locally. \
+             You can also set channels_config.matrix.device_id in config.toml.",
+            device_id
+        );
+
+        // Persist it so restarts reuse the same device
+        if let Some(path) = self.device_id_path() {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(&path, &device_id).await?;
+            tracing::debug!("Matrix persisted device_id to {}", path.display());
+        }
+
+        Ok(device_id)
+    }
+
     fn is_user_allowed(&self, sender: &str) -> bool {
         Self::is_sender_allowed(&self.allowed_users, sender)
     }
@@ -521,20 +562,18 @@ impl MatrixChannel {
                             hinted.clone()
                         }
                     }
-                    (Some(whoami), None) => whoami.device_id.clone().ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Matrix whoami response did not include device_id. \
-                             Set channels_config.matrix.device_id in config.toml. \
-                             See docs/security/matrix-e2ee-guide.md section 4G for how to find your device_id."
-                        )
-                    })?,
+                    (Some(whoami), None) => {
+                        if let Some(device_id) = whoami.device_id.clone() {
+                            device_id
+                        } else {
+                            tracing::debug!("Matrix whoami did not include device_id, auto-generating");
+                            self.load_or_generate_device_id().await?
+                        }
+                    }
                     (None, Some(hinted)) => hinted.clone(),
                     (None, None) => {
-                        return Err(anyhow::anyhow!(
-                            "Matrix E2EE session restore requires device_id when whoami is unavailable. \
-                             Set channels_config.matrix.device_id in config.toml. \
-                             See docs/security/matrix-e2ee-guide.md section 4G for how to find your device_id."
-                        ));
+                        tracing::debug!("Matrix no device_id from whoami or config, auto-generating");
+                        self.load_or_generate_device_id().await?
                     }
                 };
 
