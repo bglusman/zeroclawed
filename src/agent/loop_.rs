@@ -3957,7 +3957,37 @@ pub(crate) async fn run_tool_call_loop(
             "max_iterations": max_iterations,
         }),
     );
-    anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
+
+    // Graceful shutdown: ask the LLM for a final summary without tools
+    tracing::warn!(
+        max_iterations,
+        "Max iterations reached, requesting final summary"
+    );
+    history.push(ChatMessage::user(
+        "You have reached the maximum number of tool iterations. \
+         Please provide your best answer based on the work completed so far. \
+         Summarize what you accomplished and what remains to be done."
+            .to_string(),
+    ));
+
+    let summary_request = crate::providers::ChatRequest {
+        messages: history,
+        tools: None, // No tools — force a text response
+    };
+    match provider.chat(summary_request, model, temperature).await {
+        Ok(resp) => {
+            let text = resp.text.unwrap_or_default();
+            if text.is_empty() {
+                anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
+            } else {
+                Ok(text)
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Final summary LLM call failed, bailing");
+            anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
+        }
+    }
 }
 
 /// Build the tool instruction block for the system prompt so the LLM knows
