@@ -66,6 +66,11 @@ coverage
 lcov.info
 
 # Application and script directories (not needed for Docker runtime)
-apps/
+# Note: apps/tauri/Cargo.toml is needed for workspace manifest resolution.
+# The Dockerfile creates dummy src/main.rs and build.rs for the tauri crate.
+apps/*
+!apps/tauri
+apps/tauri/*
+!apps/tauri/Cargo.toml
 python/
 scripts/

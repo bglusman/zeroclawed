@@ -5732,7 +5732,7 @@ pub struct HeartbeatConfig {
 }
 
 fn default_heartbeat_interval() -> u32 {
-    5
+    30
 }
 
 fn default_two_phase() -> bool {
@@ -11074,7 +11074,7 @@ mod tests {
     async fn heartbeat_config_default() {
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
-        assert_eq!(h.interval_minutes, 5);
+        assert_eq!(h.interval_minutes, 30);
         assert!(h.message.is_none());
         assert!(h.target.is_none());
         assert!(h.to.is_none());
