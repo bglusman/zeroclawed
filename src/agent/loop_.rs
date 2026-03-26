@@ -4847,6 +4847,44 @@ pub async fn run(
 
                             continue;
                         }
+                        // Context overflow recovery: compress and retry
+                        if crate::providers::reliable::is_context_window_exceeded(&e) {
+                            tracing::warn!(
+                                "Context overflow in interactive loop, attempting recovery"
+                            );
+                            let mut compressor =
+                                crate::agent::context_compressor::ContextCompressor::new(
+                                    config.agent.context_compression.clone(),
+                                    config.agent.max_context_tokens,
+                                );
+                            let error_msg = format!("{e}");
+                            match compressor
+                                .compress_on_error(
+                                    &mut history,
+                                    provider.as_ref(),
+                                    &model_name,
+                                    &error_msg,
+                                )
+                                .await
+                            {
+                                Ok(true) => {
+                                    tracing::info!(
+                                        "Context recovered via compression, retrying turn"
+                                    );
+                                    continue;
+                                }
+                                Ok(false) => {
+                                    tracing::warn!("Compression ran but couldn't reduce enough");
+                                }
+                                Err(compress_err) => {
+                                    tracing::warn!(
+                                        error = %compress_err,
+                                        "Compression failed during recovery"
+                                    );
+                                }
+                            }
+                        }
+
                         eprintln!("\nError: {e}\n");
                         break String::new();
                     }
@@ -4877,17 +4915,25 @@ pub async fn run(
                     config.agent.context_compression.clone(),
                     config.agent.max_context_tokens,
                 );
-                if let Ok(result) = compressor
+                match compressor
                     .compress_if_needed(&mut history, provider.as_ref(), &model_name)
                     .await
                 {
-                    if result.compressed {
+                    Ok(result) if result.compressed => {
                         tracing::info!(
                             passes = result.passes_used,
                             before = result.tokens_before,
                             after = result.tokens_after,
                             "Context compression complete"
                         );
+                    }
+                    Ok(_) => {} // No compression needed
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Context compression failed, falling back to history trim"
+                        );
+                        trim_history(&mut history, config.agent.max_history_messages / 2);
                     }
                 }
             }
