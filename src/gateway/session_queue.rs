@@ -114,13 +114,7 @@ impl SessionActorQueue {
                     _permit: permit,
                 })
             }
-            Ok(Err(_)) => {
-                slot.pending.fetch_sub(1, Ordering::Relaxed);
-                Err(SessionQueueError::Timeout {
-                    session_id: session_id.to_string(),
-                })
-            }
-            Err(_) => {
+            Ok(Err(_)) | Err(_) => {
                 slot.pending.fetch_sub(1, Ordering::Relaxed);
                 Err(SessionQueueError::Timeout {
                     session_id: session_id.to_string(),
@@ -187,7 +181,7 @@ mod tests {
         let queue = Arc::new(SessionActorQueue::new(2, 30, 600));
 
         // Hold the session lock (pending=1)
-        let _guard = queue.acquire("s1").await.unwrap();
+        let guard = queue.acquire("s1").await.unwrap();
 
         // Queue one more (pending=2, will block waiting for permit)
         let queue_clone = queue.clone();
@@ -200,7 +194,7 @@ mod tests {
         let result = queue.acquire("s1").await;
         assert!(matches!(result, Err(SessionQueueError::QueueFull { .. })));
 
-        drop(_guard);
+        drop(guard);
         let _ = handle.await;
     }
 
