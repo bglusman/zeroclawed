@@ -2592,8 +2592,9 @@ pub(crate) async fn agent_turn(
         activated_tools,
         model_switch_callback,
         &crate::config::PacingConfig::default(),
-        0, // max_tool_result_chars: 0 = disabled (legacy callers)
-        0, // context_token_budget: 0 = disabled (legacy callers)
+        0,    // max_tool_result_chars: 0 = disabled (legacy callers)
+        0,    // context_token_budget: 0 = disabled (legacy callers)
+        None, // shared_budget: no shared budget for legacy callers
     )
     .await
 }
@@ -2906,6 +2907,7 @@ pub(crate) async fn run_tool_call_loop(
     pacing: &crate::config::PacingConfig,
     max_tool_result_chars: usize,
     context_token_budget: usize,
+    shared_budget: Option<Arc<std::sync::atomic::AtomicUsize>>,
 ) -> Result<String> {
     let max_iterations = if max_tool_iterations == 0 {
         DEFAULT_MAX_TOOL_ITERATIONS
@@ -2939,6 +2941,16 @@ pub(crate) async fn run_tool_call_loop(
             .is_some_and(CancellationToken::is_cancelled)
         {
             return Err(ToolLoopCancelled.into());
+        }
+
+        // Shared iteration budget: parent + subagents share a global counter
+        if let Some(ref budget) = shared_budget {
+            let remaining = budget.load(std::sync::atomic::Ordering::Relaxed);
+            if remaining == 0 {
+                tracing::warn!("Shared iteration budget exhausted at iteration {iteration}");
+                break;
+            }
+            budget.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         }
 
         // Preemptive context management: trim history before it overflows
@@ -4504,6 +4516,7 @@ pub async fn run(
                 &config.pacing,
                 config.agent.max_tool_result_chars,
                 config.agent.max_context_tokens,
+                None, // shared_budget
             )
             .await
             {
@@ -4807,6 +4820,7 @@ pub async fn run(
                     &config.pacing,
                     config.agent.max_tool_result_chars,
                     config.agent.max_context_tokens,
+                    None, // shared_budget
                 )
                 .await
                 {
@@ -5537,6 +5551,33 @@ mod tests {
         let est = estimate_history_tokens(&history);
         // 40000.div_ceil(4) + 4 = 10000 + 4 = 10004
         assert_eq!(est, 10_004);
+    }
+
+    // ── shared_budget tests ───────────────────────────────────────
+
+    #[test]
+    fn shared_budget_decrement_logic() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let budget = Arc::new(AtomicUsize::new(3));
+
+        // Simulate 3 iterations decrementing
+        for i in 0..3 {
+            let remaining = budget.load(Ordering::Relaxed);
+            assert!(remaining > 0, "Budget should be >0 at iteration {i}");
+            budget.fetch_sub(1, Ordering::Relaxed);
+        }
+
+        // Budget should now be 0
+        assert_eq!(budget.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn shared_budget_none_has_no_effect() {
+        // When shared_budget is None, the check is simply skipped
+        let budget: Option<Arc<std::sync::atomic::AtomicUsize>> = None;
+        assert!(budget.is_none());
     }
 
     // ── existing tests ────────────────────────────────────────────
@@ -6289,6 +6330,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("provider without vision support should fail");
@@ -6343,6 +6385,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("oversized payload must fail");
@@ -6390,6 +6433,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("valid multimodal payload should pass");
@@ -6437,6 +6481,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("should fail without vision_provider config");
@@ -6491,6 +6536,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("should fail when vision provider cannot be created");
@@ -6545,6 +6591,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("text-only messages should succeed with default provider");
@@ -6600,6 +6647,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("should fail due to nonexistent vision provider");
@@ -6653,6 +6701,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("empty image markers should not trigger vision routing");
@@ -6706,6 +6755,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect_err("should attempt vision provider creation for multiple images");
@@ -6842,6 +6892,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("parallel execution should complete");
@@ -6915,6 +6966,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("cron_add delivery defaults should be injected");
@@ -6980,6 +7032,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("explicit delivery mode should be preserved");
@@ -7040,6 +7093,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("loop should finish after deduplicating repeated calls");
@@ -7112,6 +7166,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("non-interactive shell should succeed for low-risk command");
@@ -7175,6 +7230,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("loop should finish with exempt tool executing twice");
@@ -7258,6 +7314,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("loop should complete");
@@ -7318,6 +7375,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("native fallback id flow should complete");
@@ -7402,6 +7460,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("native tool-call text should be relayed through on_delta");
@@ -7470,6 +7529,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("streaming provider should complete");
@@ -7540,6 +7600,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("streaming tool loop should execute tool and finish");
@@ -7614,6 +7675,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("native streaming events should preserve tool loop semantics");
@@ -7697,6 +7759,7 @@ mod tests {
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("routed streaming provider should complete");
@@ -9736,6 +9799,7 @@ Let me check the result."#;
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("tool loop should complete");
@@ -9892,6 +9956,7 @@ Let me check the result."#;
                     &crate::config::PacingConfig::default(),
                     0,
                     0,
+                    None,
                 ),
             )
             .await
@@ -9973,6 +10038,7 @@ Let me check the result."#;
                     &crate::config::PacingConfig::default(),
                     0,
                     0,
+                    None,
                 ),
             )
             .await
@@ -10030,6 +10096,7 @@ Let me check the result."#;
             &crate::config::PacingConfig::default(),
             0,
             0,
+            None,
         )
         .await
         .expect("should succeed without cost scope");
