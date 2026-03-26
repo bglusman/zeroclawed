@@ -2235,11 +2235,20 @@ impl Provider for OpenAiCompatibleProvider {
             }
         };
 
-        let api_messages: Vec<Message> = messages
+        let effective_messages = if self.merge_system_into_user {
+            Self::flatten_system_messages(messages)
+        } else {
+            messages.to_vec()
+        };
+        let api_messages: Vec<Message> = effective_messages
             .iter()
             .map(|m| Message {
                 role: m.role.clone(),
-                content: MessageContent::Text(m.content.clone()),
+                content: Self::to_message_content(
+                    &m.role,
+                    &m.content,
+                    !self.merge_system_into_user,
+                ),
             })
             .collect();
 
