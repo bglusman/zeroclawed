@@ -4880,6 +4880,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     },
                     allowed_users,
                     proxy_url: None,
+                    bot_name: None,
                 });
 
                 println!("  {} Nextcloud Talk configured", style("✅").green().bold());
@@ -7617,6 +7618,7 @@ mod tests {
             webhook_secret: Some("secret".into()),
             allowed_users: vec!["*".into()],
             proxy_url: None,
+            bot_name: None,
         });
         assert!(has_launchable_channels(&channels));
 
