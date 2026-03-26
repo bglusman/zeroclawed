@@ -26,6 +26,8 @@ use std::time::Instant;
 pub enum TurnEvent {
     /// A text chunk from the LLM response (may arrive many times).
     Chunk { delta: String },
+    /// A reasoning/thinking chunk from a thinking model (may arrive many times).
+    Thinking { delta: String },
     /// The agent is invoking a tool.
     ToolCall {
         name: String,
@@ -960,6 +962,13 @@ impl Agent {
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(chunk) => {
+                        if let Some(reasoning) = chunk.reasoning {
+                            if !reasoning.is_empty() {
+                                let _ = event_tx
+                                    .send(TurnEvent::Thinking { delta: reasoning })
+                                    .await;
+                            }
+                        }
                         if !chunk.delta.is_empty() {
                             got_stream = true;
                             streamed_text.push_str(&chunk.delta);
