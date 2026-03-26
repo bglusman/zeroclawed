@@ -28,8 +28,8 @@ COPY Cargo.toml Cargo.lock ./
 # with the lockfile and caused `cargo --locked` to fail (Cargo refused to rewrite the lock).
 COPY crates/robot-kit/ crates/robot-kit/
 COPY crates/aardvark-sys/ crates/aardvark-sys/
-# apps/tauri is a workspace member (desktop app) — copy its manifest so workspace
-# resolution succeeds, but create a dummy src since we only build the server binary.
+# Include tauri workspace member manifest (desktop app, but needed for workspace resolution).
+# .dockerignore whitelists only Cargo.toml; src and build.rs are stubbed below.
 COPY apps/tauri/Cargo.toml apps/tauri/Cargo.toml
 # Create dummy targets declared in Cargo.toml so manifest parsing succeeds.
 RUN mkdir -p src benches apps/tauri/src \
