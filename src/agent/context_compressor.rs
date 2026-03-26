@@ -38,6 +38,9 @@ fn default_timeout_secs() -> u64 {
 fn default_identifier_policy() -> String {
     "strict".to_string()
 }
+fn default_tool_result_retrim_chars() -> usize {
+    2_000
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ContextCompressionConfig {
@@ -71,6 +74,12 @@ pub struct ContextCompressionConfig {
     /// Identifier preservation policy: `"strict"` or `"off"`. Default: `"strict"`.
     #[serde(default = "default_identifier_policy")]
     pub identifier_policy: String,
+    /// Maximum chars for old tool results during fast-trim pass. Default: `2000`.
+    #[serde(default = "default_tool_result_retrim_chars")]
+    pub tool_result_retrim_chars: usize,
+    /// Tool names exempt from result trimming. Default: `[]`.
+    #[serde(default)]
+    pub tool_result_trim_exempt: Vec<String>,
 }
 
 impl Default for ContextCompressionConfig {
@@ -86,6 +95,8 @@ impl Default for ContextCompressionConfig {
             timeout_secs: default_timeout_secs(),
             summary_model: None,
             identifier_policy: default_identifier_policy(),
+            tool_result_retrim_chars: default_tool_result_retrim_chars(),
+            tool_result_trim_exempt: Vec::new(),
         }
     }
 }
@@ -217,6 +228,45 @@ impl ContextCompressor {
         self.context_window = window;
     }
 
+    /// Fast-path: trim oversized tool results in non-protected messages.
+    /// Returns total characters saved. No LLM call needed.
+    fn fast_trim_tool_results(&self, history: &mut [ChatMessage]) -> usize {
+        let max = self.config.tool_result_retrim_chars;
+        if max == 0 {
+            return 0;
+        }
+        let mut saved = 0;
+        let protect_start = self.config.protect_first_n.min(history.len());
+        let protect_end = history.len().saturating_sub(self.config.protect_last_n);
+
+        for i in protect_start..protect_end {
+            if history[i].role != "tool" {
+                continue;
+            }
+            if history[i].content.len() <= max {
+                continue;
+            }
+            // Skip exempt tools
+            if self
+                .config
+                .tool_result_trim_exempt
+                .iter()
+                .any(|t| history[i].content.contains(t.as_str()))
+            {
+                continue;
+            }
+            // Skip base64 images
+            if history[i].content.contains("data:image/") {
+                continue;
+            }
+            let original_len = history[i].content.len();
+            history[i].content =
+                crate::agent::loop_::truncate_tool_result(&history[i].content, max);
+            saved += original_len - history[i].content.len();
+        }
+        saved
+    }
+
     /// Main entry point. Compresses history in-place if over threshold.
     pub async fn compress_if_needed(
         &self,
@@ -245,6 +295,21 @@ impl ContextCompressor {
                 tokens_after: tokens_before,
                 passes_used: 0,
             });
+        }
+
+        // Fast-trim pass — may resolve overflow without an LLM call
+        let chars_saved = self.fast_trim_tool_results(history);
+        if chars_saved > 0 {
+            tracing::info!(chars_saved, "Fast-trim saved chars from old tool results");
+            let recheck = estimate_tokens(history);
+            if recheck <= threshold {
+                return Ok(CompressionResult {
+                    compressed: true,
+                    tokens_before,
+                    tokens_after: recheck,
+                    passes_used: 0,
+                });
+            }
         }
 
         let mut passes_used = 0;
@@ -644,5 +709,117 @@ mod tests {
         assert!(!config.enabled);
         assert_eq!(config.protect_first_n, 5);
         assert_eq!(config.max_passes, 1);
+    }
+
+    // ── fast_trim_tool_results tests ────────────────────────────────
+
+    #[test]
+    fn test_fast_trim_protects_first_and_last_n() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 2,
+            protect_last_n: 2,
+            tool_result_retrim_chars: 100,
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let big = "x".repeat(5_000);
+        let mut history = vec![
+            msg("system", "sys"),
+            msg("tool", &big), // index 1 — protected (first 2)
+            msg("user", "q"),
+            msg("tool", &big),   // index 3 — trimmable
+            msg("user", "next"), // index 4 — protected (last 2)
+            msg("tool", &big),   // index 5 — protected (last 2)
+        ];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert!(saved > 0);
+        // Protected messages unchanged
+        assert_eq!(history[1].content.len(), 5_000);
+        assert_eq!(history[5].content.len(), 5_000);
+        // Trimmable message was trimmed
+        assert!(history[3].content.len() <= 200); // 100 + marker overhead
+    }
+
+    #[test]
+    fn test_fast_trim_skips_images() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 0,
+            protect_last_n: 0,
+            tool_result_retrim_chars: 100,
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let img = format!("data:image/{}", "x".repeat(5_000));
+        let mut history = vec![msg("tool", &img)];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert_eq!(saved, 0);
+        assert!(history[0].content.len() > 5_000);
+    }
+
+    #[test]
+    fn test_fast_trim_skips_exempt_tools() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 0,
+            protect_last_n: 0,
+            tool_result_retrim_chars: 100,
+            tool_result_trim_exempt: vec!["KEEPME".to_string()],
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let content = format!("KEEPME {}", "x".repeat(5_000));
+        let mut history = vec![msg("tool", &content)];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert_eq!(saved, 0);
+    }
+
+    #[test]
+    fn test_fast_trim_skips_small_results() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 0,
+            protect_last_n: 0,
+            tool_result_retrim_chars: 2_000,
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let mut history = vec![msg("tool", "small result")];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert_eq!(saved, 0);
+    }
+
+    #[test]
+    fn test_fast_trim_skips_non_tool_messages() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 0,
+            protect_last_n: 0,
+            tool_result_retrim_chars: 100,
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let big = "x".repeat(5_000);
+        let mut history = vec![msg("user", &big), msg("assistant", &big)];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert_eq!(saved, 0);
+    }
+
+    #[test]
+    fn test_fast_trim_config_defaults() {
+        let config = ContextCompressionConfig::default();
+        assert_eq!(config.tool_result_retrim_chars, 2_000);
+        assert!(config.tool_result_trim_exempt.is_empty());
+    }
+
+    #[test]
+    fn test_fast_trim_disabled_when_zero() {
+        let config = ContextCompressionConfig {
+            protect_first_n: 0,
+            protect_last_n: 0,
+            tool_result_retrim_chars: 0,
+            ..Default::default()
+        };
+        let compressor = ContextCompressor::new(config, 128_000);
+        let big = "x".repeat(5_000);
+        let mut history = vec![msg("tool", &big)];
+        let saved = compressor.fast_trim_tool_results(&mut history);
+        assert_eq!(saved, 0);
     }
 }
