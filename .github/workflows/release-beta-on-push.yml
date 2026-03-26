@@ -461,4 +461,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:beta-debian
           platforms: linux/amd64,linux/arm64
 
-  # Tweet removed — only stable releases should tweet (see tweet-release.yml).
+  # ── Post-publish: sync marketplace templates (Coolify, Dokploy, EasyPanel) ──
+  marketplace:
+    name: Sync Marketplace Templates
+    needs: [version, docker]
+    if: ${{ !cancelled() && needs.docker.result == 'success' }}
+    uses: ./.github/workflows/sync-marketplace-templates.yml
+    with:
+      release_tag: ${{ needs.version.outputs.tag }}
+    secrets: inherit
