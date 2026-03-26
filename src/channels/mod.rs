@@ -4114,7 +4114,8 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 .with_workspace_dir(config.workspace_dir.clone())
                 .with_markdown_blocks(sl.use_markdown_blocks)
                 .with_transcription(config.transcription.clone())
-                .with_streaming(sl.stream_drafts, sl.draft_update_interval_ms),
+                .with_streaming(sl.stream_drafts, sl.draft_update_interval_ms)
+                .with_cancel_reaction(sl.cancel_reaction.clone()),
             ))
         }
         "mattermost" => {
@@ -4346,7 +4347,8 @@ fn collect_configured_channels(
                 .with_markdown_blocks(sl.use_markdown_blocks)
                 .with_proxy_url(sl.proxy_url.clone())
                 .with_transcription(config.transcription.clone())
-                .with_streaming(sl.stream_drafts, sl.draft_update_interval_ms),
+                .with_streaming(sl.stream_drafts, sl.draft_update_interval_ms)
+                .with_cancel_reaction(sl.cancel_reaction.clone()),
             ),
         });
     }
@@ -10241,6 +10243,7 @@ This is an example JSON object for profile settings."#;
             pacing: crate::config::PacingConfig::default(),
             media_pipeline: crate::config::MediaPipelineConfig::default(),
             transcription_config: crate::config::TranscriptionConfig::default(),
+            debouncer: Arc::new(debounce::MessageDebouncer::new(std::time::Duration::ZERO)),
         });
 
         process_channel_message(
