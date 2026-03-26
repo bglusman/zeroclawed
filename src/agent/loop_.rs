@@ -189,6 +189,46 @@ pub(crate) fn truncate_tool_result(output: &str, max_chars: usize) -> String {
     )
 }
 
+/// Aggressively trim old tool result messages in history to recover from
+/// context overflow. Keeps the last `protect_last_n` messages untouched.
+/// Returns total characters saved.
+fn fast_trim_tool_results(
+    history: &mut [crate::providers::ChatMessage],
+    protect_last_n: usize,
+) -> usize {
+    let trim_to = 2000;
+    let mut saved = 0;
+    let cutoff = history.len().saturating_sub(protect_last_n);
+    for msg in &mut history[..cutoff] {
+        if msg.role == "tool" && msg.content.len() > trim_to {
+            let original_len = msg.content.len();
+            msg.content = truncate_tool_result(&msg.content, trim_to);
+            saved += original_len - msg.content.len();
+        }
+    }
+    saved
+}
+
+/// Emergency: drop oldest non-system, non-recent messages from history.
+/// Returns number of messages dropped.
+fn emergency_history_trim(
+    history: &mut Vec<crate::providers::ChatMessage>,
+    keep_recent: usize,
+) -> usize {
+    let mut dropped = 0;
+    let target_drop = history.len() / 3;
+    let mut i = 0;
+    while dropped < target_drop && i < history.len().saturating_sub(keep_recent) {
+        if history[i].role == "system" {
+            i += 1;
+        } else {
+            history.remove(i);
+            dropped += 1;
+        }
+    }
+    dropped
+}
+
 /// Minimum user-message length (in chars) for auto-save to memory.
 /// Matches the channel-side constant in `channels/mod.rs`.
 const AUTOSAVE_MIN_MESSAGE_CHARS: usize = 20;
@@ -3304,6 +3344,35 @@ pub(crate) async fn run_tool_call_loop(
                         "duration_ms": llm_started_at.elapsed().as_millis(),
                     }),
                 );
+
+                // Context overflow recovery: trim history and retry
+                if crate::providers::reliable::is_context_window_exceeded(&e) {
+                    tracing::warn!(
+                        iteration = iteration + 1,
+                        "Context window exceeded, attempting in-loop recovery"
+                    );
+
+                    // Step 1: fast-trim old tool results (cheap)
+                    let chars_saved = fast_trim_tool_results(history, 4);
+                    if chars_saved > 0 {
+                        tracing::info!(
+                            chars_saved,
+                            "Context recovery: trimmed old tool results, retrying"
+                        );
+                        continue;
+                    }
+
+                    // Step 2: emergency drop oldest non-system messages
+                    let dropped = emergency_history_trim(history, 4);
+                    if dropped > 0 {
+                        tracing::info!(dropped, "Context recovery: dropped old messages, retrying");
+                        continue;
+                    }
+
+                    // Nothing left to trim — truly unrecoverable
+                    tracing::error!("Context overflow unrecoverable: no trimmable messages");
+                }
+
                 return Err(e);
             }
         };
@@ -5160,8 +5229,9 @@ pub async fn process_message(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_compaction_summary, build_compaction_transcript, load_interactive_session_history,
-        save_interactive_session_history, truncate_tool_result, InteractiveSessionState,
+        apply_compaction_summary, build_compaction_transcript, emergency_history_trim,
+        fast_trim_tool_results, load_interactive_session_history, save_interactive_session_history,
+        truncate_tool_result, InteractiveSessionState,
     };
     use crate::providers::ChatMessage;
     use tempfile::tempdir;
@@ -5245,6 +5315,102 @@ mod tests {
         // Head (3 chars) + tail (2 chars) from original should be preserved
         assert!(result.starts_with("abc"));
         assert!(result.ends_with("yz"));
+    }
+
+    // ── fast_trim_tool_results tests ────────────────────────────
+
+    #[test]
+    fn fast_trim_protects_recent_messages() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::tool("a".repeat(5000)),
+            ChatMessage::tool("b".repeat(5000)),
+            ChatMessage::user("recent user msg"),
+            ChatMessage::tool("c".repeat(5000)), // recent, should be protected
+        ];
+        // protect_last_n = 2 → last 2 messages protected
+        let saved = fast_trim_tool_results(&mut history, 2);
+        assert!(saved > 0);
+        // First two tool messages should be trimmed
+        assert!(history[1].content.len() <= 2100);
+        assert!(history[2].content.len() <= 2100);
+        // Last tool message (protected) should be unchanged
+        assert_eq!(history[4].content.len(), 5000);
+    }
+
+    #[test]
+    fn fast_trim_skips_non_tool_messages() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user("a".repeat(5000)),
+            ChatMessage::assistant("b".repeat(5000)),
+        ];
+        let saved = fast_trim_tool_results(&mut history, 0);
+        assert_eq!(saved, 0);
+        assert_eq!(history[1].content.len(), 5000);
+        assert_eq!(history[2].content.len(), 5000);
+    }
+
+    #[test]
+    fn fast_trim_small_tool_results_unchanged() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::tool("short result"),
+        ];
+        let saved = fast_trim_tool_results(&mut history, 0);
+        assert_eq!(saved, 0);
+        assert_eq!(history[1].content, "short result");
+    }
+
+    // ── emergency_history_trim tests ──────────────────────────────
+
+    #[test]
+    fn emergency_trim_preserves_system() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user("msg1"),
+            ChatMessage::assistant("resp1"),
+            ChatMessage::user("msg2"),
+            ChatMessage::assistant("resp2"),
+            ChatMessage::user("msg3"),
+        ];
+        let dropped = emergency_history_trim(&mut history, 2);
+        assert!(dropped > 0);
+        // System message should always be preserved
+        assert_eq!(history[0].role, "system");
+        assert_eq!(history[0].content, "sys");
+        // Last 2 messages should be preserved
+        let len = history.len();
+        assert_eq!(history[len - 1].content, "msg3");
+    }
+
+    #[test]
+    fn emergency_trim_preserves_recent() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user("old1"),
+            ChatMessage::user("old2"),
+            ChatMessage::user("recent1"),
+            ChatMessage::user("recent2"),
+        ];
+        let dropped = emergency_history_trim(&mut history, 2);
+        assert!(dropped > 0);
+        // Last 2 should be preserved
+        let len = history.len();
+        assert_eq!(history[len - 1].content, "recent2");
+        assert_eq!(history[len - 2].content, "recent1");
+    }
+
+    #[test]
+    fn emergency_trim_nothing_to_drop() {
+        let mut history = vec![
+            ChatMessage::system("sys"),
+            ChatMessage::user("only user msg"),
+        ];
+        // protect_last = 1, system is protected → only 1 droppable
+        // target_drop = 2/3 = 0 → nothing dropped
+        let dropped = emergency_history_trim(&mut history, 1);
+        assert_eq!(dropped, 0);
     }
 
     // ── existing tests ────────────────────────────────────────────
