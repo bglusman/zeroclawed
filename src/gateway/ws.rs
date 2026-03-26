@@ -384,6 +384,12 @@ async fn process_chat_message(
         "model": state.model,
     }));
 
+    // Set session state to running
+    let turn_id = uuid::Uuid::new_v4().to_string();
+    if let Some(ref backend) = state.session_backend {
+        let _ = backend.set_session_state(session_key, "running", Some(&turn_id));
+    }
+
     // Channel for streaming turn events from the agent.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<TurnEvent>(64);
 
@@ -438,6 +444,11 @@ async fn process_chat_message(
             });
             let _ = sender.send(Message::Text(done.to_string().into())).await;
 
+            // Set session state to idle
+            if let Some(ref backend) = state.session_backend {
+                let _ = backend.set_session_state(session_key, "idle", None);
+            }
+
             // Broadcast agent_end event
             let _ = state.event_tx.send(serde_json::json!({
                 "type": "agent_end",
@@ -446,6 +457,11 @@ async fn process_chat_message(
             }));
         }
         Err(e) => {
+            // Set session state to error
+            if let Some(ref backend) = state.session_backend {
+                let _ = backend.set_session_state(session_key, "error", Some(&turn_id));
+            }
+
             tracing::error!(error = %e, "Agent turn failed");
             let sanitized = crate::providers::sanitize_api_error(&e.to_string());
             let error_code = if sanitized.to_lowercase().contains("api key")
