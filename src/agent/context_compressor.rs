@@ -5,6 +5,9 @@ use anyhow::Result;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use std::sync::Arc;
+
+use crate::memory::traits::Memory;
 use crate::providers::traits::{ChatMessage, Provider};
 
 // ---------------------------------------------------------------------------
@@ -213,6 +216,7 @@ Output concise bullet points. Be thorough but brief.";
 pub struct ContextCompressor {
     config: ContextCompressionConfig,
     context_window: usize,
+    memory: Option<Arc<dyn Memory>>,
 }
 
 impl ContextCompressor {
@@ -220,7 +224,15 @@ impl ContextCompressor {
         Self {
             config,
             context_window,
+            memory: None,
         }
+    }
+
+    /// Attach a memory handle so compression summaries are persisted before
+    /// old messages are discarded. Without this, compressed facts are lost.
+    pub fn with_memory(mut self, memory: Arc<dyn Memory>) -> Self {
+        self.memory = Some(memory);
+        self
     }
 
     /// Update the context window size (e.g. after error-driven probing).
@@ -427,6 +439,27 @@ impl ContextCompressor {
         };
 
         let summary = truncate_chars(&summary_raw, self.config.summary_max_chars);
+
+        // Persist the compression summary to memory before discarding old messages.
+        // This ensures facts from compressed turns remain retrievable via memory recall.
+        if let Some(ref memory) = self.memory {
+            let facts_key = format!("compressed_context_{}", uuid::Uuid::new_v4());
+            if let Err(e) = memory
+                .store(
+                    &facts_key,
+                    &summary,
+                    crate::memory::traits::MemoryCategory::Daily,
+                    None,
+                )
+                .await
+            {
+                tracing::debug!("Failed to save compression summary to memory: {e}");
+            } else {
+                tracing::debug!(
+                    "Saved compression summary to memory before discarding {message_count} messages"
+                );
+            }
+        }
 
         // Splice: head + [SUMMARY] + tail
         let summary_msg = ChatMessage::assistant(format!(

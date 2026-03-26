@@ -4900,7 +4900,8 @@ pub async fn run(
                                 crate::agent::context_compressor::ContextCompressor::new(
                                     config.agent.context_compression.clone(),
                                     config.agent.max_context_tokens,
-                                );
+                                )
+                                .with_memory(mem.clone());
                             let error_msg = format!("{e}");
                             match compressor
                                 .compress_on_error(
@@ -4958,7 +4959,8 @@ pub async fn run(
                 let compressor = crate::agent::context_compressor::ContextCompressor::new(
                     config.agent.context_compression.clone(),
                     config.agent.max_context_tokens,
-                );
+                )
+                .with_memory(mem.clone());
                 match compressor
                     .compress_if_needed(&mut history, provider.as_ref(), &model_name)
                     .await
