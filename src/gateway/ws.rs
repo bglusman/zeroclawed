@@ -347,6 +347,20 @@ async fn handle_socket(
             continue;
         }
 
+        // Acquire session lock to serialize concurrent turns
+        let _session_guard = match state.session_queue.acquire(&session_key).await {
+            Ok(guard) => guard,
+            Err(e) => {
+                let err = serde_json::json!({
+                    "type": "error",
+                    "message": e.to_string(),
+                    "code": "SESSION_BUSY"
+                });
+                let _ = sender.send(Message::Text(err.to_string().into())).await;
+                continue;
+            }
+        };
+
         // Persist user message
         if let Some(ref backend) = state.session_backend {
             let user_msg = crate::providers::ChatMessage::user(&content);

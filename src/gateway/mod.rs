@@ -15,6 +15,7 @@ pub mod api_plugins;
 pub mod api_webauthn;
 pub mod canvas;
 pub mod nodes;
+pub mod session_queue;
 pub mod sse;
 pub mod static_files;
 pub mod tls;
@@ -359,6 +360,8 @@ pub struct AppState {
     pub path_prefix: String,
     /// Session backend for persisting gateway WS chat sessions
     pub session_backend: Option<Arc<dyn SessionBackend>>,
+    /// Per-session actor queue for serializing concurrent turns
+    pub session_queue: Arc<session_queue::SessionActorQueue>,
     /// Device registry for paired device management
     pub device_registry: Option<Arc<api_pairing::DeviceRegistry>>,
     /// Pending pairing request store
@@ -840,6 +843,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         shutdown_tx,
         node_registry,
         session_backend,
+        session_queue: Arc::new(session_queue::SessionActorQueue::new(8, 30, 600)),
         device_registry,
         pending_pairings,
         path_prefix: path_prefix.unwrap_or("").to_string(),
@@ -2273,6 +2277,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2337,6 +2344,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2727,6 +2737,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2801,6 +2814,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2887,6 +2903,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -2945,6 +2964,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -3008,6 +3030,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -3076,6 +3101,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
@@ -3140,6 +3168,9 @@ mod tests {
             node_registry: Arc::new(nodes::NodeRegistry::new(16)),
             path_prefix: String::new(),
             session_backend: None,
+            session_queue: std::sync::Arc::new(
+                crate::gateway::session_queue::SessionActorQueue::new(8, 30, 600),
+            ),
             device_registry: None,
             pending_pairings: None,
             canvas_store: CanvasStore::new(),
