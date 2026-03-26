@@ -262,7 +262,7 @@ mod tests {
         let workspace = PathBuf::from("/tmp/workspace");
         let policy = generate_policy(&workspace);
         assert!(policy.contains("localhost"));
-        assert!(policy.contains("127.0.0.1"));
+        assert!(!policy.contains("127.0.0.1"));
         assert!(!policy.contains("(allow network*)"));
     }
 
