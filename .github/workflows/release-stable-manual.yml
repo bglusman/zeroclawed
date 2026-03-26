@@ -221,6 +221,8 @@ jobs:
             ext: tar.gz
             ndk: true
             experimental: true
+            # wa-rs crates don't compile for Android; exclude whatsapp-web
+            cargo_features: "channel-matrix,channel-lark"
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: zeroclaw.exe
@@ -265,10 +267,12 @@ jobs:
             export CFLAGS_arm_unknown_linux_gnueabihf="-march=armv6 -mfpu=vfp -mfloat-abi=hard"
             export CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_RUSTFLAGS="-C target-feature=-neon"
           fi
+          # Use matrix-level feature override if set, otherwise use global RELEASE_CARGO_FEATURES
+          FEATURES="${{ matrix.cargo_features || env.RELEASE_CARGO_FEATURES }}"
           if [ "${{ matrix.skip_prometheus || 'false' }}" = "true" ]; then
-            cargo build --release --locked --no-default-features --features "${{ env.RELEASE_CARGO_FEATURES }},channel-nostr,skill-creation" --target ${{ matrix.target }}
+            cargo build --release --locked --no-default-features --features "${FEATURES},channel-nostr,skill-creation" --target ${{ matrix.target }}
           else
-            cargo build --release --locked --features "${{ env.RELEASE_CARGO_FEATURES }}" --target ${{ matrix.target }}
+            cargo build --release --locked --features "${FEATURES}" --target ${{ matrix.target }}
           fi
 
       - name: Check binary size
