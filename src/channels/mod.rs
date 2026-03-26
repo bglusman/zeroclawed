@@ -10307,7 +10307,7 @@ This is an example JSON object for profile settings."#;
             cost_tracking: None,
             pacing: crate::config::PacingConfig::default(),
             max_tool_result_chars: 50000,
-            context_token_budget: 128000,
+            context_token_budget: 128_000,
             debouncer: Arc::new(debounce::MessageDebouncer::new(std::time::Duration::ZERO)),
             media_pipeline: crate::config::MediaPipelineConfig::default(),
             transcription_config: crate::config::TranscriptionConfig::default(),

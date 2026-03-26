@@ -3979,9 +3979,8 @@ pub(crate) async fn run_tool_call_loop(
             let text = resp.text.unwrap_or_default();
             if text.is_empty() {
                 anyhow::bail!("Agent exceeded maximum tool iterations ({max_iterations})")
-            } else {
-                Ok(text)
             }
+            Ok(text)
         }
         Err(e) => {
             tracing::warn!(error = %e, "Final summary LLM call failed, bailing");

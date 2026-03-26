@@ -251,11 +251,11 @@ impl ContextCompressor {
         let protect_start = self.config.protect_first_n.min(history.len());
         let protect_end = history.len().saturating_sub(self.config.protect_last_n);
 
-        for i in protect_start..protect_end {
-            if history[i].role != "tool" {
+        for msg in &mut history[protect_start..protect_end] {
+            if msg.role != "tool" {
                 continue;
             }
-            if history[i].content.len() <= max {
+            if msg.content.len() <= max {
                 continue;
             }
             // Skip exempt tools
@@ -263,18 +263,18 @@ impl ContextCompressor {
                 .config
                 .tool_result_trim_exempt
                 .iter()
-                .any(|t| history[i].content.contains(t.as_str()))
+                .any(|t| msg.content.contains(t.as_str()))
             {
                 continue;
             }
             // Skip base64 images
-            if history[i].content.contains("data:image/") {
+            if msg.content.contains("data:image/") {
                 continue;
             }
-            let original_len = history[i].content.len();
-            history[i].content =
-                crate::agent::loop_::truncate_tool_result(&history[i].content, max);
-            saved += original_len - history[i].content.len();
+            let original_len = msg.content.len();
+            msg.content =
+                crate::agent::loop_::truncate_tool_result(&msg.content, max);
+            saved += original_len - msg.content.len();
         }
         saved
     }
