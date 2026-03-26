@@ -6736,6 +6736,18 @@ pub struct WhatsAppConfig {
     /// user's own self-chat (Notes to Self). Defaults to false.
     #[serde(default)]
     pub self_chat_mode: bool,
+    /// Regex patterns for DM mention gating (case-insensitive).
+    /// When non-empty, only direct messages matching at least one pattern are
+    /// processed; matched fragments are stripped from the forwarded content.
+    /// Example: `["@?ZeroClaw", "\\+?15555550123"]`
+    #[serde(default)]
+    pub dm_mention_patterns: Vec<String>,
+    /// Regex patterns for group-chat mention gating (case-insensitive).
+    /// When non-empty, only group messages matching at least one pattern are
+    /// processed; matched fragments are stripped from the forwarded content.
+    /// Example: `["@?ZeroClaw", "\\+?15555550123"]`
+    #[serde(default)]
+    pub group_mention_patterns: Vec<String>,
     /// Per-channel proxy URL (http, https, socks5, socks5h).
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
@@ -12504,6 +12516,8 @@ channel_ids = ["C123", "D456"]
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
             self_chat_mode: false,
+            dm_mention_patterns: vec![],
+            group_mention_patterns: vec![],
             proxy_url: None,
         };
         let json = serde_json::to_string(&wc).unwrap();
@@ -12529,6 +12543,8 @@ channel_ids = ["C123", "D456"]
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
             self_chat_mode: false,
+            dm_mention_patterns: vec![],
+            group_mention_patterns: vec![],
             proxy_url: None,
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -12559,6 +12575,8 @@ channel_ids = ["C123", "D456"]
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
             self_chat_mode: false,
+            dm_mention_patterns: vec![],
+            group_mention_patterns: vec![],
             proxy_url: None,
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -12581,6 +12599,8 @@ channel_ids = ["C123", "D456"]
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
             self_chat_mode: false,
+            dm_mention_patterns: vec![],
+            group_mention_patterns: vec![],
             proxy_url: None,
         };
         assert!(wc.is_ambiguous_config());
@@ -12602,6 +12622,8 @@ channel_ids = ["C123", "D456"]
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
             self_chat_mode: false,
+            dm_mention_patterns: vec![],
+            group_mention_patterns: vec![],
             proxy_url: None,
         };
         assert!(!wc.is_ambiguous_config());
@@ -12634,6 +12656,8 @@ channel_ids = ["C123", "D456"]
                 dm_policy: WhatsAppChatPolicy::default(),
                 group_policy: WhatsAppChatPolicy::default(),
                 self_chat_mode: false,
+                dm_mention_patterns: vec![],
+                group_mention_patterns: vec![],
                 proxy_url: None,
             }),
             linq: None,
