@@ -563,10 +563,13 @@ pub(crate) async fn deliver_announcement(
                 mm.url.clone(),
                 mm.bot_token.clone(),
                 mm.channel_id.clone(),
+                mm.channel_ids.clone(),
                 mm.allowed_users.clone(),
                 mm.thread_replies.unwrap_or(true),
                 mm.mention_only.unwrap_or(false),
-            );
+            )
+            .with_listen_mode(mm.listen_mode.as_deref())
+            .with_credentials(mm.bot_id.clone(), mm.bot_password.clone());
             channel
                 .send(&SendMessage::new(safe_output.as_str(), target))
                 .await?;

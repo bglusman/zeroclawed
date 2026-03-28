@@ -6599,9 +6599,17 @@ pub struct MattermostConfig {
     /// Mattermost server URL (e.g. `"https://mattermost.example.com"`).
     pub url: String,
     /// Mattermost bot access token.
-    pub bot_token: String,
+    /// Optional when `bot_id` + `bot_password` are provided; the channel will
+    /// obtain a session token via `POST /api/v4/users/login` at runtime.
+    #[serde(default)]
+    pub bot_token: Option<String>,
     /// Optional channel ID to restrict the bot to a single channel.
     pub channel_id: Option<String>,
+    /// Optional list of channel IDs to monitor. Takes precedence over
+    /// `channel_id`. Use `["*"]` or omit both to listen on all accessible
+    /// channels (wildcard / auto-discovery mode).
+    #[serde(default)]
+    pub channel_ids: Vec<String>,
     /// Allowed Mattermost user IDs. Empty = deny all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
@@ -6621,6 +6629,17 @@ pub struct MattermostConfig {
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
     pub proxy_url: Option<String>,
+    /// Listening mode: `"polling"` (default) or `"websocket"`.
+    /// WebSocket mode requires `bot_id` and `bot_password` for login-based authentication.
+    #[serde(default)]
+    pub listen_mode: Option<String>,
+    /// Bot ID (username or email) for login-based authentication.
+    /// Used with `bot_password` to obtain a session token via `POST /api/v4/users/login`.
+    #[serde(default)]
+    pub bot_id: Option<String>,
+    /// Bot password for login-based authentication.
+    #[serde(default)]
+    pub bot_password: Option<String>,
 }
 
 impl ChannelConfig for MattermostConfig {
@@ -9103,10 +9122,15 @@ impl Config {
                 )?;
             }
             if let Some(ref mut mm) = config.channels_config.mattermost {
-                decrypt_secret(
+                decrypt_optional_secret(
                     &store,
                     &mut mm.bot_token,
                     "config.channels_config.mattermost.bot_token",
+                )?;
+                decrypt_optional_secret(
+                    &store,
+                    &mut mm.bot_password,
+                    "config.channels_config.mattermost.bot_password",
                 )?;
             }
             if let Some(ref mut mx) = config.channels_config.matrix {
@@ -10592,10 +10616,15 @@ impl Config {
             )?;
         }
         if let Some(ref mut mm) = config_to_save.channels_config.mattermost {
-            encrypt_secret(
+            encrypt_optional_secret(
                 &store,
                 &mut mm.bot_token,
                 "config.channels_config.mattermost.bot_token",
+            )?;
+            encrypt_optional_secret(
+                &store,
+                &mut mm.bot_password,
+                "config.channels_config.mattermost.bot_password",
             )?;
         }
         if let Some(ref mut mx) = config_to_save.channels_config.matrix {
