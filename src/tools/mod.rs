@@ -105,6 +105,7 @@ pub mod swarm;
 pub mod text_browser;
 pub mod tool_search;
 pub mod traits;
+pub mod wrappers;
 pub mod verifiable_intent;
 pub mod weather_tool;
 pub mod web_fetch;
@@ -190,6 +191,7 @@ pub use screenshot::ScreenshotTool;
 pub use security_ops::SecurityOpsTool;
 pub use sessions::{SessionsHistoryTool, SessionsListTool, SessionsSendTool};
 pub use shell::ShellTool;
+pub use wrappers::{PathGuardedTool, RateLimitedTool};
 #[allow(unused_imports)]
 pub use skill_http::SkillHttpTool;
 #[allow(unused_imports)]
@@ -291,7 +293,10 @@ pub fn default_tools_with_runtime(
     runtime: Arc<dyn RuntimeAdapter>,
 ) -> Vec<Box<dyn Tool>> {
     vec![
-        Box::new(ShellTool::new(security.clone(), runtime)),
+        Box::new(RateLimitedTool::new(
+            PathGuardedTool::new(ShellTool::new(security.clone(), runtime), security.clone()),
+            security.clone(),
+        )),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(FileEditTool::new(security.clone())),
@@ -405,10 +410,14 @@ pub fn all_tools_with_runtime(
     let has_shell_access = runtime.has_shell_access();
     let sandbox = create_sandbox(&root_config.security);
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(
-            ShellTool::new_with_sandbox(security.clone(), runtime, sandbox)
-                .with_timeout_secs(root_config.shell_tool.timeout_secs),
-        ),
+        Arc::new(RateLimitedTool::new(
+            PathGuardedTool::new(
+                ShellTool::new_with_sandbox(security.clone(), runtime, sandbox)
+                    .with_timeout_secs(root_config.shell_tool.timeout_secs),
+                security.clone(),
+            ),
+            security.clone(),
+        )),
         Arc::new(FileReadTool::new(security.clone())),
         Arc::new(FileWriteTool::new(security.clone())),
         Arc::new(FileEditTool::new(security.clone())),
