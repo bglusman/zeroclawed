@@ -3608,6 +3608,11 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "hashify"
@@ -4801,6 +4806,9 @@ name = "lru"
 version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1dc47f592c06f33f8e3aea9591776ec7c9f9e4124778ff8a3c3b87159f7e593"
+dependencies = [
+ "hashbrown 0.16.1",
+]
 
 [[package]]
 name = "lru-slab"
@@ -12364,6 +12372,7 @@ dependencies = [
  "landlock",
  "lettre",
  "libc",
+ "lru",
  "mail-parser",
  "matrix-sdk",
  "mime_guess",

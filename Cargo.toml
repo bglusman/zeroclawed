@@ -133,6 +133,9 @@ ring = "0.17"
 # Protobuf encode/decode (Lark WS frame codec, WhatsApp storage)
 prost = { version = "0.14", default-features = false, features = ["derive"], optional = true }
 
+# LRU cache for bounded sender state
+lru = "0.16"
+
 # Memory / persistence
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
