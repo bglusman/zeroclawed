@@ -4253,6 +4253,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     draft_update_interval_ms: 1500,
                     multi_message_delay_ms: 800,
                     recovery_key,
+                    mention_only: false,
                 });
             }
             ChannelMenuChoice::Signal => {

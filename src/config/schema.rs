@@ -6696,6 +6696,10 @@ pub struct MatrixConfig {
     /// When set, ZeroClaw recovers room keys and cross-signing secrets on startup.
     #[serde(default)]
     pub recovery_key: Option<String>,
+    /// When true, only respond to messages that @-mention the bot in group rooms.
+    /// DMs bypass this gate.
+    #[serde(default)]
+    pub mention_only: bool,
 }
 
 impl ChannelConfig for MatrixConfig {
@@ -12347,6 +12351,7 @@ default_temperature = 0.7
             draft_update_interval_ms: 1500,
             multi_message_delay_ms: 800,
             recovery_key: None,
+            mention_only: false,
         };
         let json = serde_json::to_string(&mc).unwrap();
         let parsed: MatrixConfig = serde_json::from_str(&json).unwrap();
@@ -12373,6 +12378,7 @@ default_temperature = 0.7
             draft_update_interval_ms: 1500,
             multi_message_delay_ms: 800,
             recovery_key: None,
+            mention_only: false,
         };
         let toml_str = toml::to_string(&mc).unwrap();
         let parsed: MatrixConfig = toml::from_str(&toml_str).unwrap();
@@ -12471,6 +12477,7 @@ allowed_users = ["@ops:matrix.org"]
                 draft_update_interval_ms: 1500,
                 multi_message_delay_ms: 800,
                 recovery_key: None,
+                mention_only: false,
             }),
             signal: None,
             whatsapp: None,
