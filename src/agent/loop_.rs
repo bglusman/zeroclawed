@@ -1172,7 +1172,8 @@ fn default_param_for_tool(tool: &str) -> &'static str {
         | "websearch" | "search" => "query",
         "memory_store" | "memorystore" | "store" | "memstore" => "content",
         // HTTP and browser tools default to "url"
-        "http_request" | "http" | "fetch" | "curl" | "wget" | "browser_open" | "browser" => "url",
+        "http_request" | "http" | "fetch" | "curl" | "wget" | "browser_open" | "browser"
+        | "web_fetch" | "webfetch" => "url",
         _ => "input",
     }
 }
@@ -8949,6 +8950,9 @@ Let me check the result."#;
         assert_eq!(default_param_for_tool("search"), "query");
         assert_eq!(default_param_for_tool("http_request"), "url");
         assert_eq!(default_param_for_tool("browser_open"), "url");
+        assert_eq!(default_param_for_tool("web_search_tool"), "query");
+        assert_eq!(default_param_for_tool("web_search"), "query");
+        assert_eq!(default_param_for_tool("web_fetch"), "url");
         assert_eq!(default_param_for_tool("unknown_tool"), "input");
     }
 
