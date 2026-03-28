@@ -31,6 +31,7 @@ pub mod irc;
 pub mod lark;
 pub mod link_enricher;
 pub mod linq;
+pub mod media_markers;
 #[cfg(feature = "channel-matrix")]
 pub mod matrix;
 pub mod mattermost;
@@ -746,7 +747,13 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
              - For media attachments use markers: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], \
                [VIDEO:<path-or-url>], [VOICE:<path-or-url>]\n\
              - Voice supports .wav, .mp3, .silk formats only. Other audio formats use [DOCUMENT:]\n\
-             - Keep normal text outside markers and never wrap markers in code fences.\n",
+             - Keep normal text outside markers and never wrap markers in code fences.\n"),
+        "lark" | "feishu" => Some(
+            "When responding on Lark/Feishu:\n\
+             - For media attachments use markers: [IMAGE:<local-absolute-path>], [DOCUMENT:<local-absolute-path>], [VIDEO:<local-absolute-path>], [AUDIO:<local-absolute-path>], or [VOICE:<local-absolute-path>]\n\
+             - v1 only supports uploading local file paths. Remote URLs may be skipped.\n\
+             - Keep normal text outside markers and never wrap markers in code fences.\n\
+             - Be concise and direct. Skip filler phrases like 'Great question!' or 'Certainly!'\n",
         ),
         _ => None,
     }
