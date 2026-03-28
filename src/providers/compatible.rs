@@ -427,11 +427,27 @@ impl OpenAiCompatibleProvider {
     }
 
     fn reasoning_effort_for_model(&self, model: &str) -> Option<String> {
-        let id = model.rsplit('/').next().unwrap_or(model);
-        let supports_reasoning_effort = id.starts_with("gpt-5") || id.contains("codex");
-        supports_reasoning_effort
-            .then(|| self.reasoning_effort.clone())
-            .flatten()
+        let id = model.rsplit('/').next().unwrap_or(model).to_lowercase();
+        // Only apply reasoning_effort to known OpenAI o1/o3/gpt-5 models
+        // and only if the provider seems to intend to support it.
+        let is_openai_reasoning_model = id.starts_with("o1-")
+            || id == "o1"
+            || id.starts_with("o3-")
+            || id == "o3"
+            || id.starts_with("gpt-5");
+
+        // Stricter check for 'codex' models: only if it looks like an official OpenAI model
+        // or if the provider name explicitly contains "openai" or "codex".
+        let is_likely_codex_supported = id.contains("codex")
+            && (id.starts_with("gpt-")
+                || self.name.to_lowercase().contains("openai")
+                || self.name.to_lowercase().contains("codex"));
+
+        if is_openai_reasoning_model || is_likely_codex_supported {
+            self.reasoning_effort.clone()
+        } else {
+            None
+        }
     }
 }
 
@@ -1563,16 +1579,18 @@ impl OpenAiCompatibleProvider {
         let lower = error.to_lowercase();
         [
             "unknown parameter: tools",
+            "unknown parameter: tool_choice",
             "unsupported parameter: tools",
+            "invalid parameter: tools",
+            "unexpected parameter 'tools'",
+            "extra fields not allowed",
             "unrecognized field `tools`",
             "does not support tools",
             "function calling is not supported",
-            "tool_choice",
             "tool call validation failed",
-            "was not in request",
         ]
         .iter()
-        .any(|hint| lower.contains(hint))
+        .any(|pattern| lower.contains(pattern))
     }
 }
 
@@ -3102,18 +3120,46 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_effort_only_applies_to_gpt5_and_codex_models() {
+    fn reasoning_effort_only_applies_to_openai_and_selected_codex_models() {
         let provider = make_provider("test", "https://example.com", None)
             .with_reasoning_effort(Some("high".to_string()));
 
+        // OpenAI reasoning models
         assert_eq!(
-            provider.reasoning_effort_for_model("gpt-5.3-codex"),
+            provider.reasoning_effort_for_model("o1-preview"),
             Some("high".to_string())
         );
         assert_eq!(
-            provider.reasoning_effort_for_model("openai/gpt-5"),
+            provider.reasoning_effort_for_model("openai/o3-mini"),
             Some("high".to_string())
         );
+        assert_eq!(
+            provider.reasoning_effort_for_model("gpt-5"),
+            Some("high".to_string())
+        );
+
+        // Codex models with gpt- prefix (likely OpenAI)
+        assert_eq!(
+            provider.reasoning_effort_for_model("gpt-4-codex"),
+            Some("high".to_string())
+        );
+
+        // Non-OpenAI codex models with generic provider name should be REJECTED
+        assert_eq!(
+            provider.reasoning_effort_for_model("llama-3-codex"),
+            None,
+            "Generic codex model should not get reasoning_effort on unknown provider"
+        );
+
+        // But if provider name contains "openai", it should be ACCEPTED
+        let openai_provider = make_provider("openai-proxy", "https://example.com", None)
+            .with_reasoning_effort(Some("high".to_string()));
+        assert_eq!(
+            openai_provider.reasoning_effort_for_model("llama-3-codex"),
+            Some("high".to_string()),
+            "Codex model should get reasoning_effort if provider name contains 'openai'"
+        );
+
         assert_eq!(provider.reasoning_effort_for_model("llama-3.3-70b"), None);
     }
 
