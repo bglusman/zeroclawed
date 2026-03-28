@@ -322,10 +322,13 @@ export interface HistoryMessage {
 
 export function getSessionHistory(id: string): Promise<{ session_id: string; history: HistoryMessage[] }> {
   return apiFetch<{ session_id: string; history: HistoryMessage[] }>(`/api/sessions/${encodeURIComponent(id)}/history`);
+}
+
 /** Load persisted gateway WebSocket chat transcript for the dashboard Agent Chat. */
-export function getSessionMessages(id: string): Promise<SessionMessagesResponse> {
+export function getSessionMessages(id: string, limit?: number): Promise<SessionMessagesResponse> {
+  const params = limit != null ? `?limit=${limit}` : '';
   return apiFetch<SessionMessagesResponse>(
-    `/api/sessions/${encodeURIComponent(id)}/messages`,
+    `/api/sessions/${encodeURIComponent(id)}/messages${params}`,
   );
 }
 

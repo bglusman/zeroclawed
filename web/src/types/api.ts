@@ -134,7 +134,6 @@ export interface SessionMessage {
 }
 
 export interface WsMessage {
-  type: 'session_start' | 'message' | 'chunk' | 'chunk_reset' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error';
   type:
     | 'message'
     | 'chunk'
@@ -159,9 +158,6 @@ export interface WsMessage {
   resumed?: boolean;
   message_count?: number;
   role?: string;
-  session_id?: string;
-  resumed?: boolean;
-  message_count?: number;
 }
 
 /** Row from GET /api/sessions/{id}/messages */
@@ -174,4 +170,5 @@ export interface SessionMessagesResponse {
   session_id: string;
   messages: SessionMessageRow[];
   session_persistence: boolean;
+  has_more?: boolean;
 }

@@ -1,21 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Bot, User, AlertCircle, Copy, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { WsMessage } from '@/types/api';
 import { WebSocketClient, getOrCreateSessionId } from '@/lib/ws';
-import { getSessionHistory, type HistoryMessage } from '@/lib/api';
+import { getSessionMessages } from '@/lib/api';
 import { generateUUID } from '@/lib/uuid';
 import { useDraft } from '@/hooks/useDraft';
 import { t } from '@/lib/i18n';
-import { getSessionMessages } from '@/lib/api';
 import ToolCallCard from '@/components/ToolCallCard';
 import type { ToolCallInfo } from '@/components/ToolCallCard';
-import {
-  loadChatHistory,
-  mapServerMessagesToPersisted,
-  persistedToUiMessages,
-  saveChatHistory,
-  uiMessagesToPersisted,
-} from '@/lib/chatHistoryStorage';
 
 interface ChatMessage {
   id: string;
@@ -63,18 +57,9 @@ function loadPersistedMessages(): ChatMessage[] {
   }
 }
 
-function persistMessages(messages: ChatMessage[]): void {
-  try {
-    sessionStorage.setItem(chatStorageKey(), JSON.stringify(capMessages(messages)));
-  } catch {
-    // Ignore storage failures and keep the in-memory chat usable.
-  }
-}
-
 export default function AgentChat() {
   const { draft, saveDraft, clearDraft } = useDraft(DRAFT_KEY);
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadPersistedMessages());
-  const [historyReady, setHistoryReady] = useState(false);
   const [input, setInput] = useState(draft);
   const [typing, setTyping] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -91,7 +76,6 @@ export default function AgentChat() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const pendingContentRef = useRef('');
   const [streamingContent, setStreamingContent] = useState('');
-  const [streamingThinking, setStreamingThinking] = useState('');
   const shouldScrollRef = useRef(true);
   const isInitialLoadRef = useRef(true);
 
@@ -117,7 +101,7 @@ export default function AgentChat() {
           timestamp: new Date(),
         })) as ChatMessage[],
       );
-      setHasMore(result.has_more);
+      setHasMore(result.has_more ?? false);
       setLoadedTotal(result.messages.length);
 
       // Restore scroll position after DOM update
@@ -185,7 +169,7 @@ export default function AgentChat() {
                   timestamp: new Date(),
                 })) as ChatMessage[],
               );
-              setHasMore(result.has_more);
+              setHasMore(result.has_more ?? false);
               setLoadedTotal(result.messages.length);
             }).catch(() => {});
           } else if (msg.session_id) {
