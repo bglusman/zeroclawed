@@ -183,6 +183,10 @@ enum Commands {
         #[arg(long)]
         channels_only: bool,
 
+        /// Force interactive wizard mode (override TTY auto-detection)
+        #[arg(long)]
+        interactive: bool,
+
         /// API key for provider configuration
         #[arg(long)]
         api_key: Option<String>,
@@ -879,6 +883,7 @@ async fn main() -> Result<()> {
         force,
         reinit,
         channels_only,
+        interactive,
         api_key,
         provider,
         model,
@@ -889,6 +894,7 @@ async fn main() -> Result<()> {
         let force = *force;
         let reinit = *reinit;
         let channels_only = *channels_only;
+        let interactive = *interactive;
         let api_key = api_key.clone();
         let provider = provider.clone();
         let model = model.clone();
@@ -953,6 +959,8 @@ async fn main() -> Result<()> {
 
         // Auto-detect: run the interactive wizard when in a TTY with no
         // provider flags, quick setup otherwise (scriptable path).
+        // --interactive flag forces interactive mode regardless of TTY detection.
+        // --interactive flag forces interactive mode regardless of TTY detection.
         let has_provider_flags =
             api_key.is_some() || provider.is_some() || model.is_some() || memory.is_some();
         let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
@@ -969,7 +977,7 @@ async fn main() -> Result<()> {
                 force,
             ))
             .await
-        } else if is_tty || env_interactive {
+        } else if interactive || is_tty || env_interactive {
             Box::pin(onboard::run_wizard(force)).await
         } else {
             Box::pin(onboard::run_quick_setup(
@@ -2731,9 +2739,15 @@ mod tests {
     }
 
     #[test]
-    fn onboard_cli_rejects_removed_interactive_flag() {
-        // --interactive was removed; onboard auto-detects TTY instead.
-        assert!(Cli::try_parse_from(["zeroclaw", "onboard", "--interactive"]).is_err());
+    fn onboard_cli_accepts_interactive_flag() {
+        // --interactive forces interactive wizard mode regardless of TTY detection.
+        let cli = Cli::try_parse_from(["zeroclaw", "onboard", "--interactive"])
+            .expect("onboard --interactive should parse");
+
+        match cli.command {
+            Commands::Onboard { interactive, .. } => assert!(interactive),
+            other => panic!("expected onboard command, got {other:?}"),
+        }
     }
 
     #[test]
