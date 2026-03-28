@@ -158,6 +158,11 @@ struct Cli {
     #[arg(long, global = true)]
     config_dir: Option<String>,
 
+    /// Print every message sent to the LLM provider (system prompt, history, user turn).
+    /// Shows the full payload on the first turn and the growing history on subsequent turns.
+    #[arg(long, global = true)]
+    log_llm: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -849,11 +854,17 @@ async fn main() -> Result<()> {
     }
 
     // Initialize logging - respects RUST_LOG env var, defaults to INFO
-    let subscriber = fmt::Subscriber::builder()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+    let base_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = if cli.log_llm {
+        base_filter.add_directive(
+            "zeroclaw::providers::reliable=trace"
+                .parse()
+                .expect("valid directive"),
         )
-        .finish();
+    } else {
+        base_filter
+    };
+    let subscriber = fmt::Subscriber::builder().with_env_filter(filter).finish();
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
