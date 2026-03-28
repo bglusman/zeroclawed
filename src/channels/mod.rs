@@ -335,6 +335,7 @@ enum ChannelRuntimeCommand {
     SetModel(String),
     ShowConfig,
     NewSession,
+    SetThinking(Option<bool>),
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -499,6 +500,10 @@ struct ChannelRuntimeContext {
     max_tool_result_chars: usize,
     context_token_budget: usize,
     debouncer: Arc<debounce::MessageDebouncer>,
+    /// Per-chat thinking/reasoning overrides (sender_key -> enabled).
+    /// `Some(true)` = force thinking on, `Some(false)` = force thinking off.
+    /// Missing key = use global default from `extra_request_body`.
+    thinking_overrides: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 #[derive(Clone)]
@@ -894,6 +899,19 @@ fn parse_runtime_command(channel_name: &str, content: &str) -> Option<ChannelRun
     match base_command.as_str() {
         // `/new` is available on every channel — no model-switch gate.
         "/new" => Some(ChannelRuntimeCommand::NewSession),
+        "/thinking" => {
+            let arg = parts.next().unwrap_or("").to_ascii_lowercase();
+            match arg.as_str() {
+                "off" | "false" | "0" | "disable" | "no" => {
+                    Some(ChannelRuntimeCommand::SetThinking(Some(false)))
+                }
+                "on" | "true" | "1" | "enable" | "yes" => {
+                    Some(ChannelRuntimeCommand::SetThinking(Some(true)))
+                }
+                // "reset" / "default" / "auto" / no argument = reset to global default
+                _ => Some(ChannelRuntimeCommand::SetThinking(None)),
+            }
+        }
         // Model/provider switching is channel-gated.
         "/models" if supports_runtime_model_switch(channel_name) => {
             if let Some(provider) = parts.next() {
@@ -1989,6 +2007,40 @@ async fn handle_runtime_command_if_needed(
             mark_sender_for_new_session(ctx, &sender_key);
             "Conversation history cleared. Starting fresh.".to_string()
         }
+        ChannelRuntimeCommand::SetThinking(override_value) => {
+            let mut overrides = ctx
+                .thinking_overrides
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match override_value {
+                Some(enabled) => {
+                    overrides.insert(sender_key.clone(), enabled);
+                    if enabled {
+                        "Thinking/reasoning **enabled** for this chat.\nUse `/thinking off` to disable or `/thinking` to reset to default.".to_string()
+                    } else {
+                        "Thinking/reasoning **disabled** for this chat.\nUse `/thinking on` to enable or `/thinking` to reset to default.".to_string()
+                    }
+                }
+                None => {
+                    overrides.remove(&sender_key);
+                    let global_default = ctx
+                        .provider_runtime_options
+                        .reasoning_enabled
+                        .unwrap_or(false);
+                    if overrides.contains_key(&sender_key) {
+                        format!(
+                            "Thinking override removed. Using global default ({}).",
+                            if global_default { "on" } else { "off" }
+                        )
+                    } else {
+                        format!(
+                            "Thinking is currently using global default ({}).\nUse `/thinking on` or `/thinking off` to override.",
+                            if global_default { "on" } else { "off" }
+                        )
+                    }
+                }
+            }
+        }
     };
 
     if let Err(err) = channel
@@ -3030,6 +3082,31 @@ async fn process_channel_message(
         Cancelled,
     }
 
+    // Apply per-sender /thinking override: create an ephemeral provider with
+    // modified `reasoning_enabled` when the sender has toggled thinking on/off.
+    let thinking_provider: Option<Arc<dyn Provider>> = {
+        let override_val = ctx
+            .thinking_overrides
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&history_key)
+            .copied();
+        if let Some(thinking_enabled) = override_val {
+            let mut options = ctx.provider_runtime_options.clone();
+            options.reasoning_enabled = Some(thinking_enabled);
+            providers::create_provider_with_url_and_options(
+                &route.provider,
+                route.api_key.as_deref().or(ctx.api_key.as_deref()),
+                ctx.api_url.as_deref(),
+                &options,
+            )
+            .ok()
+            .map(Arc::from)
+        } else {
+            None
+        }
+    };
+
     // Per-request model switch slot: isolates model_switch tool results per user,
     // preventing cross-user leakage from the global MODEL_SWITCH_REQUEST.
     let model_switch_slot: crate::agent::loop_::ModelSwitchCallback = Arc::new(Mutex::new(None));
@@ -3060,7 +3137,7 @@ async fn process_channel_message(
                     crate::agent::loop_::TOOL_LOOP_COST_TRACKING_CONTEXT.scope(
                         cost_tracking_context.clone(),
                     run_tool_call_loop(
-                        active_provider.as_ref(),
+                        thinking_provider.as_deref().unwrap_or(active_provider.as_ref()),
                         &mut history,
                         ctx.tools_registry.as_ref(),
                         notify_observer.as_ref() as &dyn Observer,
@@ -5799,6 +5876,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::from_millis(
             config.channels_config.debounce_ms,
         ))),
+        thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
     });
 
     // Hydrate in-memory conversation histories from persisted JSONL session files.
@@ -6229,6 +6307,7 @@ mod tests {
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         };
 
         assert!(compact_sender_history(&ctx, &sender));
@@ -6353,6 +6432,7 @@ mod tests {
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         };
 
         append_sender_turn(&ctx, &sender, ChatMessage::user("hello"));
@@ -6433,6 +6513,7 @@ mod tests {
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         };
 
         assert!(rollback_orphan_user_turn(&ctx, &sender, "pending"));
@@ -6532,6 +6613,7 @@ mod tests {
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         };
 
         assert!(rollback_orphan_user_turn(
@@ -7179,6 +7261,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7355,6 +7438,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7460,6 +7544,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7550,6 +7635,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7650,6 +7736,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7772,6 +7859,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7874,6 +7962,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -7991,6 +8080,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -8096,6 +8186,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -8191,6 +8282,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -8409,6 +8501,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -8523,6 +8616,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -8656,6 +8750,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -8786,6 +8881,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
@@ -8894,6 +8990,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -8984,6 +9081,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -9827,6 +9925,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -9970,6 +10069,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -10157,6 +10257,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -10275,6 +10376,7 @@ BTC is currently around $65,000 based on latest tool output."#
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -10863,6 +10965,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         // Simulate a photo attachment message with [IMAGE:] marker.
@@ -10960,6 +11063,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -11267,6 +11371,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -11388,6 +11493,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -11501,6 +11607,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -11634,6 +11741,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -11915,6 +12023,7 @@ This is an example JSON object for profile settings."#;
             max_tool_result_chars: 0,
             context_token_budget: 0,
             debouncer: Arc::new(debounce::MessageDebouncer::new(Duration::ZERO)),
+            thinking_overrides: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(8);
