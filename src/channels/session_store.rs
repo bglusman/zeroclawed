@@ -167,6 +167,13 @@ impl SessionStore {
         Ok(false)
     }
 
+    /// Return the modification time of a session's JSONL file.
+    pub fn session_mtime(&self, session_key: &str) -> Option<std::time::SystemTime> {
+        std::fs::metadata(self.session_path(session_key))
+            .and_then(|m| m.modified())
+            .ok()
+    }
+
     /// List all session keys that have files on disk.
     /// Decodes percent-encoded filenames back to original keys.
     pub fn list_sessions(&self) -> Vec<String> {
