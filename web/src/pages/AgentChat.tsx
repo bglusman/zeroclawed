@@ -3,6 +3,8 @@ import { Send, Bot, User, AlertCircle, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { WsMessage } from '@/types/api';
+import { WebSocketClient } from '@/lib/ws';
+import { getSessionHistory, type HistoryMessage } from '@/lib/api';
 import { WebSocketClient, getOrCreateSessionId } from '@/lib/ws';
 import { generateUUID } from '@/lib/uuid';
 import { useDraft } from '@/hooks/useDraft';
@@ -80,6 +82,7 @@ export default function AgentChat() {
   const [typing, setTyping] = useState(false);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocketClient | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -176,6 +179,28 @@ export default function AgentChat() {
 
     ws.onMessage = (msg: WsMessage) => {
       switch (msg.type) {
+        case 'session_start':
+          if (msg.session_id) {
+            setSessionId(msg.session_id);
+            // Load history if session is resumed
+            if (msg.resumed && msg.message_count && msg.message_count > 0) {
+              getSessionHistory(msg.session_id)
+                .then((data) => {
+                  const now = new Date();
+                  const historyMessages = data.history.map((h: HistoryMessage) => ({
+                    id: generateUUID(),
+                    role: h.role as 'user' | 'agent',
+                    content: h.content,
+                    timestamp: now,
+                  }));
+                  setMessages(historyMessages);
+                })
+                .catch((err) => {
+                  console.error('Failed to load session history:', err);
+                });
+            }
+          }
+          break;
         case 'history': {
           // Replay of a persisted message from a resumed session.
           const role = msg.role === 'user' ? 'user' : 'agent';

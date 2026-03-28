@@ -131,6 +131,7 @@ export interface SSEEvent {
 }
 
 export interface WsMessage {
+  type: 'session_start' | 'message' | 'chunk' | 'chunk_reset' | 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error';
   type:
     | 'message'
     | 'chunk'
@@ -151,6 +152,9 @@ export interface WsMessage {
   output?: string;
   message?: string;
   code?: string;
+  session_id?: string;
+  resumed?: boolean;
+  message_count?: number;
   role?: string;
   session_id?: string;
   resumed?: boolean;
