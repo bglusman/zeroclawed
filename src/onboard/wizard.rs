@@ -4596,6 +4596,7 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                         pair_code: (!pair_code.trim().is_empty())
                             .then(|| pair_code.trim().to_string()),
                         allowed_numbers,
+                        mention_only: existing_wa.map(|w| w.mention_only).unwrap_or(false),
                         mode: existing_wa.map(|w| w.mode.clone()).unwrap_or_default(),
                         dm_policy: existing_wa.map(|w| w.dm_policy.clone()).unwrap_or_default(),
                         group_policy: existing_wa
@@ -4711,6 +4712,7 @@ fn setup_channels(existing: Option<ChannelsConfig>) -> Result<ChannelsConfig> {
                     pair_phone: None,
                     pair_code: None,
                     allowed_numbers,
+                    mention_only: existing_wa.map(|w| w.mention_only).unwrap_or(false),
                     mode: existing_wa.map(|w| w.mode.clone()).unwrap_or_default(),
                     dm_policy: existing_wa.map(|w| w.dm_policy.clone()).unwrap_or_default(),
                     group_policy: existing_wa
