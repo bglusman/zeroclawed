@@ -303,14 +303,7 @@ async fn run_agent_job(
     };
 
     match run_result {
-        Ok(response) => (
-            true,
-            if response.trim().is_empty() {
-                "agent job executed".to_string()
-            } else {
-                response
-            },
-        ),
+        Ok(response) => (true, response),
         Err(e) => (false, format!("agent job failed: {e}")),
     }
 }
@@ -427,6 +420,16 @@ async fn deliver_if_configured(config: &Config, job: &CronJob, output: &str) -> 
         return Ok(());
     }
 
+    // Skip delivery for empty, whitespace-only, or "NONE" output
+    let trimmed = output.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        tracing::debug!(
+            "Cron job '{}': skipping delivery (no actionable output)",
+            job.name.as_deref().unwrap_or(&job.id)
+        );
+        return Ok(());
+    }
+
     let channel = delivery
         .channel
         .as_deref()
@@ -526,7 +529,8 @@ pub(crate) async fn deliver_announcement(
                 Vec::new(),
                 sl.allowed_users.clone(),
             )
-            .with_workspace_dir(config.workspace_dir.clone());
+            .with_workspace_dir(config.workspace_dir.clone())
+            .with_markdown_blocks(sl.use_markdown_blocks);
             channel
                 .send(&SendMessage::new(safe_output.as_str(), target))
                 .await?;

@@ -414,6 +414,14 @@ fn split_unquoted_segments(command: &str) -> Vec<String> {
 
 /// Detect a single unquoted `&` operator (background/chain). `&&` is allowed.
 ///
+fn truncate_command_for_log(command: &str, max: usize) -> String {
+    if command.len() <= max {
+        command.to_string()
+    } else {
+        format!("{}...", &command[..max])
+    }
+}
+
 /// We treat any standalone `&` as unsafe in policy validation because it can
 /// chain hidden sub-commands and escape foreground timeout expectations.
 fn contains_unquoted_single_ampersand(command: &str) -> bool {
@@ -945,6 +953,15 @@ impl SecurityPolicy {
     pub fn is_command_allowed(&self, command: &str) -> bool {
         if self.autonomy == AutonomyLevel::ReadOnly {
             return false;
+        }
+
+        // When the operator has set `allowed_commands = ["*"]` AND explicitly
+        // disabled `block_high_risk_commands`, they have opted out of all
+        // command-level restrictions including subshell/redirect guards.
+        let full_wildcard =
+            self.allowed_commands.iter().any(|c| c.trim() == "*") && !self.block_high_risk_commands;
+        if full_wildcard {
+            return true;
         }
 
         // Block subshell/expansion operators — these allow hiding arbitrary
