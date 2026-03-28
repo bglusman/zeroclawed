@@ -50,6 +50,7 @@ pub struct Agent {
     model_name: String,
     temperature: f64,
     workspace_dir: std::path::PathBuf,
+    autonomy_config: crate::config::AutonomyConfig,
     identity_config: crate::config::IdentityConfig,
     skills: Vec<crate::skills::Skill>,
     skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
@@ -85,6 +86,7 @@ pub struct AgentBuilder {
     model_name: Option<String>,
     temperature: Option<f64>,
     workspace_dir: Option<std::path::PathBuf>,
+    autonomy_config: Option<crate::config::AutonomyConfig>,
     identity_config: Option<crate::config::IdentityConfig>,
     skills: Option<Vec<crate::skills::Skill>>,
     skills_prompt_mode: Option<crate::config::SkillsPromptInjectionMode>,
@@ -115,6 +117,7 @@ impl AgentBuilder {
             model_name: None,
             temperature: None,
             workspace_dir: None,
+            autonomy_config: None,
             identity_config: None,
             skills: None,
             skills_prompt_mode: None,
@@ -184,6 +187,11 @@ impl AgentBuilder {
 
     pub fn workspace_dir(mut self, workspace_dir: std::path::PathBuf) -> Self {
         self.workspace_dir = Some(workspace_dir);
+        self
+    }
+
+    pub fn autonomy_config(mut self, autonomy_config: crate::config::AutonomyConfig) -> Self {
+        self.autonomy_config = Some(autonomy_config);
         self
     }
 
@@ -308,6 +316,7 @@ impl AgentBuilder {
             workspace_dir: self
                 .workspace_dir
                 .unwrap_or_else(|| std::path::PathBuf::from(".")),
+            autonomy_config: self.autonomy_config.unwrap_or_default(),
             identity_config: self.identity_config.unwrap_or_default(),
             skills: self.skills.unwrap_or_default(),
             skills_prompt_mode: self.skills_prompt_mode.unwrap_or_default(),
@@ -543,6 +552,7 @@ impl Agent {
             .model_name(model_name)
             .temperature(config.default_temperature)
             .workspace_dir(config.workspace_dir.clone())
+            .autonomy_config(config.autonomy.clone())
             .classification_config(config.query_classification.clone())
             .available_hints(available_hints)
             .route_model_by_hint(route_model_by_hint)
@@ -600,7 +610,13 @@ impl Agent {
             security_summary: self.security_summary.clone(),
             autonomy_level: self.autonomy_level,
         };
-        self.prompt_builder.build(&ctx)
+        let mut prompt = self.prompt_builder.build(&ctx)?;
+        crate::channels::append_autonomy_constraints_once(
+            &mut prompt,
+            &self.autonomy_config,
+            &self.workspace_dir,
+        );
+        Ok(prompt)
     }
 
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
