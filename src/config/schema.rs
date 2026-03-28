@@ -121,6 +121,19 @@ pub struct Config {
     #[serde(default)]
     pub extra_headers: HashMap<String, String>,
 
+    /// Provider-specific environment variables injected at daemon startup.
+    ///
+    /// Use this to store API keys for secondary providers without relying on
+    /// shell environment or wrapper scripts.
+    ///
+    /// ```toml
+    /// [provider_env]
+    /// MODELSTUDIO_API_KEY = "sk-sp-..."
+    /// DASHSCOPE_API_KEY = "sk-..."
+    /// ```
+    #[serde(default)]
+    pub provider_env: HashMap<String, String>,
+
     /// Observability backend configuration (`[observability]`).
     #[serde(default)]
     pub observability: ObservabilityConfig,
@@ -8227,6 +8240,7 @@ impl Default for Config {
             provider_timeout_secs: default_provider_timeout_secs(),
             provider_max_tokens: None,
             extra_headers: HashMap::new(),
+            provider_env: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
             trust: crate::trust::TrustConfig::default(),
@@ -9242,6 +9256,16 @@ impl Config {
             }
 
             config.apply_env_overrides();
+
+            // Inject provider_env entries as process environment variables
+            // so that provider credential resolution picks them up automatically.
+            for (key, value) in &config.provider_env {
+                if std::env::var(key).is_err() {
+                    std::env::set_var(key, value);
+                    tracing::debug!(key = %key, "Injected provider_env into process environment");
+                }
+            }
+
             config.validate()?;
             tracing::info!(
                 path = %config.config_path.display(),
@@ -11328,6 +11352,7 @@ auto_save = true
             provider_timeout_secs: 120,
             provider_max_tokens: None,
             extra_headers: HashMap::new(),
+            provider_env: HashMap::new(),
             observability: ObservabilityConfig {
                 backend: "log".into(),
                 ..ObservabilityConfig::default()
@@ -11935,6 +11960,7 @@ default_temperature = 0.7
             provider_timeout_secs: 120,
             provider_max_tokens: None,
             extra_headers: HashMap::new(),
+            provider_env: HashMap::new(),
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
             trust: crate::trust::TrustConfig::default(),
