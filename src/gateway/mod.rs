@@ -381,11 +381,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     // ── Security: warn on public bind without tunnel or explicit opt-in ──
     if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
     {
-        tracing::warn!(
-            "⚠️  Binding to {host} — gateway will be exposed to all network interfaces.\n\
-             Suggestion: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
-             [gateway] allow_public_bind = true in config.toml to silence this warning.\n\n\
-             Docker/VM: if you are running inside a container or VM, this is expected."
+        anyhow::bail!(
+            "🛑 Refusing to bind to {host} — gateway would be exposed on all network interfaces.\n\
+             Fix: use --host 127.0.0.1 (default), configure a tunnel, or set\n\
+             [gateway] allow_public_bind = true in config.toml.\n\n\
+             Docker / VM / container: if you need to reach the gateway from another\n\
+             container or host, set [gateway] host = \"0.0.0.0\" and allow_public_bind = true\n\
+             in config.toml, then connect via ws://host.docker.internal:{port}."
         );
     }
     let config_state = Arc::new(Mutex::new(config.clone()));
