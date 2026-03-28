@@ -6786,6 +6786,11 @@ pub struct WhatsAppConfig {
     /// Allowed phone numbers (E.164 format: +1234567890) or "*" for all
     #[serde(default)]
     pub allowed_numbers: Vec<String>,
+    /// When true, only respond to messages that @-mention the bot in groups (Web mode only).
+    /// Direct messages are always processed.
+    /// Bot identity is resolved from the wa-rs device at runtime; `pair_phone` seeds it on first connect.
+    #[serde(default)]
+    pub mention_only: bool,
     /// Usage mode for WhatsApp Web: "business" (default) or "personal".
     /// In personal mode the bot applies dm_policy, group_policy, and
     /// self_chat_mode to decide which chats to respond in.
@@ -12633,6 +12638,7 @@ channel_ids = ["C123", "D456"]
             pair_phone: None,
             pair_code: None,
             allowed_numbers: vec!["+1234567890".into(), "+9876543210".into()],
+            mention_only: false,
             mode: WhatsAppWebMode::default(),
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
@@ -12660,6 +12666,7 @@ channel_ids = ["C123", "D456"]
             pair_phone: None,
             pair_code: None,
             allowed_numbers: vec!["+1".into()],
+            mention_only: false,
             mode: WhatsAppWebMode::default(),
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
@@ -12692,6 +12699,7 @@ channel_ids = ["C123", "D456"]
             pair_phone: None,
             pair_code: None,
             allowed_numbers: vec!["*".into()],
+            mention_only: false,
             mode: WhatsAppWebMode::default(),
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
@@ -12716,6 +12724,7 @@ channel_ids = ["C123", "D456"]
             pair_phone: None,
             pair_code: None,
             allowed_numbers: vec!["+1".into()],
+            mention_only: false,
             mode: WhatsAppWebMode::default(),
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
@@ -12739,6 +12748,7 @@ channel_ids = ["C123", "D456"]
             pair_phone: None,
             pair_code: None,
             allowed_numbers: vec![],
+            mention_only: false,
             mode: WhatsAppWebMode::default(),
             dm_policy: WhatsAppChatPolicy::default(),
             group_policy: WhatsAppChatPolicy::default(),
@@ -12773,6 +12783,7 @@ channel_ids = ["C123", "D456"]
                 pair_phone: None,
                 pair_code: None,
                 allowed_numbers: vec!["+1".into()],
+                mention_only: false,
                 mode: WhatsAppWebMode::default(),
                 dm_policy: WhatsAppChatPolicy::default(),
                 group_policy: WhatsAppChatPolicy::default(),
