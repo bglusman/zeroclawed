@@ -23,6 +23,7 @@ pub mod debounce;
 pub mod dingtalk;
 pub mod discord;
 pub mod discord_history;
+pub mod discord_utils;
 pub mod email_channel;
 pub mod gmail_push;
 pub mod imessage;
