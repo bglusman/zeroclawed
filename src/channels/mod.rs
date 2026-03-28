@@ -514,6 +514,20 @@ fn conversation_history_key(msg: &traits::ChannelMessage) -> String {
     }
 }
 
+/// Generate the legacy session key as it would appear after lossy filename sanitization.
+/// Used to find sessions persisted before the percent-encoding fix (#4806).
+fn legacy_sanitized_key(key: &str) -> String {
+    key.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn followup_thread_id(msg: &traits::ChannelMessage) -> Option<String> {
     msg.thread_ts.clone().or_else(|| Some(msg.id.clone()))
 }
@@ -2643,12 +2657,40 @@ async fn process_channel_message(
     let prior_turns_raw = if force_fresh_session {
         vec![ChatMessage::user(&msg.content)]
     } else {
-        ctx.conversation_histories
+        let mut histories = ctx
+            .conversation_histories
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&history_key)
-            .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut turns = histories.get(&history_key).cloned().unwrap_or_default();
+
+        // Fallback: check for sessions persisted under the legacy lossy-sanitized
+        // key (pre-#4806). If found, migrate to the correct key. See #4806.
+        if turns.is_empty() {
+            let legacy_key = legacy_sanitized_key(&history_key);
+            if legacy_key != history_key {
+                if let Some(legacy_turns) = histories.remove(&legacy_key) {
+                    if !legacy_turns.is_empty() {
+                        tracing::info!(
+                            old_key = %legacy_key,
+                            new_key = %history_key,
+                            "Migrated legacy session to percent-encoded key"
+                        );
+                        histories.insert(history_key.clone(), legacy_turns.clone());
+                        // Re-persist under new key and remove legacy file
+                        if let Some(ref store) = ctx.session_store {
+                            for turn in &legacy_turns {
+                                let _ = store.append(&history_key, turn);
+                            }
+                            let _ = store.delete_session(&legacy_key);
+                        }
+                        turns = legacy_turns;
+                    }
+                }
+            }
+        }
+
+        drop(histories);
+        turns
     };
     let mut prior_turns = normalize_cached_channel_turns(prior_turns_raw);
 
@@ -6024,6 +6066,24 @@ mod tests {
         assert_eq!(normalized[1].role, "assistant");
         assert!(normalized[1].content.contains("Task timed out"));
         assert_eq!(normalized[2].content, "next question");
+    }
+
+    #[test]
+    fn legacy_sanitized_key_matches_old_encoding() {
+        let key = "matrix_@user:m.org||!room:m.org_$evt123:m.org_@user:m.org";
+        let legacy = legacy_sanitized_key(key);
+        assert_eq!(
+            legacy,
+            "matrix__user_m_org___room_m_org__evt123_m_org__user_m_org"
+        );
+        assert_ne!(legacy, key, "legacy key should differ from original");
+    }
+
+    #[test]
+    fn legacy_sanitized_key_noop_for_simple_keys() {
+        let key = "discord_12345_67890";
+        let legacy = legacy_sanitized_key(key);
+        assert_eq!(legacy, key, "simple keys should be unchanged");
     }
 
     #[test]
