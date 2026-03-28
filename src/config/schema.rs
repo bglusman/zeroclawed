@@ -6838,6 +6838,10 @@ pub struct WhatsAppConfig {
     /// Example: `["@?ZeroClaw", "\\+?15555550123"]`
     #[serde(default)]
     pub group_mention_patterns: Vec<String>,
+    /// When true, a newer WhatsApp message from the same sender in the same chat
+    /// cancels the in-flight request and starts a fresh response with preserved history.
+    #[serde(default)]
+    pub interrupt_on_new_message: bool,
     /// Per-channel proxy URL (http, https, socks5, socks5h).
     /// Overrides the global `[proxy]` setting for this channel only.
     #[serde(default)]
@@ -12695,6 +12699,7 @@ channel_ids = ["C123", "D456"]
             self_chat_mode: false,
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
+            interrupt_on_new_message: false,
             proxy_url: None,
         };
         let json = serde_json::to_string(&wc).unwrap();
@@ -12722,6 +12727,7 @@ channel_ids = ["C123", "D456"]
             self_chat_mode: false,
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
+            interrupt_on_new_message: false,
             proxy_url: None,
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -12754,6 +12760,7 @@ channel_ids = ["C123", "D456"]
             self_chat_mode: false,
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
+            interrupt_on_new_message: false,
             proxy_url: None,
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -12778,6 +12785,7 @@ channel_ids = ["C123", "D456"]
             self_chat_mode: false,
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
+            interrupt_on_new_message: false,
             proxy_url: None,
         };
         assert!(wc.is_ambiguous_config());
@@ -12801,10 +12809,25 @@ channel_ids = ["C123", "D456"]
             self_chat_mode: false,
             dm_mention_patterns: vec![],
             group_mention_patterns: vec![],
+            interrupt_on_new_message: false,
             proxy_url: None,
         };
         assert!(!wc.is_ambiguous_config());
         assert_eq!(wc.backend_type(), "web");
+    }
+
+    #[test]
+    async fn whatsapp_config_default_interrupt_on_new_message_is_false() {
+        let json = r#"{"session_path":"/tmp/wa"}"#;
+        let parsed: WhatsAppConfig = serde_json::from_str(json).unwrap();
+        assert!(!parsed.interrupt_on_new_message);
+    }
+
+    #[test]
+    async fn whatsapp_config_deserializes_interrupt_on_new_message_true() {
+        let json = r#"{"session_path":"/tmp/wa","interrupt_on_new_message":true}"#;
+        let parsed: WhatsAppConfig = serde_json::from_str(json).unwrap();
+        assert!(parsed.interrupt_on_new_message);
     }
 
     #[test]
@@ -12835,6 +12858,7 @@ channel_ids = ["C123", "D456"]
                 self_chat_mode: false,
                 dm_mention_patterns: vec![],
                 group_mention_patterns: vec![],
+                interrupt_on_new_message: false,
                 proxy_url: None,
             }),
             linq: None,
