@@ -25,7 +25,7 @@ pub mod detect;
 pub mod dm_pairing;
 pub mod docker;
 
-// Prompt injection defense (contributed from RustyClaw, MIT licensed)
+// SSRF protection and prompt injection defense (contributed from RustyClaw, MIT licensed)
 pub mod domain_matcher;
 pub mod estop;
 #[cfg(target_os = "linux")]
@@ -44,6 +44,7 @@ pub mod prompt_guard;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 pub mod secrets;
+pub mod ssrf;
 pub mod traits;
 pub mod vulnerability;
 #[cfg(feature = "webauthn")]
@@ -66,6 +67,8 @@ pub use path_validation::PathValidationSandbox;
 pub use policy::{AutonomyLevel, SecurityPolicy};
 #[allow(unused_imports)]
 pub use secrets::SecretStore;
+#[allow(unused_imports)]
+pub use ssrf::SsrfValidator;
 #[allow(unused_imports)]
 pub use traits::{NoopSandbox, Sandbox};
 // Nevis IAM integration
