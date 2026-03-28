@@ -16,6 +16,7 @@
 
 pub mod acp_server;
 pub mod bluesky;
+pub mod chunker;
 pub mod clawdtalk;
 pub mod cli;
 pub mod debounce;
