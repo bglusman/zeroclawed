@@ -123,12 +123,7 @@ impl<'a> Widget for SelectableList<'a> {
 
         // Scroll indicators
         if self.scroll_offset > 0 {
-            let indicator = Rect::new(
-                inner.x + inner.width.saturating_sub(3),
-                inner.y,
-                3,
-                1,
-            );
+            let indicator = Rect::new(inner.x + inner.width.saturating_sub(3), inner.y, 3, 1);
             Paragraph::new(Span::styled(" \u{25b2}", theme::dim_style())).render(indicator, buf);
         }
         if end < self.items.len() {
