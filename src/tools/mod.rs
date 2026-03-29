@@ -105,7 +105,6 @@ pub mod swarm;
 pub mod text_browser;
 pub mod tool_search;
 pub mod traits;
-pub mod wrappers;
 pub mod verifiable_intent;
 pub mod weather_tool;
 pub mod web_fetch;
@@ -191,7 +190,6 @@ pub use screenshot::ScreenshotTool;
 pub use security_ops::SecurityOpsTool;
 pub use sessions::{SessionsHistoryTool, SessionsListTool, SessionsSendTool};
 pub use shell::ShellTool;
-pub use wrappers::{PathGuardedTool, RateLimitedTool};
 #[allow(unused_imports)]
 pub use skill_http::SkillHttpTool;
 #[allow(unused_imports)]
@@ -293,10 +291,7 @@ pub fn default_tools_with_runtime(
     runtime: Arc<dyn RuntimeAdapter>,
 ) -> Vec<Box<dyn Tool>> {
     vec![
-        Box::new(RateLimitedTool::new(
-            PathGuardedTool::new(ShellTool::new(security.clone(), runtime), security.clone()),
-            security.clone(),
-        )),
+        Box::new(ShellTool::new(security.clone(), runtime)),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(FileEditTool::new(security.clone())),
@@ -410,14 +405,10 @@ pub fn all_tools_with_runtime(
     let has_shell_access = runtime.has_shell_access();
     let sandbox = create_sandbox(&root_config.security);
     let mut tool_arcs: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(RateLimitedTool::new(
-            PathGuardedTool::new(
-                ShellTool::new_with_sandbox(security.clone(), runtime, sandbox)
-                    .with_timeout_secs(root_config.shell_tool.timeout_secs),
-                security.clone(),
-            ),
-            security.clone(),
-        )),
+        Arc::new(
+            ShellTool::new_with_sandbox(security.clone(), runtime, sandbox)
+                .with_timeout_secs(root_config.shell_tool.timeout_secs),
+        ),
         Arc::new(FileReadTool::new(security.clone())),
         Arc::new(FileWriteTool::new(security.clone())),
         Arc::new(FileEditTool::new(security.clone())),
@@ -554,15 +545,12 @@ pub fn all_tools_with_runtime(
     }
 
     if http_config.enabled {
-        tool_arcs.push(Arc::new(HttpRequestTool::new_with_config(
+        tool_arcs.push(Arc::new(HttpRequestTool::new(
             security.clone(),
             http_config.allowed_domains.clone(),
             http_config.max_response_size,
             http_config.timeout_secs,
             http_config.allow_private_hosts,
-            root_config.config_path.clone(),
-            root_config.secrets.encrypt,
-            http_config.secrets.clone(),
         )));
     }
 
@@ -592,7 +580,6 @@ pub fn all_tools_with_runtime(
         tool_arcs.push(Arc::new(WebSearchTool::new_with_config(
             root_config.web_search.provider.clone(),
             root_config.web_search.brave_api_key.clone(),
-            root_config.web_search.tavily_api_key.clone(),
             root_config.web_search.searxng_instance_url.clone(),
             root_config.web_search.max_results,
             root_config.web_search.timeout_secs,
@@ -754,30 +741,10 @@ pub fn all_tools_with_runtime(
     tool_arcs.push(Arc::new(ScreenshotTool::new(security.clone())));
     tool_arcs.push(Arc::new(ImageInfoTool::new(security.clone())));
 
-    // Session-to-session messaging tools (always available when sessions dir exists).
-    // Build a composite backend that merges channel sessions (JSONL file store)
-    // with gateway sessions (SQLite) so the agent can see all sessions regardless
-    // of which persistence layer stores them.
+    // Session-to-session messaging tools (always available when sessions dir exists)
     if let Ok(session_store) = crate::channels::session_store::SessionStore::new(workspace_dir) {
-        let file_backend: Arc<dyn crate::channels::session_backend::SessionBackend> =
-            Arc::new(session_store);
-
         let backend: Arc<dyn crate::channels::session_backend::SessionBackend> =
-            if let Ok(sqlite_backend) =
-                crate::channels::session_sqlite::SqliteSessionBackend::new(workspace_dir)
-            {
-                let sqlite_arc: Arc<dyn crate::channels::session_backend::SessionBackend> =
-                    Arc::new(sqlite_backend);
-                Arc::new(
-                    crate::channels::session_backend::CompositeSessionBackend::new(
-                        file_backend,
-                        sqlite_arc,
-                    ),
-                )
-            } else {
-                file_backend
-            };
-
+            Arc::new(session_store);
         tool_arcs.push(Arc::new(SessionsListTool::new(backend.clone())));
         tool_arcs.push(Arc::new(SessionsHistoryTool::new(
             backend.clone(),
@@ -973,8 +940,7 @@ pub fn all_tools_with_runtime(
         .with_parent_tools(Arc::clone(&parent_tools))
         .with_multimodal_config(root_config.multimodal.clone())
         .with_delegate_config(root_config.delegate.clone())
-        .with_workspace_dir(workspace_dir.to_path_buf())
-        .with_memory(memory.clone());
+        .with_workspace_dir(workspace_dir.to_path_buf());
         tool_arcs.push(Arc::new(delegate_tool));
         Some(parent_tools)
     };

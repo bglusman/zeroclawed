@@ -11,7 +11,6 @@ pub mod importance;
 pub mod knowledge_graph;
 pub mod lucid;
 pub mod markdown;
-pub mod namespaced;
 pub mod none;
 pub mod policy;
 pub mod qdrant;
@@ -34,7 +33,6 @@ pub use backend::{
 };
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
-pub use namespaced::NamespacedMemory;
 pub use none::NoneMemory;
 #[allow(unused_imports)]
 pub use policy::PolicyEnforcer;

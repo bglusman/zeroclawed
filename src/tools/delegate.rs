@@ -2,7 +2,6 @@ use super::traits::{Tool, ToolResult};
 use crate::agent::loop_::run_tool_call_loop;
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::config::{DelegateAgentConfig, DelegateToolConfig};
-use crate::memory::{Memory, NamespacedMemory};
 use crate::observability::traits::{Observer, ObserverEvent, ObserverMetric};
 use crate::providers::{self, ChatMessage, Provider};
 use crate::security::SecurityPolicy;
@@ -71,8 +70,6 @@ pub struct DelegateTool {
     workspace_dir: PathBuf,
     /// Cancellation token for cascade control of background tasks.
     cancellation_token: CancellationToken,
-    /// Optional memory instance for namespace isolation on delegate agents.
-    memory: Option<Arc<dyn Memory>>,
 }
 
 impl DelegateTool {
@@ -106,7 +103,6 @@ impl DelegateTool {
             delegate_config: DelegateToolConfig::default(),
             workspace_dir: PathBuf::new(),
             cancellation_token: CancellationToken::new(),
-            memory: None,
         }
     }
 
@@ -146,7 +142,6 @@ impl DelegateTool {
             delegate_config: DelegateToolConfig::default(),
             workspace_dir: PathBuf::new(),
             cancellation_token: CancellationToken::new(),
-            memory: None,
         }
     }
 
@@ -190,28 +185,6 @@ impl DelegateTool {
     /// Return the cancellation token for external cascade control.
     pub fn cancellation_token(&self) -> &CancellationToken {
         &self.cancellation_token
-    }
-
-    /// Attach memory for namespace isolation on delegate agents.
-    pub fn with_memory(mut self, memory: Arc<dyn Memory>) -> Self {
-        self.memory = Some(memory);
-        self
-    }
-
-    /// Wrap memory with namespace isolation if configured for the given agent.
-    /// Returns the namespaced memory if memory_namespace is set, otherwise returns
-    /// the original memory.
-    fn get_agent_memory(
-        &self,
-        agent_config: &DelegateAgentConfig,
-    ) -> Option<Arc<dyn Memory>> {
-        self.memory.as_ref().map(|mem| {
-            if let Some(namespace) = &agent_config.memory_namespace {
-                Arc::new(NamespacedMemory::new(mem.clone(), namespace.clone())) as Arc<dyn Memory>
-            } else {
-                mem.clone()
-            }
-        })
     }
 
     /// Directory where background delegate results are stored.
@@ -1173,7 +1146,6 @@ impl DelegateTool {
                 0,    // max_tool_result_chars: inherit from parent config in future
                 0,    // context_token_budget: 0 = disabled for subagents
                 None, // shared_budget: TODO thread from parent in future
-                false, // native_tool_calls_only: use text fallback for subagents
             ),
         )
         .await;

@@ -234,7 +234,14 @@ impl Provider for GeminiCliProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::test_util::env_lock;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("env lock poisoned")
+    }
 
     #[test]
     fn new_uses_env_override() {

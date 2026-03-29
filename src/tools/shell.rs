@@ -145,6 +145,14 @@ impl Tool for ShellTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        if self.security.is_rate_limited() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+            });
+        }
+
         match self.security.validate_command_execution(command, approved) {
             Ok(_) => {}
             Err(reason) => {
@@ -154,6 +162,22 @@ impl Tool for ShellTool {
                     error: Some(reason),
                 });
             }
+        }
+
+        if let Some(path) = self.security.forbidden_path_argument(command) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Path blocked by security policy: {path}")),
+            });
+        }
+
+        if !self.security.record_action() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Rate limit exceeded: action budget exhausted".into()),
+            });
         }
 
         // Execute with timeout to prevent hanging commands.
@@ -245,7 +269,6 @@ mod tests {
     use super::*;
     use crate::runtime::{NativeRuntime, RuntimeAdapter};
     use crate::security::{AutonomyLevel, SecurityPolicy};
-    use crate::tools::wrappers::{PathGuardedTool, RateLimitedTool};
 
     fn test_security(autonomy: AutonomyLevel) -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
@@ -257,18 +280,6 @@ mod tests {
 
     fn test_runtime() -> Arc<dyn RuntimeAdapter> {
         Arc::new(NativeRuntime::new())
-    }
-
-    /// Returns the fully-wrapped shell tool as it is composed in production:
-    /// RateLimited(PathGuarded(ShellTool)).  Tests that verify path-blocking or
-    /// rate-limiting behaviour must use this helper so they exercise the wrappers.
-    fn wrapped_shell(
-        security: Arc<SecurityPolicy>,
-    ) -> RateLimitedTool<PathGuardedTool<ShellTool>> {
-        RateLimitedTool::new(
-            PathGuardedTool::new(ShellTool::new(security.clone(), test_runtime()), security.clone()),
-            security,
-        )
     }
 
     #[test]
@@ -365,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_blocks_absolute_path_argument() {
-        let tool = wrapped_shell(test_security(AutonomyLevel::Supervised));
+        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime());
         let result = tool
             .execute(json!({"command": "cat /etc/passwd"}))
             .await
@@ -382,7 +393,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_blocks_option_assignment_path_argument() {
-        let tool = wrapped_shell(test_security(AutonomyLevel::Supervised));
+        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime());
         let result = tool
             .execute(json!({"command": "grep --file=/etc/passwd root ./src"}))
             .await
@@ -399,7 +410,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_blocks_short_option_attached_path_argument() {
-        let tool = wrapped_shell(test_security(AutonomyLevel::Supervised));
+        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime());
         let result = tool
             .execute(json!({"command": "grep -f/etc/passwd root ./src"}))
             .await
@@ -416,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_blocks_tilde_user_path_argument() {
-        let tool = wrapped_shell(test_security(AutonomyLevel::Supervised));
+        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime());
         let result = tool
             .execute(json!({"command": "cat ~root/.ssh/id_rsa"}))
             .await
@@ -633,12 +644,6 @@ mod tests {
             DEFAULT_SHELL_TIMEOUT_SECS, 60,
             "default shell timeout must be 60 seconds"
         );
-        // SecurityPolicy::default() should carry the same value.
-        let policy = SecurityPolicy::default();
-        assert_eq!(
-            policy.shell_timeout_secs, DEFAULT_SHELL_TIMEOUT_SECS,
-            "SecurityPolicy default must match DEFAULT_SHELL_TIMEOUT_SECS"
-        );
     }
 
     #[test]
@@ -693,7 +698,7 @@ mod tests {
             workspace_dir: std::env::temp_dir(),
             ..SecurityPolicy::default()
         });
-        let tool = wrapped_shell(security);
+        let tool = ShellTool::new(security, test_runtime());
         let result = tool
             .execute(json!({"command": "echo test"}))
             .await
@@ -735,7 +740,7 @@ mod tests {
             workspace_dir: std::env::temp_dir(),
             ..SecurityPolicy::default()
         });
-        let tool = wrapped_shell(security);
+        let tool = ShellTool::new(security, test_runtime());
 
         let r1 = tool
             .execute(json!({"command": "echo first"}))
