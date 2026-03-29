@@ -297,7 +297,7 @@ jobs:
       - name: Checkout EasyPanel templates fork
         uses: actions/checkout@v4
         with:
-          repository: zeroclaw-labs/easypanel-templates
+          repository: zeroclaw-labs/easypanel
           token: ${{ secrets.MARKETPLACE_PAT }}
           ref: main
           path: easypanel
