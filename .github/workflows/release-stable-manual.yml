@@ -424,6 +424,8 @@ jobs:
         env:
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "zeroclaw $TAG"
           git push origin "$TAG"
 
