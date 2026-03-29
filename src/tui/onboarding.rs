@@ -582,7 +582,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 
     let mut app = App::new();
     app.fetch_pairing_code().await;
-    let result = run_app(&mut terminal, &mut app).await;
+    let result = run_app(&mut terminal, &mut app);
 
     disable_raw_mode().context("Failed to disable raw mode")?;
     io::stdout()
@@ -593,6 +593,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 
     if app.screen == Screen::Complete {
         // ── Persist configuration ──
+        #[allow(clippy::large_futures)]
         match save_tui_config(&app).await {
             Ok(()) => {
                 println!();
@@ -628,6 +629,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 // ── Config persistence ──────────────────────────────────────────────
 
 /// Save the TUI selections to the real config.toml.
+#[allow(clippy::large_futures)]
 async fn save_tui_config(app: &App) -> Result<()> {
     let mut config = Config::load_or_init().await?;
 
@@ -647,10 +649,10 @@ async fn save_tui_config(app: &App) -> Result<()> {
 
     // Model
     let model = app.selected_model();
-    if model != "Auto (recommended)" {
-        config.default_model = Some(model.to_string());
-    } else {
+    if model == "Auto (recommended)" {
         config.default_model = None; // Let provider pick default
+    } else {
+        config.default_model = Some(model.to_string());
     }
 
     // Web search provider
@@ -661,7 +663,6 @@ async fn save_tui_config(app: &App) -> Result<()> {
             "SearxNG" => "searxng",
             "Tavily" => "tavily",
             "Google Custom Search" => "google",
-            "DuckDuckGo" => "duckduckgo",
             _ => "duckduckgo",
         };
         config.web_search.enabled = true;
@@ -755,15 +756,12 @@ async fn find_docker_container() -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_string();
-    if !name.is_empty() { Some(name) } else { None }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 // ── Main loop ───────────────────────────────────────────────────────
 
-async fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
-) -> Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|frame| render(frame, app))?;
 
@@ -820,11 +818,11 @@ fn handle_input(app: &mut App, key: KeyCode) {
         },
 
         Screen::SecurityWarning => match key {
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
                 app.security_accepted = true;
                 app.screen = Screen::SetupMode;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            KeyCode::Char('n' | 'N') | KeyCode::Esc => {
                 app.should_quit = true;
             }
             _ => {}
@@ -2590,7 +2588,9 @@ fn render_control_ui(frame: &mut Frame, area: Rect, app: &App) {
     )));
     lines.push(Line::from(""));
 
-    let panel_height = lines.len() as u16 + 2; // +2 for border
+    let panel_height = u16::try_from(lines.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(2); // +2 for border
     let layout = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(panel_height),

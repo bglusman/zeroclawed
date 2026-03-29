@@ -31,6 +31,7 @@ use super::whatsapp_storage::RusqliteStore;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use parking_lot::Mutex;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::select;
 use wa_rs_proto::whatsapp::device_props::PlatformType;
@@ -1121,7 +1122,7 @@ impl Channel for WhatsAppWebChannel {
                                 let sender_jid = info.source.sender.clone();
                                 let sender_alt = info.source.sender_alt.clone();
                                 let sender = sender_jid.user().to_string();
-                                let is_group = info.source.chat.is_group();
+                                let _is_group = info.source.chat.is_group();
                                 let chat = info.source.chat.to_string();
 
                                 let mapped_phone = if sender_jid.is_lid() {
