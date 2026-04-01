@@ -16,9 +16,9 @@ use std::io;
 
 use crate::config::Config;
 use crate::config::schema::{
-    DiscordConfig, FeishuConfig, IMessageConfig, IrcConfig, LarkConfig, MatrixConfig,
-    MattermostConfig, NextcloudTalkConfig, SignalConfig, SlackConfig, TelegramConfig,
-    WhatsAppConfig,
+    DiscordConfig, FeishuConfig, IMessageConfig, IrcConfig, LarkConfig, LarkReceiveMode,
+    MatrixConfig, MattermostConfig, NextcloudTalkConfig, SignalConfig, SlackConfig, StreamMode,
+    TelegramConfig, WhatsAppChatPolicy, WhatsAppConfig, WhatsAppWebMode,
 };
 
 use super::theme;
@@ -707,7 +707,7 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                 config.channels_config.telegram = Some(TelegramConfig {
                     bot_token: String::from("YOUR_TELEGRAM_BOT_TOKEN"),
                     allowed_users: vec![],
-                    stream_mode: Default::default(),
+                    stream_mode: StreamMode::default(),
                     draft_update_interval_ms: 1000,
                     interrupt_on_new_message: false,
                     mention_only: false,
@@ -726,7 +726,7 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                     interrupt_on_new_message: false,
                     mention_only: false,
                     proxy_url: None,
-                    stream_mode: Default::default(),
+                    stream_mode: StreamMode::default(),
                     draft_update_interval_ms: 1000,
                     multi_message_delay_ms: 800,
                     stall_timeout_secs: 0,
@@ -764,9 +764,9 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                     pair_code: None,
                     allowed_numbers: vec![],
                     mention_only: false,
-                    mode: Default::default(),
-                    dm_policy: Default::default(),
-                    group_policy: Default::default(),
+                    mode: WhatsAppWebMode::default(),
+                    dm_policy: WhatsAppChatPolicy::default(),
+                    group_policy: WhatsAppChatPolicy::default(),
                     self_chat_mode: false,
                     dm_mention_patterns: vec![],
                     group_mention_patterns: vec![],
@@ -821,7 +821,7 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                     allowed_users: vec![],
                     allowed_rooms: vec![],
                     interrupt_on_new_message: false,
-                    stream_mode: Default::default(),
+                    stream_mode: StreamMode::default(),
                     draft_update_interval_ms: 500,
                     multi_message_delay_ms: 800,
                     recovery_key: None,
@@ -862,7 +862,7 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                     encrypt_key: None,
                     verification_token: None,
                     allowed_users: vec![],
-                    receive_mode: Default::default(),
+                    receive_mode: LarkReceiveMode::default(),
                     port: None,
                     proxy_url: None,
                 });
@@ -876,15 +876,13 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                     allowed_users: vec![],
                     mention_only: false,
                     use_feishu: false,
-                    receive_mode: Default::default(),
+                    receive_mode: LarkReceiveMode::default(),
                     port: None,
                     proxy_url: None,
                 });
             }
         }
-        // Channels without config structs yet (coming soon) — skip silently
-        "BlueBubbles" | "Zalo" | "Synology Chat" | "Nostr" | "Microsoft Teams"
-        | "Zalo Personal" | "Tlon" | "Twitch" | "Google Chat" | "LINE" | "Skip for now" => {}
+        // Channels without config structs yet — skip silently
         _ => {}
     }
 
@@ -894,7 +892,6 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
         let search_id = match search {
             "Brave Search" => "brave",
             "SearxNG" => "searxng",
-            "DuckDuckGo" => "duckduckgo",
             "Tavily" => "tavily",
             "Google Custom Search" => "google",
             _ => "duckduckgo",
@@ -3372,7 +3369,7 @@ mod tests {
         config.channels_config.telegram = Some(TelegramConfig {
             bot_token: "REAL_TOKEN_123".to_string(),
             allowed_users: vec!["alice".to_string()],
-            stream_mode: Default::default(),
+            stream_mode: StreamMode::default(),
             draft_update_interval_ms: 1000,
             interrupt_on_new_message: false,
             mention_only: false,
