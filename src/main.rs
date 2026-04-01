@@ -956,7 +956,7 @@ async fn main() -> Result<()> {
 
         // TUI onboarding mode (ratatui-based)
         if use_tui {
-            tui::run_tui_onboarding().await?;
+            Box::pin(tui::run_tui_onboarding()).await?;
             return Ok(());
         }
 

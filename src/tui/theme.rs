@@ -13,15 +13,11 @@ pub const ERR_RED: Color = Color::Rgb(255, 80, 80);
 pub const SELECTION_BG: Color = Color::Rgb(30, 60, 100);
 
 pub fn title_style() -> Style {
-    Style::default()
-        .fg(ICY_BLUE)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ICY_BLUE).add_modifier(Modifier::BOLD)
 }
 
 pub fn heading_style() -> Style {
-    Style::default()
-        .fg(ICY_CYAN)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(ICY_CYAN).add_modifier(Modifier::BOLD)
 }
 
 pub fn body_style() -> Style {

@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout, Rect},
     style::Modifier,
     text::{Line, Span},
     widgets::{Block, Paragraph},
-    Frame, Terminal,
 };
 use std::io;
 
@@ -75,11 +75,26 @@ enum Screen {
 // ── Provider/Channel/Search data ────────────────────────────────────
 
 const PROVIDER_TIERS: &[(&str, &str)] = &[
-    ("\u{2b50} Recommended", "OpenRouter, Venice, Anthropic, OpenAI, Gemini"),
-    ("\u{26a1} Fast inference", "Groq, Fireworks, Together AI, NVIDIA NIM"),
-    ("\u{1f310} Gateway / proxy", "Vercel AI, Cloudflare AI, Amazon Bedrock"),
-    ("\u{1f52c} Specialized", "Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen, Z.AI"),
-    ("\u{1f3e0} Local / private", "Ollama, llama.cpp, vLLM — no API key"),
+    (
+        "\u{2b50} Recommended",
+        "OpenRouter, Venice, Anthropic, OpenAI, Gemini",
+    ),
+    (
+        "\u{26a1} Fast inference",
+        "Groq, Fireworks, Together AI, NVIDIA NIM",
+    ),
+    (
+        "\u{1f310} Gateway / proxy",
+        "Vercel AI, Cloudflare AI, Amazon Bedrock",
+    ),
+    (
+        "\u{1f52c} Specialized",
+        "Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen, Z.AI",
+    ),
+    (
+        "\u{1f3e0} Local / private",
+        "Ollama, llama.cpp, vLLM — no API key",
+    ),
     ("\u{1f527} Custom", "Bring your own OpenAI-compatible API"),
 ];
 
@@ -87,16 +102,28 @@ const PROVIDER_TIERS: &[(&str, &str)] = &[
 const TIER_PROVIDERS: &[&[(&str, &str, &str)]] = &[
     // Tier 0: Recommended
     &[
-        ("OpenRouter", "200+ models, 1 API key (recommended)", "openrouter"),
+        (
+            "OpenRouter",
+            "200+ models, 1 API key (recommended)",
+            "openrouter",
+        ),
         ("Venice AI", "Privacy-first (Llama, Opus)", "venice"),
         ("Anthropic", "Claude Sonnet & Opus (direct)", "anthropic"),
         ("OpenAI", "GPT-4o, o1, GPT-5 (direct)", "openai"),
-        ("OpenAI Codex", "ChatGPT subscription OAuth, no API key", "openai-codex"),
+        (
+            "OpenAI Codex",
+            "ChatGPT subscription OAuth, no API key",
+            "openai-codex",
+        ),
         ("DeepSeek", "V3 & R1 (affordable)", "deepseek"),
         ("Mistral", "Large & Codestral", "mistral"),
         ("xAI", "Grok 3 & 4", "xai"),
         ("Perplexity", "Search-augmented AI", "perplexity"),
-        ("Google Gemini", "Gemini 2.0 Flash & Pro (supports CLI auth)", "gemini"),
+        (
+            "Google Gemini",
+            "Gemini 2.0 Flash & Pro (supports CLI auth)",
+            "gemini",
+        ),
     ],
     // Tier 1: Fast inference
     &[
@@ -111,15 +138,27 @@ const TIER_PROVIDERS: &[&[(&str, &str, &str)]] = &[
         ("Vercel AI Gateway", "", "vercel"),
         ("Cloudflare AI Gateway", "", "cloudflare"),
         ("Astrai", "Compliant AI routing, PII stripping", "astrai"),
-        ("Avian", "OpenAI-compatible (DeepSeek, Kimi, GLM, MiniMax)", "avian"),
+        (
+            "Avian",
+            "OpenAI-compatible (DeepSeek, Kimi, GLM, MiniMax)",
+            "avian",
+        ),
         ("Amazon Bedrock", "AWS managed models", "bedrock"),
     ],
     // Tier 3: Specialized
     &[
         ("Kimi Code", "Coding-optimized Kimi API", "kimi-code"),
-        ("Qwen Code", "OAuth tokens from ~/.qwen/oauth_creds.json", "qwen-code"),
+        (
+            "Qwen Code",
+            "OAuth tokens from ~/.qwen/oauth_creds.json",
+            "qwen-code",
+        ),
         ("Moonshot", "Kimi API (China endpoint)", "moonshot"),
-        ("Moonshot Intl", "Kimi API (international endpoint)", "moonshot-intl"),
+        (
+            "Moonshot Intl",
+            "Kimi API (international endpoint)",
+            "moonshot-intl",
+        ),
         ("GLM", "ChatGLM / Zhipu (international)", "glm"),
         ("GLM CN", "ChatGLM / Zhipu (China)", "glm-cn"),
         ("MiniMax", "International endpoint", "minimax"),
@@ -141,12 +180,18 @@ const TIER_PROVIDERS: &[&[(&str, &str, &str)]] = &[
         ("llama.cpp", "Local OpenAI-compatible endpoint", "llamacpp"),
         ("SGLang", "High-performance local serving", "sglang"),
         ("vLLM", "High-performance local inference", "vllm"),
-        ("Osaurus", "Unified AI edge runtime (MLX + cloud + MCP)", "osaurus"),
+        (
+            "Osaurus",
+            "Unified AI edge runtime (MLX + cloud + MCP)",
+            "osaurus",
+        ),
     ],
     // Tier 5: Custom
-    &[
-        ("Custom OpenAI-compatible", "Any OpenAI-compatible endpoint", "custom"),
-    ],
+    &[(
+        "Custom OpenAI-compatible",
+        "Any OpenAI-compatible endpoint",
+        "custom",
+    )],
 ];
 
 const CHANNELS: &[(&str, &str, bool)] = &[
@@ -285,8 +330,8 @@ impl App {
             .unwrap_or(42617);
 
         // Resolve gateway host: env var → default
-        let host = std::env::var("ZEROCLAW_GATEWAY_HOST")
-            .unwrap_or_else(|_| "127.0.0.1".to_string());
+        let host =
+            std::env::var("ZEROCLAW_GATEWAY_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         Self {
             screen: Screen::Welcome,
@@ -324,10 +369,7 @@ impl App {
         let timeout = std::time::Duration::from_secs(3);
 
         // 1. Try localhost admin endpoint (works for cargo/brew/local installs)
-        let admin_url = format!(
-            "http://127.0.0.1:{}/admin/paircode",
-            self.gateway_port
-        );
+        let admin_url = format!("http://127.0.0.1:{}/admin/paircode", self.gateway_port);
         if let Some((code, required)) = Self::try_fetch_code(&client, &admin_url, timeout).await {
             self.pairing_code = code;
             self.pairing_required = required;
@@ -335,10 +377,7 @@ impl App {
         }
 
         // 2. Try public endpoint (works during initial setup before first pair)
-        let public_url = format!(
-            "http://127.0.0.1:{}/pair/code",
-            self.gateway_port
-        );
+        let public_url = format!("http://127.0.0.1:{}/pair/code", self.gateway_port);
         if let Some((code, required)) = Self::try_fetch_code(&client, &public_url, timeout).await {
             self.pairing_code = code;
             self.pairing_required = required;
@@ -378,10 +417,7 @@ impl App {
         }
 
         // 6. Try admin POST endpoint (works for truly local gateways)
-        let new_url = format!(
-            "http://127.0.0.1:{}/admin/paircode/new",
-            self.gateway_port
-        );
+        let new_url = format!("http://127.0.0.1:{}/admin/paircode/new", self.gateway_port);
         if let Ok(resp) = client.post(&new_url).timeout(timeout).send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 if let Some(code) = json.get("pairing_code").and_then(|v| v.as_str()) {
@@ -410,7 +446,13 @@ impl App {
     async fn generate_code_via_docker() -> Option<String> {
         // Find zeroclaw container
         let ps = tokio::process::Command::new("docker")
-            .args(["ps", "--filter", "ancestor=ghcr.io/zeroclaw-labs/zeroclaw", "--format", "{{.Names}}"])
+            .args([
+                "ps",
+                "--filter",
+                "ancestor=ghcr.io/zeroclaw-labs/zeroclaw",
+                "--format",
+                "{{.Names}}",
+            ])
             .output()
             .await
             .ok()?;
@@ -435,14 +477,28 @@ impl App {
                 return None;
             }
             let output = tokio::process::Command::new("docker")
-                .args(["exec", &container, "zeroclaw", "gateway", "get-paircode", "--new"])
+                .args([
+                    "exec",
+                    &container,
+                    "zeroclaw",
+                    "gateway",
+                    "get-paircode",
+                    "--new",
+                ])
                 .output()
                 .await
                 .ok()?;
             return Self::extract_code_from_output(&output.stdout);
         }
         let output = tokio::process::Command::new("docker")
-            .args(["exec", &container, "zeroclaw", "gateway", "get-paircode", "--new"])
+            .args([
+                "exec",
+                &container,
+                "zeroclaw",
+                "gateway",
+                "get-paircode",
+                "--new",
+            ])
             .output()
             .await
             .ok()?;
@@ -502,9 +558,7 @@ impl App {
     }
 
     fn selected_channel(&self) -> &str {
-        CHANNELS
-            .get(self.channel_idx)
-            .map_or("Skip", |c| c.0)
+        CHANNELS.get(self.channel_idx).map_or("Skip", |c| c.0)
     }
 
     fn selected_search_provider(&self) -> &str {
@@ -527,7 +581,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 
     let mut app = App::new();
     app.fetch_pairing_code().await;
-    let result = run_app(&mut terminal, &mut app).await;
+    let result = run_app(&mut terminal, &mut app);
 
     disable_raw_mode().context("Failed to disable raw mode")?;
     io::stdout()
@@ -538,6 +592,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 
     if app.screen == Screen::Complete {
         // ── Persist configuration ──
+        #[allow(clippy::large_futures)]
         match save_tui_config(&app).await {
             Ok(()) => {
                 let skill = SKILLS
@@ -547,9 +602,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
                 let hooks_label = if app.hooks_idx == 0 { "enabled" } else { "disabled" };
 
                 println!();
-                println!(
-                    "  \u{1f980} ZeroClaw {VERSION} configured successfully!"
-                );
+                println!("  \u{1f980} ZeroClaw {VERSION} configured successfully!");
                 println!("     Provider:   {} ({})", app.selected_provider(), app.selected_provider_id());
                 println!("     Model:      {}", app.selected_model());
                 println!("     Channel:    {}", app.selected_channel());
@@ -593,6 +646,7 @@ pub async fn run_tui_onboarding() -> Result<()> {
 ///
 /// This persists every field the wizard collects so the config is complete
 /// across CLI, dashboard, macOS app, and Docker deployments.
+#[allow(clippy::large_futures)]
 async fn save_tui_config(app: &App) -> Result<()> {
     let mut config = Config::load_or_init().await?;
     apply_tui_selections_to_config(app, &mut config);
@@ -625,10 +679,10 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
 
     // ── Model ───────────────────────────────────────────────────────
     let model = app.selected_model();
-    if model != "Auto (recommended)" {
-        config.default_model = Some(model.to_string());
-    } else {
+    if model == "Auto (recommended)" {
         config.default_model = None; // Let provider pick default
+    } else {
+        config.default_model = Some(model.to_string());
     }
 
     // ── Channel ─────────────────────────────────────────────────────
@@ -830,10 +884,8 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
             "Brave Search" => "brave",
             "SearxNG" => "searxng",
             "DuckDuckGo" => "duckduckgo",
-            // Tavily and Google CSE are not yet supported by the config
-            // schema. Map them to duckduckgo as a safe fallback and log
-            // the user's intent so they can reconfigure later.
-            "Tavily" | "Google Custom Search" => "duckduckgo",
+            "Tavily" => "tavily",
+            "Google Custom Search" => "google",
             _ => "duckduckgo",
         };
         config.web_search.enabled = true;
@@ -942,13 +994,7 @@ async fn find_docker_container() -> Option<String> {
     }
     // Try by container name
     let ps2 = tokio::process::Command::new("docker")
-        .args([
-            "ps",
-            "--filter",
-            "name=zeroclaw",
-            "--format",
-            "{{.Names}}",
-        ])
+        .args(["ps", "--filter", "name=zeroclaw", "--format", "{{.Names}}"])
         .output()
         .await
         .ok()?;
@@ -958,19 +1004,12 @@ async fn find_docker_container() -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_string();
-    if !name.is_empty() {
-        Some(name)
-    } else {
-        None
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 // ── Main loop ───────────────────────────────────────────────────────
 
-async fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
-) -> Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
         terminal.draw(|frame| render(frame, app))?;
 
@@ -1027,11 +1066,11 @@ fn handle_input(app: &mut App, key: KeyCode) {
         },
 
         Screen::SecurityWarning => match key {
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
                 app.security_accepted = true;
                 app.screen = Screen::SetupMode;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            KeyCode::Char('n' | 'N') | KeyCode::Esc => {
                 app.should_quit = true;
             }
             _ => {}
@@ -1299,9 +1338,7 @@ fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     // Dark background
-    let bg_block = Block::default().style(
-        ratatui::style::Style::default().bg(theme::FROST_BG),
-    );
+    let bg_block = Block::default().style(ratatui::style::Style::default().bg(theme::FROST_BG));
     frame.render_widget(bg_block, area);
 
     // Layout: banner + version + content + footer
@@ -1471,8 +1508,7 @@ fn render_welcome(frame: &mut Frame, area: Rect) {
             Span::styled("\u{2514}  ", theme::border_style()),
             Span::styled(
                 "Press Enter to begin...",
-                theme::heading_style()
-                    .add_modifier(Modifier::SLOW_BLINK),
+                theme::heading_style().add_modifier(Modifier::SLOW_BLINK),
             ),
         ]),
     ];
@@ -1537,7 +1573,10 @@ fn render_security(frame: &mut Frame, area: Rect) {
             theme::body_style(),
         )),
         Line::from(""),
-        Line::from(Span::styled("Recommended baseline:", theme::heading_style())),
+        Line::from(Span::styled(
+            "Recommended baseline:",
+            theme::heading_style(),
+        )),
         Line::from(Span::styled(
             "  - Pairing/allowlists + mention gating.",
             theme::body_style(),
@@ -1790,10 +1829,7 @@ fn render_quickstart_summary(frame: &mut Frame, area: Rect, app: &App) {
                 )),
                 Line::from(vec![
                     Span::styled("  Gateway port: ", theme::dim_style()),
-                    Span::styled(
-                        format!("{}", app.gateway_port),
-                        theme::heading_style(),
-                    ),
+                    Span::styled(format!("{}", app.gateway_port), theme::heading_style()),
                 ]),
                 Line::from(vec![
                     Span::styled("  Gateway bind: ", theme::dim_style()),
@@ -2247,11 +2283,7 @@ fn render_how_channels_work(frame: &mut Frame, area: Rect) {
 // ── Screen: Channel select ──────────────────────────────────────────
 
 fn render_channel_select(frame: &mut Frame, area: Rect, app: &App) {
-    let layout = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(6),
-    ])
-    .split(area);
+    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(6)]).split(area);
 
     frame.render_widget(setup_title(), layout[0]);
 
@@ -2330,11 +2362,7 @@ fn render_web_search_info(frame: &mut Frame, area: Rect) {
 // ── Screen: Web search provider ─────────────────────────────────────
 
 fn render_web_search_provider(frame: &mut Frame, area: Rect, app: &App) {
-    let layout = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(6),
-    ])
-    .split(area);
+    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(6)]).split(area);
 
     frame.render_widget(setup_title(), layout[0]);
 
@@ -2409,17 +2437,11 @@ fn render_skills_status(frame: &mut Frame, area: Rect) {
                 Line::from(""),
                 Line::from(vec![
                     Span::styled("  Eligible: ", theme::dim_style()),
-                    Span::styled(
-                        format!("{skill_count}"),
-                        theme::heading_style(),
-                    ),
+                    Span::styled(format!("{skill_count}"), theme::heading_style()),
                 ]),
                 Line::from(vec![
                     Span::styled("  Missing requirements: ", theme::dim_style()),
-                    Span::styled(
-                        format!("{skill_count}"),
-                        theme::warn_style(),
-                    ),
+                    Span::styled(format!("{skill_count}"), theme::warn_style()),
                 ]),
                 Line::from(vec![
                     Span::styled("  Unsupported on this OS: ", theme::dim_style()),
@@ -2441,11 +2463,7 @@ fn render_skills_status(frame: &mut Frame, area: Rect) {
 // ── Screen: Skills install ──────────────────────────────────────────
 
 fn render_skills_install(frame: &mut Frame, area: Rect, app: &App) {
-    let layout = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(6),
-    ])
-    .split(area);
+    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(6)]).split(area);
 
     frame.render_widget(setup_title(), layout[0]);
 
@@ -2521,11 +2539,7 @@ fn render_hooks_info(frame: &mut Frame, area: Rect) {
 // ── Screen: Hooks enable ────────────────────────────────────────────
 
 fn render_hooks_enable(frame: &mut Frame, area: Rect, app: &App) {
-    let layout = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(6),
-    ])
-    .split(area);
+    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(6)]).split(area);
 
     frame.render_widget(setup_title(), layout[0]);
 
@@ -2747,10 +2761,7 @@ fn render_control_ui(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  Pairing: ", theme::dim_style()),
-            Span::styled(
-                "disabled (open access)",
-                theme::warn_style(),
-            ),
+            Span::styled("disabled (open access)", theme::warn_style()),
         ]));
         lines.push(Line::from(Span::styled(
             "  Enable with: require_pairing = true in config.toml",
@@ -2765,7 +2776,9 @@ fn render_control_ui(frame: &mut Frame, area: Rect, app: &App) {
     )));
     lines.push(Line::from(""));
 
-    let panel_height = lines.len() as u16 + 2; // +2 for border
+    let panel_height = u16::try_from(lines.len())
+        .unwrap_or(u16::MAX)
+        .saturating_add(2); // +2 for border
     let layout = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(panel_height),
@@ -2965,8 +2978,7 @@ fn render_complete(frame: &mut Frame, area: Rect, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "  \u{1f980} ZeroClaw configured successfully!",
-            theme::success_style()
-                .add_modifier(Modifier::BOLD),
+            theme::success_style().add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(vec![

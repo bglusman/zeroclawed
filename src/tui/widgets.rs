@@ -14,7 +14,7 @@ pub struct InfoPanel<'a> {
     pub lines: Vec<Line<'a>>,
 }
 
-impl<'a> Widget for InfoPanel<'a> {
+impl Widget for InfoPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -49,7 +49,7 @@ pub struct SelectableItem {
     pub installed: bool,
 }
 
-impl<'a> Widget for SelectableList<'a> {
+impl Widget for SelectableList<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -68,7 +68,7 @@ impl<'a> Widget for SelectableList<'a> {
 
         for (i, item) in self.items[start..end].iter().enumerate() {
             let abs_idx = start + i;
-            let y = inner.y + i as u16;
+            let y = inner.y + u16::try_from(i).unwrap_or(u16::MAX);
             if y >= inner.y + inner.height {
                 break;
             }
@@ -123,12 +123,7 @@ impl<'a> Widget for SelectableList<'a> {
 
         // Scroll indicators
         if self.scroll_offset > 0 {
-            let indicator = Rect::new(
-                inner.x + inner.width.saturating_sub(3),
-                inner.y,
-                3,
-                1,
-            );
+            let indicator = Rect::new(inner.x + inner.width.saturating_sub(3), inner.y, 3, 1);
             Paragraph::new(Span::styled(" \u{25b2}", theme::dim_style())).render(indicator, buf);
         }
         if end < self.items.len() {
@@ -158,7 +153,7 @@ pub enum StepStatus {
     Error,
 }
 
-impl<'a> Widget for StepIndicator<'a> {
+impl Widget for StepIndicator<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let (icon, style) = match self.status {
             StepStatus::Pending => (" ", theme::dim_style()),
@@ -220,7 +215,7 @@ pub struct ConfirmedLine<'a> {
     pub value: &'a str,
 }
 
-impl<'a> Widget for ConfirmedLine<'a> {
+impl Widget for ConfirmedLine<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let line = Line::from(vec![
             Span::styled("\u{25c7}  ", theme::success_style()), // ◇
@@ -239,7 +234,7 @@ pub struct InputPrompt<'a> {
     pub masked: bool,
 }
 
-impl<'a> Widget for InputPrompt<'a> {
+impl Widget for InputPrompt<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let display = if self.masked {
             "\u{2022}".repeat(self.input.len()) // •
