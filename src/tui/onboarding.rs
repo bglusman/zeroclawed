@@ -3428,12 +3428,12 @@ mod tests {
     }
 
     #[test]
-    fn save_web_search_tavily_falls_back_to_duckduckgo() {
+    fn save_web_search_tavily_maps_to_tavily() {
         let mut app = test_app();
         app.search_provider_idx = 2; // Tavily
         let mut config = Config::default();
         apply_tui_selections_to_config(&app, &mut config);
-        assert_eq!(config.web_search.provider, "duckduckgo");
+        assert_eq!(config.web_search.provider, "tavily");
     }
 
     #[test]
