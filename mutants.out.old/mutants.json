@@ -1,0 +1,1090 @@
+[
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace DiscordChannel::is_user_allowed -> bool with true\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:9: replace DiscordChannel::is_user_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 47
+      },
+      "start": {
+        "column": 9,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace DiscordChannel::is_user_allowed -> bool with false\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:9: replace DiscordChannel::is_user_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 47
+      },
+      "start": {
+        "column": 9,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace || with && in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u == \"*\" && /* ~ changed by cargo-mutants ~ */ u == user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:52: replace || with && in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 47
+      },
+      "start": {
+        "column": 52,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace == with != in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\" || u == user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:45: replace == with != in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 47,
+        "line": 47
+      },
+      "start": {
+        "column": 45,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace == with != in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u == \"*\" || u != /* ~ changed by cargo-mutants ~ */ user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:57: replace == with != in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 59,
+        "line": 47
+      },
+      "start": {
+        "column": 57,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace IMessageChannel::is_contact_allowed -> bool with true\n@@ -18,22 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_contacts\n-            .iter()\n-            .any(|u| u.eq_ignore_ascii_case(sender))\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// Escape a string for safe interpolation into `AppleScript`.\n ///\n /// This prevents injection attacks by escaping:\n /// - Backslashes (`\\` → `\\\\`)\n /// - Double quotes (`\"` → `\\\"`)\n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:9: replace IMessageChannel::is_contact_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 31
+      },
+      "start": {
+        "column": 9,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace IMessageChannel::is_contact_allowed -> bool with false\n@@ -18,22 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_contacts\n-            .iter()\n-            .any(|u| u.eq_ignore_ascii_case(sender))\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// Escape a string for safe interpolation into `AppleScript`.\n ///\n /// This prevents injection attacks by escaping:\n /// - Backslashes (`\\` → `\\\\`)\n /// - Double quotes (`\"` → `\\\"`)\n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:9: replace IMessageChannel::is_contact_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 31
+      },
+      "start": {
+        "column": 9,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace == with != in IMessageChannel::is_contact_allowed\n@@ -18,17 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n+        if self.allowed_contacts.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\") {\n             return true;\n         }\n         self.allowed_contacts\n             .iter()\n             .any(|u| u.eq_ignore_ascii_case(sender))\n     }\n }\n \n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:51: replace == with != in IMessageChannel::is_contact_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 26
+      },
+      "start": {
+        "column": 51,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace SignalChannel::is_sender_allowed -> bool with true\n@@ -102,20 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:9: replace SignalChannel::is_sender_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 113
+      },
+      "start": {
+        "column": 9,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace SignalChannel::is_sender_allowed -> bool with false\n@@ -102,20 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:9: replace SignalChannel::is_sender_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 113
+      },
+      "start": {
+        "column": 9,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace == with != in SignalChannel::is_sender_allowed\n@@ -102,17 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n+        if self.allowed_from.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\") {\n             return true;\n         }\n         self.allowed_from.iter().any(|u| u == sender)\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:47: replace == with != in SignalChannel::is_sender_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 49,
+        "line": 110
+      },
+      "start": {
+        "column": 47,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace == with != in SignalChannel::is_sender_allowed\n@@ -105,17 +105,17 @@\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n         if self.allowed_from.iter().any(|u| u == \"*\") {\n             return true;\n         }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        self.allowed_from.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ sender)\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:113:44: replace == with != in SignalChannel::is_sender_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 46,
+        "line": 113
+      },
+      "start": {
+        "column": 44,
+        "line": 113
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace WhatsAppChannel::is_number_allowed -> bool with true\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:9: replace WhatsAppChannel::is_number_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 54
+      },
+      "start": {
+        "column": 9,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace WhatsAppChannel::is_number_allowed -> bool with false\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:9: replace WhatsAppChannel::is_number_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 54
+      },
+      "start": {
+        "column": 9,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace || with && in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n == \"*\" && /* ~ changed by cargo-mutants ~ */ n == phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:54: replace || with && in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 56,
+        "line": 54
+      },
+      "start": {
+        "column": 54,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace == with != in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n != /* ~ changed by cargo-mutants ~ */ \"*\" || n == phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:47: replace == with != in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 49,
+        "line": 54
+      },
+      "start": {
+        "column": 47,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace == with != in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n == \"*\" || n != /* ~ changed by cargo-mutants ~ */ phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:59: replace == with != in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 61,
+        "line": 54
+      },
+      "start": {
+        "column": 59,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace DiscordChannel::is_user_allowed -> bool with true\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:9: replace DiscordChannel::is_user_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 47
+      },
+      "start": {
+        "column": 9,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace DiscordChannel::is_user_allowed -> bool with false\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:9: replace DiscordChannel::is_user_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 47
+      },
+      "start": {
+        "column": 9,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace || with && in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u == \"*\" && /* ~ changed by cargo-mutants ~ */ u == user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:52: replace || with && in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 47
+      },
+      "start": {
+        "column": 52,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace == with != in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\" || u == user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:45: replace == with != in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 47,
+        "line": 47
+      },
+      "start": {
+        "column": 45,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/discord.rs\n+++ replace == with != in DiscordChannel::is_user_allowed\n@@ -39,17 +39,17 @@\n         crate::config::build_runtime_proxy_client(\"channel.discord\")\n     }\n \n     /// Check if a Discord user ID is in the allowlist.\n     /// Empty list means deny everyone until explicitly configured.\n     /// `\"*\"` means allow everyone.\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_user_allowed(&self, user_id: &str) -> bool {\n-        self.allowed_users.iter().any(|u| u == \"*\" || u == user_id)\n+        self.allowed_users.iter().any(|u| u == \"*\" || u != /* ~ changed by cargo-mutants ~ */ user_id)\n     }\n \n     fn bot_user_id_from_token(token: &str) -> Option<String> {\n         // Discord bot tokens are base64(bot_user_id).timestamp.hmac\n         let part = token.split('.').next()?;\n         base64_decode(part)\n     }\n }\n",
+    "file": "crates/nonzeroclaw/src/channels/discord.rs",
+    "function": {
+      "function_name": "DiscordChannel::is_user_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 48
+        },
+        "start": {
+          "column": 5,
+          "line": 42
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/discord.rs:47:57: replace == with != in DiscordChannel::is_user_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 59,
+        "line": 47
+      },
+      "start": {
+        "column": 57,
+        "line": 47
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace IMessageChannel::is_contact_allowed -> bool with true\n@@ -18,22 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_contacts\n-            .iter()\n-            .any(|u| u.eq_ignore_ascii_case(sender))\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// Escape a string for safe interpolation into `AppleScript`.\n ///\n /// This prevents injection attacks by escaping:\n /// - Backslashes (`\\` → `\\\\`)\n /// - Double quotes (`\"` → `\\\"`)\n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:9: replace IMessageChannel::is_contact_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 31
+      },
+      "start": {
+        "column": 9,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace IMessageChannel::is_contact_allowed -> bool with false\n@@ -18,22 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_contacts\n-            .iter()\n-            .any(|u| u.eq_ignore_ascii_case(sender))\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n }\n \n /// Escape a string for safe interpolation into `AppleScript`.\n ///\n /// This prevents injection attacks by escaping:\n /// - Backslashes (`\\` → `\\\\`)\n /// - Double quotes (`\"` → `\\\"`)\n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:9: replace IMessageChannel::is_contact_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 31
+      },
+      "start": {
+        "column": 9,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/imessage.rs\n+++ replace == with != in IMessageChannel::is_contact_allowed\n@@ -18,17 +18,17 @@\n         Self {\n             allowed_contacts,\n             poll_interval_secs: 3,\n         }\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_contact_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_contacts.iter().any(|u| u == \"*\") {\n+        if self.allowed_contacts.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\") {\n             return true;\n         }\n         self.allowed_contacts\n             .iter()\n             .any(|u| u.eq_ignore_ascii_case(sender))\n     }\n }\n \n",
+    "file": "crates/nonzeroclaw/src/channels/imessage.rs",
+    "function": {
+      "function_name": "IMessageChannel::is_contact_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 32
+        },
+        "start": {
+          "column": 5,
+          "line": 24
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/imessage.rs:26:51: replace == with != in IMessageChannel::is_contact_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 53,
+        "line": 26
+      },
+      "start": {
+        "column": 51,
+        "line": 26
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace SignalChannel::is_sender_allowed -> bool with true\n@@ -102,20 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:9: replace SignalChannel::is_sender_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 113
+      },
+      "start": {
+        "column": 9,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace SignalChannel::is_sender_allowed -> bool with false\n@@ -102,20 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n-            return true;\n-        }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:9: replace SignalChannel::is_sender_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 54,
+        "line": 113
+      },
+      "start": {
+        "column": 9,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace == with != in SignalChannel::is_sender_allowed\n@@ -102,17 +102,17 @@\n             .source_number\n             .as_deref()\n             .or(envelope.source.as_deref())\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n-        if self.allowed_from.iter().any(|u| u == \"*\") {\n+        if self.allowed_from.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ \"*\") {\n             return true;\n         }\n         self.allowed_from.iter().any(|u| u == sender)\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:110:47: replace == with != in SignalChannel::is_sender_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 49,
+        "line": 110
+      },
+      "start": {
+        "column": 47,
+        "line": 110
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/signal.rs\n+++ replace == with != in SignalChannel::is_sender_allowed\n@@ -105,17 +105,17 @@\n             .map(String::from)\n     }\n \n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_sender_allowed(&self, sender: &str) -> bool {\n         if self.allowed_from.iter().any(|u| u == \"*\") {\n             return true;\n         }\n-        self.allowed_from.iter().any(|u| u == sender)\n+        self.allowed_from.iter().any(|u| u != /* ~ changed by cargo-mutants ~ */ sender)\n     }\n \n     fn is_e164(recipient: &str) -> bool {\n         let Some(number) = recipient.strip_prefix('+') else {\n             return false;\n         };\n         (2..=15).contains(&number.len()) && number.chars().all(|c| c.is_ascii_digit())\n     }\n",
+    "file": "crates/nonzeroclaw/src/channels/signal.rs",
+    "function": {
+      "function_name": "SignalChannel::is_sender_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 114
+        },
+        "start": {
+          "column": 5,
+          "line": 108
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/signal.rs:113:44: replace == with != in SignalChannel::is_sender_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 46,
+        "line": 113
+      },
+      "start": {
+        "column": 44,
+        "line": 113
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace WhatsAppChannel::is_number_allowed -> bool with true\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        true /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:9: replace WhatsAppChannel::is_number_allowed -> bool with true",
+    "package": "nonzeroclaw",
+    "replacement": "true",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 54
+      },
+      "start": {
+        "column": 9,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace WhatsAppChannel::is_number_allowed -> bool with false\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        false /* ~ changed by cargo-mutants ~ */\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:9: replace WhatsAppChannel::is_number_allowed -> bool with false",
+    "package": "nonzeroclaw",
+    "replacement": "false",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 54
+      },
+      "start": {
+        "column": 9,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace || with && in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n == \"*\" && /* ~ changed by cargo-mutants ~ */ n == phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:54: replace || with && in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "&&",
+    "span": {
+      "end": {
+        "column": 56,
+        "line": 54
+      },
+      "start": {
+        "column": 54,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace == with != in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n != /* ~ changed by cargo-mutants ~ */ \"*\" || n == phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:47: replace == with != in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 49,
+        "line": 54
+      },
+      "start": {
+        "column": 47,
+        "line": 54
+      }
+    }
+  },
+  {
+    "diff": "--- crates/nonzeroclaw/src/channels/whatsapp.rs\n+++ replace == with != in WhatsAppChannel::is_number_allowed\n@@ -46,17 +46,17 @@\n \n     fn http_client(&self) -> reqwest::Client {\n         crate::config::build_runtime_proxy_client(\"channel.whatsapp\")\n     }\n \n     /// Check if a phone number is allowed (E.164 format: +1234567890).\n     /// `pub(crate)` for proptest allowlist verification.\n     pub(crate) fn is_number_allowed(&self, phone: &str) -> bool {\n-        self.allowed_numbers.iter().any(|n| n == \"*\" || n == phone)\n+        self.allowed_numbers.iter().any(|n| n == \"*\" || n != /* ~ changed by cargo-mutants ~ */ phone)\n     }\n \n     /// Get the verify token for webhook verification\n     pub fn verify_token(&self) -> &str {\n         &self.verify_token\n     }\n \n     /// Parse an incoming webhook payload from Meta and extract messages\n",
+    "file": "crates/nonzeroclaw/src/channels/whatsapp.rs",
+    "function": {
+      "function_name": "WhatsAppChannel::is_number_allowed",
+      "return_type": "-> bool",
+      "span": {
+        "end": {
+          "column": 6,
+          "line": 55
+        },
+        "start": {
+          "column": 5,
+          "line": 51
+        }
+      }
+    },
+    "genre": "BinaryOperator",
+    "name": "crates/nonzeroclaw/src/channels/whatsapp.rs:54:59: replace == with != in WhatsAppChannel::is_number_allowed",
+    "package": "nonzeroclaw",
+    "replacement": "!=",
+    "span": {
+      "end": {
+        "column": 61,
+        "line": 54
+      },
+      "start": {
+        "column": 59,
+        "line": 54
+      }
+    }
+  }
+]
