@@ -119,16 +119,32 @@ async fn load_agent_configs(path: &PathBuf) -> Result<Vec<AgentPolicyConfig>, St
 
 /// Domain list refresh background task
 async fn domain_refresh_loop(engine: Arc<PolicyEngine>, interval: Duration) {
+    // Configure client with timeouts for security and reliability
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(30))           // Total request timeout
+        .connect_timeout(Duration::from_secs(10))   // Connection establishment
+        .pool_idle_timeout(Duration::from_secs(60)) // Connection reuse
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to build HTTP client with custom timeouts, using default");
+            reqwest::Client::new()
+        });
+
+    // Do initial refresh on startup
+    info!("Performing initial domain list refresh...");
+    if let Err(e) = engine.refresh_domain_lists(&client).await {
+        warn!(error = %e, "Initial domain list refresh failed, continuing with empty lists");
+    }
 
     let mut interval_timer = tokio::time::interval(interval);
+    interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    
     loop {
         interval_timer.tick().await;
-        if let Err(e) = engine.refresh_domain_lists(&client).await {
-            warn!(error = %e, "Domain list refresh failed");
+        info!("Refreshing domain lists...");
+        match engine.refresh_domain_lists(&client).await {
+            Ok(_) => info!("Domain list refresh completed"),
+            Err(e) => warn!(error = %e, "Domain list refresh failed, will retry on next interval"),
         }
     }
 }
@@ -179,15 +195,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Load agent configs if file exists
     if agent_config_path.exists() {
-        match load_agent_configs(&agent_config_path).await {
-            Ok(configs) => {
-                info!(count = configs.len(), "Loaded agent policy configs");
-                engine.set_agent_configs(configs).await;
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to load agent configs, continuing without them");
-            }
-        }
+        let configs = load_agent_configs(&agent_config_path).await
+            .map_err(|e| anyhow::anyhow!(e))?;
+        info!(count = configs.len(), "Loaded agent policy configs");
+        engine.set_agent_configs(configs).await;
     } else {
         info!("No agent config file found, running with defaults");
     }
