@@ -3,7 +3,10 @@
 //! Evaluates tool calls against Starlark policies to determine
 //! whether operations should be allowed, denied, or require review.
 
+pub mod engine;
 pub mod eval;
+
+pub use engine::{AgentPolicyConfig, DomainListSource, PolicyEngine};
 
 use serde::{Deserialize, Serialize};
 

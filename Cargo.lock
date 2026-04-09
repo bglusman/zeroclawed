@@ -810,6 +810,8 @@ dependencies = [
  "anyhow",
  "axum",
  "dirs 5.0.1",
+ "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "starlark",
@@ -818,6 +820,7 @@ dependencies = [
  "tokio-test",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
