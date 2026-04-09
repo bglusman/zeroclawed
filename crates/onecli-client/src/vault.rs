@@ -46,7 +46,8 @@ pub async fn get_secret(name: &str) -> anyhow::Result<String> {
 
     let vault_response: VaultResponse = response.json().await?;
 
-    for cipher in vault_response.data {
+    // First pass: exact name match
+    for cipher in &vault_response.data {
         let cipher_name = cipher.name.to_lowercase();
         debug!(
             "Checking cipher: name={}, type={}",
@@ -89,6 +90,20 @@ pub async fn get_secret(name: &str) -> anyhow::Result<String> {
                     if field.value.is_some() && !field.value.as_ref().unwrap().is_empty() {
                         return Ok(field.value.clone().unwrap());
                     }
+                }
+            }
+        }
+    }
+
+    // Second pass: if no name match, look for any cipher with custom fields
+    // (handles encrypted cipher names)
+    debug!("No name match found, trying fallback search for ciphers with custom fields");
+    for cipher in &vault_response.data {
+        if let Some(fields) = &cipher.fields {
+            for field in fields {
+                if field.value.is_some() && !field.value.as_ref().unwrap().is_empty() {
+                    debug!("Found cipher with custom field value (encrypted name)");
+                    return Ok(field.value.clone().unwrap());
                 }
             }
         }
