@@ -48,8 +48,8 @@ impl DomainList {
     /// - `~.*\.malware\.com` — match any subdomain of malware.com
     /// - `~^tracking\.` — match domains starting with "tracking."
     pub fn add_pattern(&mut self, pattern: &str) -> Result<()> {
-        let compiled = Regex::new(pattern)
-            .with_context(|| format!("Invalid regex pattern: {}", pattern))?;
+        let compiled =
+            Regex::new(pattern).with_context(|| format!("Invalid regex pattern: {}", pattern))?;
         self.patterns.push(compiled);
         Ok(())
     }
@@ -112,7 +112,9 @@ impl DomainList {
         }
 
         // Check regex patterns
-        self.patterns.iter().any(|p: &regex::Regex| p.is_match(&domain_lower))
+        self.patterns
+            .iter()
+            .any(|p: &regex::Regex| p.is_match(&domain_lower))
     }
 
     /// Number of entries
@@ -164,12 +166,7 @@ impl DomainListManager {
     /// - `https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts` — adware/malware
     /// - `https://www.malwaredomainlist.com/hostslist/hosts.txt` — malware domains
     /// - `https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0` — ad servers
-    pub async fn add_source(
-        &self,
-        name: &str,
-        url: &str,
-        refresh: Duration,
-    ) -> Result<()> {
+    pub async fn add_source(&self, name: &str, url: &str, refresh: Duration) -> Result<()> {
         let mut lists = self.lists.write().await;
         lists.push(DynamicList {
             name: name.to_string(),
@@ -187,7 +184,8 @@ impl DomainListManager {
         let now = Instant::now();
 
         for dl in lists.iter_mut() {
-            let needs_refresh = dl.last_fetched
+            let needs_refresh = dl
+                .last_fetched
                 .map(|f| now.duration_since(f) > dl.refresh_interval)
                 .unwrap_or(true);
 

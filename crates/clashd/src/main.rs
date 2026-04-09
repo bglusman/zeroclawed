@@ -47,7 +47,9 @@ async fn evaluate(
     Json(req): Json<EvaluateRequest>,
 ) -> Result<Json<EvaluateResponse>, StatusCode> {
     // Extract agent_id from context if present
-    let agent_id = req.context.as_ref()
+    let agent_id = req
+        .context
+        .as_ref()
         .and_then(|c| c.get("agent_id"))
         .and_then(|v| v.as_str());
 
@@ -60,11 +62,10 @@ async fn evaluate(
 }
 
 /// GET /domains/summary — list loaded domain lists and their sizes
-async fn domain_summary(
-    State(state): State<AppState>,
-) -> Json<Value> {
+async fn domain_summary(State(state): State<AppState>) -> Json<Value> {
     let summary = state.engine.domain_list_summary().await;
-    let lists: Vec<Value> = summary.into_iter()
+    let lists: Vec<Value> = summary
+        .into_iter()
         .map(|(name, count)| serde_json::json!({"name": name, "entries": count}))
         .collect();
     Json(serde_json::json!({ "domain_lists": lists }))
@@ -121,8 +122,8 @@ async fn load_agent_configs(path: &PathBuf) -> Result<Vec<AgentPolicyConfig>, St
 async fn domain_refresh_loop(engine: Arc<PolicyEngine>, interval: Duration) {
     // Configure client with timeouts for security and reliability
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))           // Total request timeout
-        .connect_timeout(Duration::from_secs(10))   // Connection establishment
+        .timeout(Duration::from_secs(30)) // Total request timeout
+        .connect_timeout(Duration::from_secs(10)) // Connection establishment
         .pool_idle_timeout(Duration::from_secs(60)) // Connection reuse
         .build()
         .unwrap_or_else(|e| {
@@ -138,7 +139,7 @@ async fn domain_refresh_loop(engine: Arc<PolicyEngine>, interval: Duration) {
 
     let mut interval_timer = tokio::time::interval(interval);
     interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    
+
     loop {
         interval_timer.tick().await;
         info!("Refreshing domain lists...");
@@ -175,7 +176,10 @@ async fn main() -> anyhow::Result<()> {
         });
 
     info!("╔══════════════════════════════════════════════╗");
-    info!("║           clashd v{}                 ║", env!("CARGO_PKG_VERSION"));
+    info!(
+        "║           clashd v{}                 ║",
+        env!("CARGO_PKG_VERSION")
+    );
     info!("║   Centralized Starlark Policy Engine        ║");
     info!("╠══════════════════════════════════════════════╣");
     info!("║ Features:                                    ║");
@@ -195,7 +199,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Load agent configs if file exists
     if agent_config_path.exists() {
-        let configs = load_agent_configs(&agent_config_path).await
+        let configs = load_agent_configs(&agent_config_path)
+            .await
             .map_err(|e| anyhow::anyhow!(e))?;
         info!(count = configs.len(), "Loaded agent policy configs");
         engine.set_agent_configs(configs).await;

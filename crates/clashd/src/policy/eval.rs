@@ -26,10 +26,7 @@ impl PolicyEvaluator {
     /// Create a new evaluator by loading policy from disk
     pub async fn new(policy_path: &Path) -> Result<Self> {
         if !policy_path.exists() {
-            return Err(anyhow!(
-                "Policy file not found: {}",
-                policy_path.display()
-            ));
+            return Err(anyhow!("Policy file not found: {}", policy_path.display()));
         }
 
         let source = tokio::fs::read_to_string(policy_path)
@@ -47,11 +44,8 @@ impl PolicyEvaluator {
     /// Parse Starlark source into an AST
     fn parse(source: &str) -> Result<AstModule> {
         let dialect = Dialect::Standard;
-        let ast = AstModule::parse(
-            "policy.star",
-            source.to_owned(),
-            &dialect,
-        ).map_err(|e| anyhow!("Starlark parse error: {}", e))?;
+        let ast = AstModule::parse("policy.star", source.to_owned(), &dialect)
+            .map_err(|e| anyhow!("Starlark parse error: {}", e))?;
 
         Ok(ast)
     }
@@ -108,12 +102,17 @@ impl PolicyEvaluator {
 
         if let Some(obj) = result_json.as_object() {
             if let Some(v) = obj.get("verdict").and_then(|v| v.as_str()) {
-                let reason = obj.get("reason").and_then(|r| r.as_str()).map(|s| s.to_string());
+                let reason = obj
+                    .get("reason")
+                    .and_then(|r| r.as_str())
+                    .map(|s| s.to_string());
                 return Self::verdict_from_string(v, reason);
             }
         }
 
-        Err(anyhow!("Policy evaluate() must return a string or dict with 'verdict' key"))
+        Err(anyhow!(
+            "Policy evaluate() must return a string or dict with 'verdict' key"
+        ))
     }
 
     /// Convert a string verdict to PolicyResult
@@ -122,7 +121,12 @@ impl PolicyEvaluator {
             "allow" => Verdict::Allow,
             "review" => Verdict::Review,
             "deny" => Verdict::Deny,
-            _ => return Err(anyhow!("Invalid verdict: {}. Must be allow/review/deny", verdict)),
+            _ => {
+                return Err(anyhow!(
+                    "Invalid verdict: {}. Must be allow/review/deny",
+                    verdict
+                ))
+            }
         };
 
         Ok(PolicyResult { verdict: v, reason })
@@ -145,7 +149,8 @@ impl PolicyEvaluator {
 
         // First, evaluate the module to define the evaluate function
         // Note: eval_module consumes the AST, so we clone it for each evaluation
-        let _ = eval.eval_module(self.ast.clone(), &self.globals)
+        let _ = eval
+            .eval_module(self.ast.clone(), &self.globals)
             .map_err(|e| {
                 error!(error = %e, "Failed to evaluate policy module");
                 anyhow!("Policy module evaluation error: {}", e)
@@ -162,18 +167,17 @@ impl PolicyEvaluator {
             .unwrap_or_else(StarlarkValue::new_none);
 
         // Get the evaluate function from the module
-        let evaluate_fn = module.get("evaluate")
+        let evaluate_fn = module
+            .get("evaluate")
             .ok_or_else(|| anyhow!("Policy must define an 'evaluate' function"))?;
 
         // Call the evaluate function
-        let result = eval.eval_function(
-            evaluate_fn,
-            &[tool_val, args_val, context_val],
-            &[],
-        ).map_err(|e| {
-            error!(error = %e, "Starlark evaluation failed");
-            anyhow!("Policy evaluation error: {}", e)
-        })?;
+        let result = eval
+            .eval_function(evaluate_fn, &[tool_val, args_val, context_val], &[])
+            .map_err(|e| {
+                error!(error = %e, "Starlark evaluation failed");
+                anyhow!("Policy evaluation error: {}", e)
+            })?;
 
         Self::parse_result(result)
     }
@@ -195,9 +199,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_valid_policy() {
-        let (_temp_dir, policy_path) = create_test_policy(
-            "def evaluate(tool, args, context):\n    return 'allow'\n"
-        ).await;
+        let (_temp_dir, policy_path) =
+            create_test_policy("def evaluate(tool, args, context):\n    return 'allow'\n").await;
 
         let evaluator = PolicyEvaluator::new(&policy_path).await;
         assert!(evaluator.is_ok());
@@ -212,9 +215,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_allow() {
-        let (_temp_dir, policy_path) = create_test_policy(
-            "def evaluate(tool, args, context):\n    return 'allow'\n"
-        ).await;
+        let (_temp_dir, policy_path) =
+            create_test_policy("def evaluate(tool, args, context):\n    return 'allow'\n").await;
 
         let evaluator = PolicyEvaluator::new(&policy_path).await.unwrap();
         let result = evaluator.evaluate("test", &json!({}), None).await.unwrap();
@@ -225,9 +227,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_deny() {
-        let (_temp_dir, policy_path) = create_test_policy(
-            "def evaluate(tool, args, context):\n    return 'deny'\n"
-        ).await;
+        let (_temp_dir, policy_path) =
+            create_test_policy("def evaluate(tool, args, context):\n    return 'deny'\n").await;
 
         let evaluator = PolicyEvaluator::new(&policy_path).await.unwrap();
         let result = evaluator.evaluate("test", &json!({}), None).await.unwrap();
@@ -255,12 +256,16 @@ mod tests {
     if tool == "gateway":
         return "review"
     return "allow"
-"#
-        ).await;
+"#,
+        )
+        .await;
 
         let evaluator = PolicyEvaluator::new(&policy_path).await.unwrap();
 
-        let result = evaluator.evaluate("gateway", &json!({}), None).await.unwrap();
+        let result = evaluator
+            .evaluate("gateway", &json!({}), None)
+            .await
+            .unwrap();
         assert_eq!(result.verdict, Verdict::Review);
 
         let result = evaluator.evaluate("shell", &json!({}), None).await.unwrap();

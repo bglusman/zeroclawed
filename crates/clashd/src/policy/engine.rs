@@ -69,12 +69,7 @@ impl PolicyEngine {
     }
 
     /// Evaluate a tool call with full policy context
-    pub async fn evaluate(
-        &self,
-        tool: &str,
-        args: &Value,
-        agent_id: Option<&str>,
-    ) -> PolicyResult {
+    pub async fn evaluate(&self, tool: &str, args: &Value, agent_id: Option<&str>) -> PolicyResult {
         // Build the context object for Starlark
         let mut context = serde_json::json!({
             "tool": tool,
@@ -90,17 +85,24 @@ impl PolicyEngine {
             if let Some(ref domain_str) = domain {
                 // Check against dynamic domain lists
                 let matched = self.domain_manager.matches(domain_str).await;
-                context["domain_lists"] = Value::Array(
-                    matched.iter().map(|s| Value::String(s.clone())).collect(),
-                );
+                context["domain_lists"] =
+                    Value::Array(matched.iter().map(|s| Value::String(s.clone())).collect());
 
                 // Check per-agent allow/deny lists
                 if let Some(config) = self.agent_configs.read().await.get(agent_id) {
                     context["agent_allowed_domains"] = Value::Array(
-                        config.allowed_domains.iter().map(|s| Value::String(s.clone())).collect(),
+                        config
+                            .allowed_domains
+                            .iter()
+                            .map(|s| Value::String(s.clone()))
+                            .collect(),
                     );
                     context["agent_denied_domains"] = Value::Array(
-                        config.denied_domains.iter().map(|s| Value::String(s.clone())).collect(),
+                        config
+                            .denied_domains
+                            .iter()
+                            .map(|s| Value::String(s.clone()))
+                            .collect(),
                     );
                 }
             }
@@ -175,7 +177,9 @@ impl PolicyEngine {
             // Strip any port
             let domain = s.split(':').next().unwrap_or(s);
             // Strip protocol prefix if present
-            let domain = domain.trim_start_matches("http://").trim_start_matches("https://");
+            let domain = domain
+                .trim_start_matches("http://")
+                .trim_start_matches("https://");
             return Some(domain.to_lowercase());
         }
 
