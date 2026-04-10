@@ -62,7 +62,7 @@ mod inner {
             },
             OwnedRoomId, OwnedUserId,
         },
-        Client as MatrixSdkClient, LoopCtrl, Room, RoomState, SessionMeta, SessionTokens,
+        Client as MatrixSdkClient, LoopCtrl, Room, SessionMeta, SessionTokens,
     };
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -460,8 +460,6 @@ mod inner {
         let dedup_h = Arc::clone(&dedup_cache);
         let target_room_h = target_room.clone();
         let my_user_id_h = my_user_id.clone();
-        let client_h = client.clone();
-
         // --- Invite handler: auto-accept DMs from allowed users ---
         let allowed_users_invite = allowed_users.clone();
         let my_user_id_invite = my_user_id.clone();
@@ -796,7 +794,7 @@ mod inner {
                                                     .auth_token
                                                     .clone()
                                                     .unwrap_or_default(),
-                                                summary: format!(
+                                                _summary: format!(
                                                     "🔒 Approval required\nCommand: {}\nReason: {}\nReply !approve or !deny [reason]\nRequest ID: {}",
                                                     req.command, req.reason, req.request_id
                                                 ),
