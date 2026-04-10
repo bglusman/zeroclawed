@@ -78,7 +78,7 @@ use crate::{
     router::Router,
 };
 
-use adversary_detector::middleware::OutpostMiddleware;
+use adversary_detector::middleware::ChannelScanner;
 use adversary_detector::verdict::ScanContext;
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ pub struct SignalChannel {
     router: Arc<Router>,
     command_handler: Arc<CommandHandler>,
     context_store: ContextStore,
-    outpost_middleware: Arc<OutpostMiddleware>,
+    channel_scanner: Arc<ChannelScanner>,
     http_client: reqwest::Client,
 }
 
@@ -182,7 +182,7 @@ impl SignalChannel {
         router: Arc<Router>,
         command_handler: Arc<CommandHandler>,
         context_store: ContextStore,
-        outpost_middleware: Arc<OutpostMiddleware>,
+        channel_scanner: Arc<ChannelScanner>,
     ) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -194,7 +194,7 @@ impl SignalChannel {
             router,
             command_handler,
             context_store,
-            outpost_middleware,
+            channel_scanner,
             http_client,
         }
     }
@@ -353,7 +353,7 @@ impl SignalChannel {
 
         // ── Outpost inbound scan ────────────────────────────────────────────
 
-        let verdict = self.outpost_middleware.scan_text(&text, ScanContext::UserMessage).await;
+        let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
         match &verdict {
             adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
                 warn!(
@@ -602,8 +602,6 @@ impl SignalChannel {
                     self.command_handler.record_dispatch(latency_ms);
 
                     // Outpost outbound scan
-                    let outbound_verdict = self.outpost_middleware.scan_text(&response, ScanContext::AgentResponse).await;
-                    let final_response = match outbound_verdict {
                         adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
                             warn!(identity = %identity_id, reason = %reason, "Signal: outbound response BLOCKED by outpost");
                             format!("🚫 Agent response blocked by security scanner: {reason}")
@@ -670,7 +668,7 @@ pub async fn run(
     router: Arc<Router>,
     command_handler: Arc<CommandHandler>,
     context_store: ContextStore,
-    outpost_middleware: Arc<OutpostMiddleware>,
+    channel_scanner: Arc<ChannelScanner>,
 ) -> Result<()> {
     use std::net::SocketAddr;
     use tokio::io::AsyncReadExt;
@@ -716,7 +714,7 @@ pub async fn run(
         router,
         command_handler,
         context_store,
-        outpost_middleware,
+        channel_scanner,
     ));
 
     let listener = tokio::net::TcpListener::bind(listen_addr)

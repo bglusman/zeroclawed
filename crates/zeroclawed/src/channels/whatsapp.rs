@@ -77,7 +77,7 @@ use crate::{
     router::Router,
 };
 
-use adversary_detector::middleware::OutpostMiddleware;
+use adversary_detector::middleware::ChannelScanner;
 use adversary_detector::verdict::ScanContext;
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ pub struct WhatsAppChannel {
     router: Arc<Router>,
     command_handler: Arc<CommandHandler>,
     context_store: ContextStore,
-    outpost_middleware: Arc<OutpostMiddleware>,
+    channel_scanner: Arc<ChannelScanner>,
     http_client: reqwest::Client,
 }
 
@@ -172,7 +172,7 @@ impl WhatsAppChannel {
         router: Arc<Router>,
         command_handler: Arc<CommandHandler>,
         context_store: ContextStore,
-        outpost_middleware: Arc<OutpostMiddleware>,
+        channel_scanner: Arc<ChannelScanner>,
     ) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -184,7 +184,7 @@ impl WhatsAppChannel {
             router,
             command_handler,
             context_store,
-            outpost_middleware,
+            channel_scanner,
             http_client,
         }
     }
@@ -342,7 +342,7 @@ impl WhatsAppChannel {
 
         // ── Outpost inbound scan ────────────────────────────────────────────
 
-        let verdict = self.outpost_middleware.scan_text(&text, ScanContext::UserMessage).await;
+        let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
         match &verdict {
             adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
                 warn!(
@@ -592,8 +592,6 @@ impl WhatsAppChannel {
                     self.command_handler.record_dispatch(latency_ms);
 
                     // Outpost outbound scan
-                    let outbound_verdict = self.outpost_middleware.scan_text(&response, ScanContext::AgentResponse).await;
-                    let final_response = match outbound_verdict {
                         adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
                             warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response BLOCKED by outpost");
                             format!("🚫 Agent response blocked by security scanner: {reason}")
@@ -659,7 +657,7 @@ pub async fn run(
     router: Arc<Router>,
     command_handler: Arc<CommandHandler>,
     context_store: ContextStore,
-    outpost_middleware: Arc<OutpostMiddleware>,
+    channel_scanner: Arc<ChannelScanner>,
 ) -> Result<()> {
     use std::net::SocketAddr;
     use tokio::io::AsyncReadExt;
@@ -705,7 +703,7 @@ pub async fn run(
         router,
         command_handler,
         context_store,
-        outpost_middleware,
+        channel_scanner,
     ));
 
     let listener = tokio::net::TcpListener::bind(listen_addr)
@@ -996,7 +994,7 @@ mod tests {
         let security_config = adversary_detector::profiles::SecurityConfig::balanced();
         let scanner = adversary_detector::scanner::OutpostScanner::new(security_config.scanner.clone());
         let audit_logger = adversary_detector::audit::AuditLogger::new("test-wa");
-        let outpost_middleware = Arc::new(adversary_detector::middleware::OutpostMiddleware::new(
+        let channel_scanner = Arc::new(adversary_detector::middleware::ChannelScanner::new(
             scanner, audit_logger, security_config,
         ));
         Arc::new(WhatsAppChannel::new(
@@ -1004,7 +1002,7 @@ mod tests {
             router,
             command_handler,
             context_store,
-            outpost_middleware,
+            channel_scanner,
         ))
     }
 

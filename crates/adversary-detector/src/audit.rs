@@ -1,6 +1,6 @@
 //! Audit logging: append JSONL events to `~/.zeroclawed/logs/outpost-audit.jsonl`.
 
-use crate::verdict::{OutpostVerdict, ScanContext};
+use crate::verdict::{ScanVerdict, ScanContext};
 use chrono::Utc;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -25,7 +25,7 @@ impl AuditEntry {
         claw_id: &str,
         ctx: ScanContext,
         url: &str,
-        verdict: &OutpostVerdict,
+        verdict: &ScanVerdict,
         cached: bool,
     ) -> Self {
         Self {
@@ -57,7 +57,7 @@ impl AuditLogger {
     }
 
     /// Log a scan event.
-    pub async fn log(&self, ctx: ScanContext, url: &str, verdict: &OutpostVerdict, cached: bool) {
+    pub async fn log(&self, ctx: ScanContext, url: &str, verdict: &ScanVerdict, cached: bool) {
         let entry = AuditEntry::new(&self.claw_id, ctx, url, verdict, cached);
         let line = match serde_json::to_string(&entry) {
             Ok(l) => l + "\n",

@@ -23,7 +23,7 @@ use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use adversary_detector::audit::AuditLogger;
-use adversary_detector::middleware::OutpostMiddleware;
+use adversary_detector::middleware::ChannelScanner;
 use adversary_detector::profiles::SecurityConfig;
 use adversary_detector::scanner::OutpostScanner;
 
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     let security_config = SecurityConfig::balanced();
     let scanner = OutpostScanner::new(security_config.scanner.clone());
     let audit_logger = AuditLogger::new("zeroclawed");
-    let outpost_middleware = Arc::new(OutpostMiddleware::new(scanner, audit_logger, security_config.clone()));
+    let channel_scanner = Arc::new(ChannelScanner::new(scanner, audit_logger, security_config.clone()));
     info!(
         profile = "balanced",
         intercepted_tools = ?security_config.intercepted_tools,
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
                 router.clone(),
                 command_handler.clone(),
                 context_store.clone(),
-                outpost_middleware.clone(),
+                channel_scanner.clone(),
             )
             .await
             .context("WhatsApp channel error")
@@ -167,7 +167,7 @@ async fn main() -> Result<()> {
                 router.clone(),
                 command_handler.clone(),
                 context_store.clone(),
-                outpost_middleware.clone(),
+                channel_scanner.clone(),
             )
             .await
             .context("Signal channel error")
