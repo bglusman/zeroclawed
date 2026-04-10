@@ -65,7 +65,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # Home directory expansion
 home = "0.5"
 
-# Outpost module (shared workspace crate)
+# Adversary detector module (shared workspace crate)
 adversary-detector = { path = "../adversary-detector" }
 
 # TUI wizard

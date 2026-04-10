@@ -1,10 +1,10 @@
 # adversary-detector
 
-Outpost external content scanning for ZeroClawed. Protects agents from prompt injection, hidden payloads, and malicious web content before it reaches the model context.
+Adversary external content scanning for ZeroClawed. Protects agents from prompt injection, hidden payloads, and malicious web content before it reaches the model context.
 
 ## How It Works
 
-All external content access goes through `OutpostProxy::fetch()`:
+All external content access goes through `AdversaryProxy::fetch()`:
 
 ```
 URL → fetch → SHA-256 digest → cache check → verdict
@@ -51,7 +51,7 @@ proxy.mark_override(url, &digest).await;
 |-------|----------------|-----------|
 | **Layer 1 — Structural** | Zero-width chars, unicode tags, CSS hiding, base64 blobs | Regex patterns |
 | **Layer 2 — Semantic** | Prompt injection phrases, PII harvesting, exfiltration signals | Aho-Corasick + regex, with discussion-context heuristic |
-| **Layer 3 — Remote** | Deeper analysis via shared HTTP service (optional) | HTTP POST to outpost service |
+| **Layer 3 — Remote** | Deeper analysis via shared HTTP service (optional) | HTTP POST to adversary service |
 
 Layer 1 and 2 run locally. Layer 3 is optional and non-blocking — if the service is unreachable, L1+L2 results stand.
 
@@ -101,7 +101,7 @@ Four named presets for installation:
 use adversary_detector::{SecurityConfig, SecurityProfile};
 
 let config = SecurityConfig::from_profile(SecurityProfile::Balanced);
-let proxy = OutpostProxy::with_config(config.scanner, logger).await;
+let proxy = AdversaryProxy::with_config(config.scanner, logger).await;
 ```
 
 ## Verdicts

@@ -7,7 +7,7 @@ version = 2
 log_level = "info"
 bind_address = "127.0.0.1:8080"
 
-[zeroclawed.outpost]
+[zeroclawed.adversary]
 enabled = true
 url = "http://127.0.0.1:9800"
 
