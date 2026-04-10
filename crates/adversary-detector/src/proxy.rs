@@ -177,15 +177,9 @@ impl RateLimiter {
     }
 
     /// Time until the next request would be allowed (for cooldown messaging).
-    fn cooldown_remaining(&self, source: &str) -> Option<Duration> {
-        let _bucket = self.buckets.get(source)?;
-        let tokens_per_sec = self.config.max_requests_per_minute as f64 / 60.0;
-        if tokens_per_sec <= 0.0 {
-            return Some(Duration::from_secs(self.config.cooldown_seconds));
-        }
-        // Time to accumulate 1 token
-        let secs_per_token = 1.0 / tokens_per_sec;
-        Some(Duration::from_secs_f64(secs_per_token.ceil()))
+    fn cooldown_remaining(&self, _source: &str) -> Option<Duration> {
+        // Use configured cooldown_seconds when rate limited
+        Some(Duration::from_secs(self.config.cooldown_seconds))
     }
 }
 

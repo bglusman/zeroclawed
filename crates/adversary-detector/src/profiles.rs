@@ -154,7 +154,7 @@ pub enum LogVerbosity {
 ///
 /// This is the single source of truth for all security-related settings.
 /// Construct from a [`SecurityProfile`] or override individual fields.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// The named profile this config was derived from (for display/logging).
     pub profile: SecurityProfile,
@@ -185,6 +185,13 @@ pub struct SecurityConfig {
 
     /// Whether to enable audit logging of all security decisions.
     pub audit_logging: bool,
+}
+
+impl Default for SecurityConfig {
+    /// Default matches the `Balanced` profile.
+    fn default() -> Self {
+        Self::balanced()
+    }
 }
 
 impl SecurityConfig {
