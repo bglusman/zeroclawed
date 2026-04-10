@@ -4,22 +4,52 @@ set -euo pipefail
 # ZeroClawed Security Stack Installer
 # Deploys: adversary-detector + security-gateway + clashd
 # Reads agents.json to auto-configure credentials and proxy settings
+#
+# Supports multiple hosts — pass them all as args or via targets.txt
 
 INSTALL_DIR="/opt/zeroclawed"
 CONFIG_DIR="/etc/zeroclawed"
 GATEWAY_PORT="8080"
 DETECTOR_PORT="9800"
 CLASHD_PORT="9001"
+SSH_KEY="${SSH_KEY:-~/.ssh/id_ed25519}"
 
-echo "=== ZeroClawed Security Stack Installer ==="
+# ── Target resolution ──────────────────────────────────────────────
+# Usage: install-security-stack.sh <action> [host1 host2 ...]
+# If no hosts given, reads targets.txt (one IP per line)
+# Example: ./scripts/install-security-stack.sh install 192.168.1.210 192.168.1.127 192.168.1.49
 
-# Parse args
-ACTION="${1:-install}"
-TARGET_HOST="${2:-127.0.0.1}"
-SSH_KEY="${3:-~/.ssh/id_ed25519}"
+ACTION="${1:-help}"
+shift || true
 
-SSH_CMD="ssh -i $SSH_KEY -o StrictHostKeyChecking=no root@$TARGET_HOST"
+if [ $# -gt 0 ]; then
+    TARGETS=("$@")
+elif [ -f "$(dirname "$0")/targets.txt" ]; then
+    mapfile -t TARGETS < <(grep -v '^#' "$(dirname "$0")/targets.txt" | grep -v '^$')
+else
+    echo "No targets specified. Usage:"
+    echo "  $0 <action> host1 [host2 ...]"
+    echo "  Or create scripts/targets.txt with one IP per line"
+    exit 1
+fi
 
+echo "=== ZeroClawed Security Stack ==="
+echo "Action: $ACTION"
+echo "Targets: ${TARGETS[*]}"
+echo ""
+
+# ── SSH helper ─────────────────────────────────────────────────────
+run_on() {
+    local host="$1"; shift
+    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@$host" "$@"
+}
+
+copy_to() {
+    local src="$1" host="$2" dst="$3"
+    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$src" "root@$host:$dst"
+}
+
+# ── Actions ────────────────────────────────────────────────────────
 build() {
     echo "Building release binaries..."
     cd /root/projects/zeroclawed
@@ -27,33 +57,28 @@ build() {
     echo "Build complete."
 }
 
-deploy_binaries() {
-    echo "Deploying to $TARGET_HOST..."
-    $SSH_CMD "mkdir -p $INSTALL_DIR/bin $CONFIG_DIR" 2>&1
+deploy_host() {
+    local host="$1"
+    echo "── Deploying to $host ──"
 
+    # Create dirs
+    run_on "$host" "mkdir -p $INSTALL_DIR/bin $CONFIG_DIR" 2>&1 || {
+        echo "  ⚠ Cannot reach $host, skipping"
+        return 1
+    }
+
+    # Copy binaries
     for bin in adversary-detector security-gateway clashd; do
-        scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-            /root/projects/zeroclawed/target/release/$bin \
-            root@$TARGET_HOST:$INSTALL_DIR/bin/$bin 2>&1
-        $SSH_CMD "chmod +x $INSTALL_DIR/bin/$bin"
+        copy_to "/root/projects/zeroclawed/target/release/$bin" "$host" "$INSTALL_DIR/bin/$bin" 2>&1
+        run_on "$host" "chmod +x $INSTALL_DIR/bin/$bin"
     done
-    echo "Binaries deployed."
-}
 
-deploy_config() {
-    echo "Deploying config to $TARGET_HOST..."
-    scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-        /root/projects/zeroclawed/crates/clashd/config/agents.json \
-        root@$TARGET_HOST:$CONFIG_DIR/agents.json 2>&1
-    scp -i $SSH_KEY -o StrictHostKeyChecking=no \
-        /root/projects/zeroclawed/crates/clashd/config/default-policy.star \
-        root@$TARGET_HOST:$CONFIG_DIR/default-policy.star 2>&1
-    echo "Config deployed."
-}
+    # Copy config
+    copy_to "/root/projects/zeroclawed/crates/clashd/config/agents.json" "$host" "$CONFIG_DIR/agents.json" 2>&1
+    copy_to "/root/projects/zeroclawed/crates/clashd/config/default-policy.star" "$host" "$CONFIG_DIR/default-policy.star" 2>&1
 
-install_services() {
-    echo "Installing systemd services..."
-    $SSH_CMD "cat > /etc/systemd/system/adversary-detector.service << 'EOF'
+    # Install systemd services
+    run_on "$host" "cat > /etc/systemd/system/adversary-detector.service << 'EOF'
 [Unit]
 Description=ZeroClawed Adversary Detector
 After=network.target
@@ -107,77 +132,110 @@ EOF
 
 systemctl daemon-reload
 systemctl enable adversary-detector security-gateway clashd
-systemctl restart adversary-detector security-gateway clashd
-sleep 2
-systemctl status adversary-detector --no-pager | head -5
-systemctl status security-gateway --no-pager | head -5
-systemctl status clashd --no-pager | head -5" 2>&1
-}
+systemctl restart adversary-detector security-gateway clashd" 2>&1
 
-setup_proxy_env() {
-    echo "Setting up proxy environment for agents..."
-    $SSH_CMD "cat > /etc/profile.d/zeroclawed-proxy.sh << 'EOF'
+    # Setup proxy env vars
+    run_on "$host" "cat > /etc/profile.d/zeroclawed-proxy.sh << 'EOF'
 # ZeroClawed Security Gateway — Tier 1 Enforcement
 # All HTTP/HTTPS traffic is routed through the security gateway
 export HTTP_PROXY=http://127.0.0.1:$GATEWAY_PORT
 export HTTPS_PROXY=http://127.0.0.1:$GATEWAY_PORT
 export NO_PROXY=localhost,127.0.0.1,192.168.1.*,10.*.*.*
-
-# Agent credentials (loaded by gateway from agents.json providers list)
-# Set these in /etc/zeroclawed/agents.json or here:
-# export OPENAI_API_KEY=sk-...
-# export ANTHROPIC_API_KEY=sk-ant-...
 EOF
-chmod +x /etc/profile.d/zeroclawed-proxy.sh
-echo 'Proxy env vars installed at /etc/profile.d/zeroclawed-proxy.sh'" 2>&1
+chmod +x /etc/profile.d/zeroclawed-proxy.sh" 2>&1
+
+    echo "  ✅ Deployed to $host"
 }
 
-verify() {
-    echo "=== Verification ==="
-    echo "Adversary Detector:"
-    $SSH_CMD "curl -s http://127.0.0.1:$DETECTOR_PORT/health" 2>&1
-    echo ""
-    echo "Security Gateway:"
-    $SSH_CMD "curl -s http://127.0.0.1:$GATEWAY_PORT/health" 2>&1
-    echo ""
-    echo "Clashd:"
-    $SSH_CMD "curl -s http://127.0.0.1:$CLASHD_PORT/health" 2>&1
-    echo ""
-    echo "=== All services verified ==="
+verify_host() {
+    local host="$1"
+    echo "── Verifying $host ──"
+
+    echo -n "  adversary-detector: "
+    run_on "$host" "curl -s http://127.0.0.1:$DETECTOR_PORT/health" 2>/dev/null || echo "❌ not responding"
+
+    echo -n "  security-gateway:  "
+    run_on "$host" "curl -s http://127.0.0.1:$GATEWAY_PORT/health" 2>/dev/null || echo "❌ not responding"
+
+    echo -n "  clashd:            "
+    run_on "$host" "curl -s http://127.0.0.1:$CLASHD_PORT/health" 2>/dev/null || echo "❌ not responding"
 }
 
+# ── Main ───────────────────────────────────────────────────────────
 case "$ACTION" in
     install)
         build
-        deploy_binaries
-        deploy_config
-        install_services
-        setup_proxy_env
-        verify
+        for host in "${TARGETS[@]}"; do
+            deploy_host "$host" || true
+        done
+        echo ""
+        for host in "${TARGETS[@]}"; do
+            verify_host "$host"
+        done
         echo ""
         echo "=== Installation Complete ==="
-        echo "Services:"
-        echo "  adversary-detector → $DETECTOR_PORT (content scanning)"
-        echo "  security-gateway   → $GATEWAY_PORT (mandatory proxy)"
-        echo "  clashd             → $CLASHD_PORT (policy engine)"
-        echo ""
-        echo "To set API credentials, add to agents.json providers or set env vars:"
+        echo "Set API credentials on each host:"
         echo "  export OPENAI_API_KEY=sk-..."
         echo "  export ANTHROPIC_API_KEY=sk-ant-..."
+        ;;
+    deploy)
+        for host in "${TARGETS[@]}"; do
+            deploy_host "$host" || true
+        done
+        ;;
+    verify)
+        for host in "${TARGETS[@]}"; do
+            verify_host "$host"
+        done
         ;;
     build)
         build
         ;;
-    deploy)
-        deploy_binaries
-        deploy_config
-        install_services
-        verify
+    restart)
+        for host in "${TARGETS[@]}"; do
+            echo "Restarting services on $host..."
+            run_on "$host" "systemctl restart adversary-detector security-gateway clashd" 2>&1 || echo "  ⚠ $host unreachable"
+        done
         ;;
-    verify)
-        verify
+    status)
+        for host in "${TARGETS[@]}"; do
+            echo "── $host ──"
+            run_on "$host" "systemctl is-active adversary-detector security-gateway clashd 2>/dev/null | paste -sd' '" 2>&1 || echo "  unreachable"
+        done
         ;;
-    *)
-        echo "Usage: $0 {install|build|deploy|verify} [target_host] [ssh_key]"
+    help|*)
+        cat << 'USAGE'
+ZeroClawed Security Stack Installer
+
+Usage:
+  scripts/install-security-stack.sh <action> [host1 host2 ...]
+
+Actions:
+  install   Build + deploy + configure + verify (full setup)
+  deploy    Deploy binaries + config + services (skip build)
+  build     Just build release binaries
+  verify    Check service health on targets
+  restart   Restart all services on targets
+  status    Show service status on targets
+  help      Show this help
+
+Examples:
+  # Single host
+  ./scripts/install-security-stack.sh install 192.168.1.210
+
+  # Multiple hosts
+  ./scripts/install-security-stack.sh install 192.168.1.210 192.168.1.127 192.168.1.49
+
+  # Use targets.txt (one IP per line)
+  echo "192.168.1.210" > scripts/targets.txt
+  echo "192.168.1.127" >> scripts/targets.txt
+  ./scripts/install-security-stack.sh install
+
+  # Just verify all hosts
+  ./scripts/install-security-stack.sh verify 192.168.1.210 192.168.1.127
+
+  # Set custom SSH key
+  SSH_KEY=~/.ssh/id_ed25519_librarian ./scripts/install-security-stack.sh install 192.168.1.210
+USAGE
         ;;
 esac
