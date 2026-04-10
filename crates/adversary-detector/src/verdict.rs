@@ -82,6 +82,10 @@ pub enum ScanContext {
     Api,
     /// Outbound message from agent to user.
     Outbound,
+    /// Inbound user message arriving via channel.
+    UserMessage,
+    /// Outbound agent response being sent back to user.
+    AgentResponse,
 }
 
 impl ScanContext {
@@ -94,6 +98,8 @@ impl ScanContext {
             ScanContext::Exec => "exec",
             ScanContext::Api => "api",
             ScanContext::Outbound => "outbound",
+            ScanContext::UserMessage => "user_message",
+            ScanContext::AgentResponse => "agent_response",
         }
     }
 }

@@ -22,6 +22,11 @@ use std::sync::Arc;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
 
+use adversary_detector::audit::AuditLogger;
+use adversary_detector::middleware::OutpostMiddleware;
+use adversary_detector::profiles::SecurityConfig;
+use adversary_detector::scanner::OutpostScanner;
+
 use crate::{commands::CommandHandler, config::load_config, context::ContextStore, router::Router};
 
 #[tokio::main]
@@ -60,6 +65,18 @@ async fn main() -> Result<()> {
     }
 
     let context_store = ContextStore::new(config.context.buffer_size, config.context.inject_depth);
+
+    // Initialize adversary detector middleware
+    let security_config = SecurityConfig::balanced();
+    let scanner = OutpostScanner::new(security_config.scanner.clone());
+    let audit_logger = AuditLogger::new("zeroclawed");
+    let outpost_middleware = Arc::new(OutpostMiddleware::new(scanner, audit_logger, security_config.clone()));
+    info!(
+        profile = "balanced",
+        intercepted_tools = ?security_config.intercepted_tools,
+        scan_outbound = security_config.scan_outbound,
+        "adversary-detector middleware active"
+    );
 
     let config = Arc::new(config);
     let router = Arc::new(Router::new());
@@ -133,6 +150,7 @@ async fn main() -> Result<()> {
                 router.clone(),
                 command_handler.clone(),
                 context_store.clone(),
+                outpost_middleware.clone(),
             )
             .await
             .context("WhatsApp channel error")
@@ -149,6 +167,7 @@ async fn main() -> Result<()> {
                 router.clone(),
                 command_handler.clone(),
                 context_store.clone(),
+                outpost_middleware.clone(),
             )
             .await
             .context("Signal channel error")

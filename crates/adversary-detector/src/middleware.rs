@@ -152,6 +152,19 @@ impl OutpostMiddleware {
         }
     }
 
+    /// Scan raw text content directly (for channel-level message scanning).
+    ///
+    /// Returns the scanner verdict for the given content.
+    pub async fn scan_text(&self, text: &str, context: ScanContext) -> OutpostVerdict {
+        let verdict = self.scanner.scan("(channel-message)", text, context).await;
+        if self.config.audit_logging {
+            self.logger
+                .log(context, "(channel-message)", &verdict, false)
+                .await;
+        }
+        verdict
+    }
+
     /// Returns `true` if this tool's results should be scanned according to the profile.
     pub fn should_intercept(&self, tool_name: &str) -> bool {
         self.config.intercepted_tools.intercepts(tool_name)
