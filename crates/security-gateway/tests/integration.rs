@@ -1,7 +1,4 @@
 use reqwest::Client;
-use std::time::Duration;
-use tokio::time::sleep;
-
 /// Full e2e integration test — requires the security-gateway binary to be running.
 /// Run with: cargo test -p security-gateway --test integration -- --ignored
 ///
