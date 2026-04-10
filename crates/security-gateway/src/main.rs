@@ -3,9 +3,10 @@ use std::sync::Arc;
 use axum::routing::get;
 use axum::Router;
 use reqwest::Client;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber;
 
+use security_gateway::agent_config::AgentsConfig;
 use security_gateway::audit::AuditLogger;
 use security_gateway::config::GatewayConfig;
 use security_gateway::credentials::CredentialInjector;
@@ -23,7 +24,42 @@ async fn main() -> anyhow::Result<()> {
 
     let config = GatewayConfig::default();
     let mut credentials = CredentialInjector::new();
+
+    // Load credentials from ZEROGATE_KEY_* env vars (legacy)
     credentials.load_from_env();
+
+    // Load from agents.json config
+    let agents_config_path = std::env::var("AGENT_CONFIG")
+        .unwrap_or_else(|_| "/etc/zeroclawed/agents.json".into());
+
+    if let Ok(agents_config) = AgentsConfig::load(&agents_config_path) {
+        info!(
+            "Loaded {} agent(s) from {}",
+            agents_config.agents.len(),
+            agents_config_path
+        );
+
+        // Auto-load credentials from agent provider configs
+        for provider in agents_config.all_providers() {
+            if let Ok(api_key) = std::env::var(&provider.env_key) {
+                credentials.add(&provider.name, &api_key);
+                info!(
+                    "Loaded credential for {} from ${}",
+                    provider.name, provider.env_key
+                );
+            } else {
+                info!(
+                    "No credential found for {} (${} not set)",
+                    provider.name, provider.env_key
+                );
+            }
+        }
+    } else {
+        error!(
+            "Could not load agents config from {}, using env vars only",
+            agents_config_path
+        );
+    }
 
     let state = Arc::new(ProxyState {
         config: config.clone(),
