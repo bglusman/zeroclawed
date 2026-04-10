@@ -1,5 +1,5 @@
 // test-adversary.rs — Quick adversary-detector demo & test harness
-// Run: cd /root/projects/zeroclawed && cargo run --example test-adversary -p adversary-detector
+// Run: cd <repo-root> && cargo run --example test-adversary -p adversary-detector
 
 use adversary_detector::profiles::{SecurityConfig, SecurityProfile};
 use adversary_detector::scanner::AdversaryScanner;
