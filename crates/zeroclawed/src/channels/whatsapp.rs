@@ -591,17 +591,8 @@ impl WhatsAppChannel {
                     let latency_ms = dispatch_start.elapsed().as_millis() as u64;
                     self.command_handler.record_dispatch(latency_ms);
 
-                    // Outbound scan (disabled - see roadmap)
-                        adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
-                            warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response BLOCKED by adversary scan");
-                            format!("🚫 Agent response blocked by security scanner: {reason}")
-                        }
-                        adversary_detector::verdict::ScanVerdict::Review { reason } => {
-                            warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response flagged REVIEW");
-                            format!("[⚠ Security Review: {reason}]\n{response}")
-                        }
-                        adversary_detector::verdict::ScanVerdict::Clean => response,
-                    };
+                    // Outbound scanning dropped — see docs/roadmap/outbound-sensitive-data-detection.md
+                    let final_response = response;
 
                     debug!(
                         identity = %identity_id,
