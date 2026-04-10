@@ -368,7 +368,8 @@ impl WhatsAppChannel {
                     let from_owned = from.clone();
                     let reason_owned = reason.clone();
                     tokio::spawn(async move {
-                        let reply = format!("🚫 Message blocked by security scanner: {reason_owned}");
+                        let reply =
+                            format!("🚫 Message blocked by security scanner: {reason_owned}");
                         if let Err(e) = channel
                             .send_reply(
                                 &nzc_endpoint,
