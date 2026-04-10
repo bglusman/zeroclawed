@@ -48,12 +48,12 @@ echo ""
 # ── Helpers ────────────────────────────────────────────────────────
 run_on() {
     local host="$1"; shift
-    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@$host" "$@"
+    ssh -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "root@$host" "$@"
 }
 
 copy_to() {
     local src="$1" host="$2" dst="$3"
-    scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$src" "root@$host:$dst"
+    scp -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new "$src" "root@$host:$dst"
 }
 
 generate_config() {
@@ -63,92 +63,83 @@ generate_config() {
 #
 # See crates/zeroclawed/examples/config.toml for all options
 
-# ── Gateway ─────────────────────────────────────────────────────
-[gateway]
-listen_addr = "0.0.0.0:18789"
-forward_to = "http://127.0.0.1:8080"
+[zeroclawed]
+version = 1
 
-# ── Identity ────────────────────────────────────────────────────
-[identity]
-header = "X-Forwarded-For"
-strategy = "extract-first"
+# ── Context (conversation ring buffer) ─────────────────────────
+[context]
+buffer_size = 20
+inject_depth = 5
 
-# ── Models ──────────────────────────────────────────────────────
-# Remote models
-[[models]]
-name = "kimi-k2"
-provider = "moonshot"
-model_id = "kimi-k2"
-api_key_env = "KIMI_API_KEY"
+# ── Model Shortcuts ────────────────────────────────────────────
+# Use !model <alias> to quickly switch models
+[[model_shortcuts]]
+alias = "sonnet"
+model = "anthropic/claude-sonnet-4.6"
 
-[[models]]
-name = "gpt-4o-mini"
-provider = "openai"
-model_id = "gpt-4o-mini"
-api_key_env = "OPENAI_API_KEY"
-
-[[models]]
-name = "claude-sonnet-4"
-provider = "anthropic"
-model_id = "claude-sonnet-4-20250514"
-api_key_env = "ANTHROPIC_API_KEY"
-
-# Local models (vLLM)
-[[models]]
-name = "llama-3-70b"
-provider = "vllm"
-model_id = "llama-3-70b-instruct"
-base_url = "http://127.0.0.1:8000/v1"
-
-# ── Adversary Detection ────────────────────────────────────────
-# Channel scanning: per-channel opt-in (default: false)
-# HTTP proxy: always-on (no config needed)
-#
-# To enable channel scanning, add to each [[channels]] section:
-#   scan_messages = true
-#
-# Domain skip protection (HTTP proxy only):
-#   [adversary]
-#   skip_protection = ["*.trusted.com", "api.internal"]
-#   profile = "balanced"  # open|balanced|hardened|paranoid
+[[model_shortcuts]]
+alias = "fast"
+model = "gemini/gemini-2.5-flash"
 
 # ── Channels ────────────────────────────────────────────────────
+# WhatsApp channel (requires NZC/OpenClaw gateway with WA session)
 [[channels]]
 kind = "whatsapp"
-enabled = true
-scan_messages = false  # Set to true to scan WhatsApp messages
+enabled = false
+scan_messages = false
+# nzc_endpoint = "http://127.0.0.1:18789"
+# nzc_auth_token = "YOUR_NZC_TOKEN"
+# webhook_listen = "0.0.0.0:18795"
+# webhook_path = "/webhooks/whatsapp"
+# allowed_numbers = ["+15555550001"]
 
-[channels.webhook]
-listen_addr = "0.0.0.0:8443"
-token = "${WHATSAPP_WEBHOOK_TOKEN:-}"
-secret = "${WHATSAPP_WEBHOOK_SECRET:-}"
-
+# Signal channel (requires NZC/OpenClaw gateway with Signal session)
 [[channels]]
 kind = "signal"
-enabled = true
-scan_messages = false  # Set to true to scan Signal messages
+enabled = false
+scan_messages = false
+# nzc_endpoint = "http://127.0.0.1:18789"
+# nzc_auth_token = "YOUR_NZC_TOKEN"
+# webhook_listen = "0.0.0.0:18796"
+# webhook_path = "/webhooks/signal"
+# allowed_numbers = ["+15555550001"]
 
-[channels.webhook]
-listen_addr = "0.0.0.0:8444"
-token = "${SIGNAL_WEBHOOK_TOKEN:-}"
-
+# Telegram channel (direct bot integration)
 [[channels]]
 kind = "telegram"
-enabled = true
-scan_messages = false  # Set to true to scan Telegram messages
+enabled = false
+scan_messages = false
+# bot_token_file = "/etc/zeroclawed/telegram_bot_token.txt"
 
-[channels.webhook]
-listen_addr = "0.0.0.0:8445"
-token = "${TELEGRAM_BOT_TOKEN:-}"
-
+# Matrix channel (direct Matrix bot)
 [[channels]]
 kind = "matrix"
 enabled = false
 scan_messages = false
+# homeserver = "https://matrix.org"
+# access_token_file = "/etc/zeroclawed/matrix_token.txt"
+# room_id = "!YOUR_ROOM:matrix.org"
 
-[channels.webhook]
-listen_addr = "0.0.0.0:8446"
-token = "${MATRIX_TOKEN:-}"
+# ── Identities ─────────────────────────────────────────────────
+# Define users and their channel aliases
+# [[identities]]
+# id = "brian"
+# display_name = "Brian"
+# aliases = [
+#     { channel = "whatsapp", id = "+15555550001" },
+#     { channel = "signal", id = "+15555550001" },
+# ]
+
+# ── Agents ─────────────────────────────────────────────────────
+# [[agents]]
+# id = "main"
+# model = "anthropic/claude-sonnet-4.6"
+# system_prompt = "You are a helpful assistant."
+
+# ── Routing ────────────────────────────────────────────────────
+# [[routing]]
+# identity = "brian"
+# default_agent = "main"
 DEFAULT_CONFIG
 }
 
@@ -184,6 +175,10 @@ deploy_host() {
     fi
 
     # Install systemd service
+    # Note: zeroclawed reads config from ~/.zeroclawed/config.toml
+    # We symlink /etc/zeroclawed/config.toml to the expected location
+    run_on "$host" "mkdir -p /root/.zeroclawed && ln -sf $CONFIG_DIR/config.toml /root/.zeroclawed/config.toml"
+
     run_on "$host" "cat > /etc/systemd/system/zeroclawed.service << 'EOF'
 [Unit]
 Description=ZeroClawed Gateway
@@ -191,7 +186,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$INSTALL_DIR/bin/zeroclawed --config $CONFIG_DIR/config.toml
+ExecStart=$INSTALL_DIR/bin/zeroclawed
 Environment=RUST_LOG=zeroclawed=info
 Restart=always
 RestartSec=5

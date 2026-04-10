@@ -189,6 +189,16 @@ impl WhatsAppChannel {
         }
     }
 
+    /// Check if message scanning is enabled for this channel.
+    fn scan_enabled(&self) -> bool {
+        self.config
+            .channels
+            .iter()
+            .find(|c| c.kind == "whatsapp")
+            .map(|c| c.scan_messages)
+            .unwrap_or(false)
+    }
+
     /// Parse an incoming webhook payload and return all valid inbound messages.
     ///
     /// Filters out:
@@ -342,42 +352,44 @@ impl WhatsAppChannel {
 
         // ── Adversary inbound scan ────────────────────────────────────────────
 
-        let verdict = self
-            .channel_scanner
-            .scan_text(&text, ScanContext::UserMessage)
-            .await;
-        match &verdict {
-            adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
-                warn!(
-                    identity = %identity.id,
-                    reason = %reason,
-                    "WhatsApp: inbound message BLOCKED by adversary scan"
-                );
-                let channel = self.clone();
-                let from_owned = from.clone();
-                let reason_owned = reason.clone();
-                tokio::spawn(async move {
-                    let reply = format!("🚫 Message blocked by security scanner: {reason_owned}");
-                    if let Err(e) = channel
-                        .send_reply(
-                            &nzc_endpoint,
-                            nzc_auth_token.as_deref(),
-                            &from_owned,
-                            &reply,
-                        )
-                        .await
-                    {
-                        warn!(from = %from_owned, error = %e, "WhatsApp: failed to send block notice");
-                    }
-                });
-                return;
-            }
-            adversary_detector::verdict::ScanVerdict::Review { reason } => {
-                warn!(identity = %identity.id, reason = %reason, "WhatsApp: inbound message flagged REVIEW — passing with caution");
-                // Pass through but logged
-            }
-            adversary_detector::verdict::ScanVerdict::Clean => {
-                debug!(identity = %identity.id, "WhatsApp: inbound scan clean");
+        if self.scan_enabled() {
+            let verdict = self
+                .channel_scanner
+                .scan_text(&text, ScanContext::UserMessage)
+                .await;
+            match &verdict {
+                adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
+                    warn!(
+                        identity = %identity.id,
+                        reason = %reason,
+                        "WhatsApp: inbound message BLOCKED by adversary scan"
+                    );
+                    let channel = self.clone();
+                    let from_owned = from.clone();
+                    let reason_owned = reason.clone();
+                    tokio::spawn(async move {
+                        let reply = format!("🚫 Message blocked by security scanner: {reason_owned}");
+                        if let Err(e) = channel
+                            .send_reply(
+                                &nzc_endpoint,
+                                nzc_auth_token.as_deref(),
+                                &from_owned,
+                                &reply,
+                            )
+                            .await
+                        {
+                            warn!(from = %from_owned, error = %e, "WhatsApp: failed to send block notice");
+                        }
+                    });
+                    return;
+                }
+                adversary_detector::verdict::ScanVerdict::Review { reason } => {
+                    warn!(identity = %identity.id, reason = %reason, "WhatsApp: inbound message flagged REVIEW — passing with caution");
+                    // Pass through but logged
+                }
+                adversary_detector::verdict::ScanVerdict::Clean => {
+                    debug!(identity = %identity.id, "WhatsApp: inbound scan clean");
+                }
             }
         }
 
