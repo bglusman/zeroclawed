@@ -68,7 +68,9 @@ async fn main() -> Result<()> {
 
     // Initialize adversary detector middleware from config
     let security_cfg = config.security.as_ref();
-    let profile_str = security_cfg.map(|s| s.profile.as_str()).unwrap_or("balanced");
+    let profile_str = security_cfg
+        .map(|s| s.profile.as_str())
+        .unwrap_or("balanced");
     let security_profile: SecurityProfile = profile_str.parse().unwrap_or_else(|_| {
         tracing::warn!(profile = %profile_str, "invalid security profile, using balanced");
         SecurityProfile::Balanced
