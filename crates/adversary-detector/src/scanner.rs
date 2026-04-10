@@ -1,4 +1,4 @@
-//! Core outpost scanner: three-layer content inspection pipeline.
+//! Core adversary scanner: three-layer content inspection pipeline.
 
 use crate::extract_host;
 
@@ -7,10 +7,10 @@ use crate::verdict::{ScanVerdict, ScanContext};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Configuration for the outpost scanner and transparent proxy.
+/// Configuration for the adversary scanner and transparent proxy.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScannerConfig {
-    /// Optional URL of the shared ZeroClawed outpost HTTP service.
+    /// Optional URL of the shared ZeroClawed adversary HTTP service.
     /// If `None` or unreachable, layers 1+2 run locally only.
     pub service_url: Option<String>,
     /// Ratio threshold: if discussion_signals / injection_signals > this,
@@ -21,7 +21,7 @@ pub struct ScannerConfig {
     #[serde(default = "ScannerConfig::default_min_signals")]
     pub min_signals_for_ratio: usize,
     /// Path to the persistent digest store JSON file.
-    /// Defaults to `~/.outpost/digests.json` when `None`.
+    /// Defaults to `~/.zeroclawed/digests.json` when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest_store_path: Option<PathBuf>,
     /// When `true`, `Review` verdicts from the proxy automatically pass through
@@ -75,7 +75,7 @@ impl ScannerConfig {
     }
 }
 
-/// The outpost scanner — runs all layers and returns a verdict.
+/// The adversary scanner — runs all layers and returns a verdict.
 pub struct AdversaryScanner {
     config: ScannerConfig,
     client: reqwest::Client,

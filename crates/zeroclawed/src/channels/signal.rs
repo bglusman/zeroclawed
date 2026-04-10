@@ -351,15 +351,15 @@ impl SignalChannel {
         // Context key: scoped per identity (phone is the key)
         let chat_key = format!("signal-{}", identity.id);
 
-        // ── Outpost inbound scan ────────────────────────────────────────────
+        // ── Adversary inbound scan ────────────────────────────────────────────
 
         let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
         match &verdict {
-            adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
+            adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                 warn!(
                     identity = %identity.id,
                     reason = %reason,
-                    "Signal: inbound message BLOCKED by outpost"
+"Signal: inbound message BLOCKED by adversary scan"
                 );
                 let channel = self.clone();
                 let from_owned = from.clone();
@@ -375,10 +375,10 @@ impl SignalChannel {
                 });
                 return;
             }
-            adversary_detector::verdict::OutpostVerdict::Review { reason } => {
+            adversary_detector::verdict::ScanVerdict::Review { reason } => {
                 warn!(identity = %identity.id, reason = %reason, "Signal: inbound message flagged REVIEW — passing with caution");
             }
-            adversary_detector::verdict::OutpostVerdict::Clean => {
+            adversary_detector::verdict::ScanVerdict::Clean => {
                 debug!(identity = %identity.id, "Signal: inbound scan clean");
             }
         }
@@ -601,16 +601,16 @@ impl SignalChannel {
                     let latency_ms = dispatch_start.elapsed().as_millis() as u64;
                     self.command_handler.record_dispatch(latency_ms);
 
-                    // Outpost outbound scan
-                        adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
-                            warn!(identity = %identity_id, reason = %reason, "Signal: outbound response BLOCKED by outpost");
+                    // Outbound scan (disabled - see roadmap)
+                        adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
+                            warn!(identity = %identity_id, reason = %reason, "Signal: outbound response BLOCKED by adversary scan");
                             format!("🚫 Agent response blocked by security scanner: {reason}")
                         }
-                        adversary_detector::verdict::OutpostVerdict::Review { reason } => {
+                        adversary_detector::verdict::ScanVerdict::Review { reason } => {
                             warn!(identity = %identity_id, reason = %reason, "Signal: outbound response flagged REVIEW");
                             format!("[⚠ Security Review: {reason}]\n{response}")
                         }
-                        adversary_detector::verdict::OutpostVerdict::Clean => response,
+                        adversary_detector::verdict::ScanVerdict::Clean => response,
                     };
 
                     debug!(

@@ -11,7 +11,7 @@ use crate::verdict::{ScanVerdict, ScanContext};
 /// The set of tool names that the middleware intercepts.
 ///
 /// `safe_fetch` is listed here for backwards compatibility but is **deprecated**.
-/// All fetches now route through [`crate::proxy::OutpostProxy`], making `web_fetch`
+/// All fetches now route through [`crate::proxy::AdversaryProxy`], making `web_fetch`
 /// and `safe_fetch` semantically identical. New code should use `web_fetch` only.
 pub const INTERCEPTED_TOOLS: &[&str] = &[
     "web_fetch",
@@ -128,7 +128,7 @@ pub trait ToolHook: Send + Sync {
     async fn on_tool_result(&self, result: ToolResult) -> HookOutcome;
 }
 
-/// The outpost middleware hook.
+/// The channel security middleware hook.
 pub struct ChannelScanner {
     scanner: AdversaryScanner,
     logger: AuditLogger,

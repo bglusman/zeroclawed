@@ -25,7 +25,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use adversary_detector::audit::AuditLogger;
 use adversary_detector::middleware::ChannelScanner;
 use adversary_detector::profiles::SecurityConfig;
-use adversary_detector::scanner::OutpostScanner;
+use adversary_detector::scanner::AdversaryScanner;
 
 use crate::{commands::CommandHandler, config::load_config, context::ContextStore, router::Router};
 
@@ -68,7 +68,7 @@ async fn main() -> Result<()> {
 
     // Initialize adversary detector middleware
     let security_config = SecurityConfig::balanced();
-    let scanner = OutpostScanner::new(security_config.scanner.clone());
+    let scanner = AdversaryScanner::new(security_config.scanner.clone());
     let audit_logger = AuditLogger::new("zeroclawed");
     let channel_scanner = Arc::new(ChannelScanner::new(scanner, audit_logger, security_config.clone()));
     info!(

@@ -1,4 +1,4 @@
-//! Outpost transparent proxy layer.
+//! Adversary transparent proxy layer.
 //!
 //! All external content access MUST go through [`AdversaryProxy::fetch`].
 //! Tools never hold raw HTTP clients; they call this proxy, which:
@@ -215,7 +215,7 @@ impl AdversaryProxy {
     }
 
     /// Construct from a [`ScannerConfig`] and logger, opening the digest store
-    /// at the configured path (or the default `~/.outpost/digests.json`).
+    /// at the configured path (or the default `~/.zeroclawed/digests.json`).
     pub async fn from_config(
         config: ScannerConfig,
         logger: AuditLogger,
@@ -224,14 +224,14 @@ impl AdversaryProxy {
         let override_on_review = config.override_on_review;
         let store_path = config.digest_store_path.clone().unwrap_or_else(|| {
             let home = home::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
-            home.join(".outpost/digests.json")
+            home.join(".zeroclawed/digests.json")
         });
         let store = DigestStore::open(store_path).await;
         let scanner = AdversaryScanner::new(config);
         Self::new(scanner, store, logger, override_on_review, rate_limit)
     }
 
-    /// Fetch `url` through the outpost proxy.
+    /// Fetch `url` through the adversary proxy.
     ///
     /// - If the URL was previously seen with the same content digest, returns the
     ///   cached verdict (no rescan).
@@ -249,7 +249,7 @@ impl AdversaryProxy {
                     .cooldown_remaining(source)
                     .map(|d| format!(" Try again in {:?}.", d))
                     .unwrap_or_default();
-                warn!(url, "outpost: rate limit exceeded");
+                warn!(url, "adversary: rate limit exceeded");
                 return AdversaryFetchResult::Blocked {
                     reason: format!("Rate limit exceeded.{}", cooldown),
                     digest: String::new(),
@@ -261,7 +261,7 @@ impl AdversaryProxy {
         // Step 1: skip_protection — bypass ALL scanning for trusted domains
         // Check before HTTP fetch to avoid touching untrusted servers entirely.
         if self.scanner.config().is_skip_protected(url) {
-            debug!(url, "outpost: skip_protection bypass");
+            debug!(url, "adversary: skip_protection bypass");
             let content = match self.http_get(url).await {
                 Ok(c) => c,
                 Err(e) => {
@@ -299,7 +299,7 @@ impl AdversaryProxy {
             if let Some(entry) = store.get(url, ttl) {
                 if entry.sha256 == digest {
                     // Cache hit — same content as last time
-                    debug!(url, digest = %digest, "outpost: digest cache hit");
+                    debug!(url, digest = %digest, "adversary: digest cache hit");
                     self.logger
                         .log(ScanContext::WebFetch, url, &entry.verdict, true)
                         .await;
@@ -312,9 +312,9 @@ impl AdversaryProxy {
                     );
                 }
                 // Digest changed — fall through to rescan
-                info!(url, "outpost: digest changed, rescanning");
+                info!(url, "adversary: digest changed, rescanning");
             } else if ttl.is_some() {
-                debug!(url, "outpost: digest cache miss (expired or not found)");
+                debug!(url, "adversary: digest cache miss (expired or not found)");
             }
         }
 
@@ -374,7 +374,7 @@ impl AdversaryProxy {
     ) -> AdversaryFetchResult {
         // Human override: treat any verdict as Ok for an approved URL+digest
         if override_approved {
-            debug!(url, "outpost: human override in effect, passing through");
+            debug!(url, "adversary: human override in effect, passing through");
             return AdversaryFetchResult::Ok { content, digest };
         }
 

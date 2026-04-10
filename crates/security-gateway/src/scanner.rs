@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use adversary_detector::{OutpostScanner, OutpostVerdict, ScanContext, ScannerConfig};
+use adversary_detector::{AdversaryScanner, ScanVerdict, ScanContext, ScannerConfig};
 
 use crate::config::{ExfilReport, InjectionReport, Verdict};
 
 /// Outbound traffic scanner — checks for data exfiltration, PII leakage, secrets.
 pub struct ExfilScanner {
-    scanner: OutpostScanner,
+    scanner: AdversaryScanner,
 }
 
 impl Default for ExfilScanner {
@@ -19,7 +19,7 @@ impl ExfilScanner {
     pub fn new() -> Self {
         let config = ScannerConfig::default();
         Self {
-            scanner: OutpostScanner::new(config),
+            scanner: AdversaryScanner::new(config),
         }
     }
 
@@ -32,14 +32,14 @@ impl ExfilScanner {
         let findings = Self::extract_findings(&verdict);
 
         let (final_verdict, findings_str) = match verdict {
-            OutpostVerdict::Clean => (Verdict::Allow, findings),
-            OutpostVerdict::Review { reason } => (
+            ScanVerdict::Clean => (Verdict::Allow, findings),
+            ScanVerdict::Review { reason } => (
                 Verdict::Log {
                     finding: reason.clone(),
                 },
                 vec![reason],
             ),
-            OutpostVerdict::Unsafe { reason } => (
+            ScanVerdict::Unsafe { reason } => (
                 Verdict::Block {
                     reason: reason.clone(),
                 },
@@ -54,18 +54,18 @@ impl ExfilScanner {
         }
     }
 
-    fn extract_findings(verdict: &OutpostVerdict) -> Vec<String> {
+    fn extract_findings(verdict: &ScanVerdict) -> Vec<String> {
         match verdict {
-            OutpostVerdict::Clean => vec![],
-            OutpostVerdict::Review { reason } => vec![reason.clone()],
-            OutpostVerdict::Unsafe { reason } => vec![reason.clone()],
+            ScanVerdict::Clean => vec![],
+            ScanVerdict::Review { reason } => vec![reason.clone()],
+            ScanVerdict::Unsafe { reason } => vec![reason.clone()],
         }
     }
 }
 
 /// Inbound traffic scanner — checks response content for prompt injection.
 pub struct InjectionScanner {
-    scanner: OutpostScanner,
+    scanner: AdversaryScanner,
 }
 
 impl Default for InjectionScanner {
@@ -78,7 +78,7 @@ impl InjectionScanner {
     pub fn new() -> Self {
         let config = ScannerConfig::default();
         Self {
-            scanner: OutpostScanner::new(config),
+            scanner: AdversaryScanner::new(config),
         }
     }
 
@@ -90,14 +90,14 @@ impl InjectionScanner {
         let verdict = self.scanner.scan(url, body, ctx).await;
 
         let (final_verdict, findings_str) = match verdict {
-            OutpostVerdict::Clean => (Verdict::Allow, vec![]),
-            OutpostVerdict::Review { reason } => (
+            ScanVerdict::Clean => (Verdict::Allow, vec![]),
+            ScanVerdict::Review { reason } => (
                 Verdict::Log {
                     finding: reason.clone(),
                 },
                 vec![reason],
             ),
-            OutpostVerdict::Unsafe { reason } => (
+            ScanVerdict::Unsafe { reason } => (
                 Verdict::Block {
                     reason: format!("Response contains adversarial content: {}", reason),
                 },

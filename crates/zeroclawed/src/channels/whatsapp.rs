@@ -340,15 +340,15 @@ impl WhatsAppChannel {
         // Context key: scoped per identity (no chat_id for WA, phone is the key)
         let chat_key = format!("whatsapp-{}", identity.id);
 
-        // ── Outpost inbound scan ────────────────────────────────────────────
+        // ── Adversary inbound scan ────────────────────────────────────────────
 
         let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
         match &verdict {
-            adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
+            adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                 warn!(
                     identity = %identity.id,
                     reason = %reason,
-                    "WhatsApp: inbound message BLOCKED by outpost"
+                    "WhatsApp: inbound message BLOCKED by adversary scan"
                 );
                 let channel = self.clone();
                 let from_owned = from.clone();
@@ -364,11 +364,11 @@ impl WhatsAppChannel {
                 });
                 return;
             }
-            adversary_detector::verdict::OutpostVerdict::Review { reason } => {
+            adversary_detector::verdict::ScanVerdict::Review { reason } => {
                 warn!(identity = %identity.id, reason = %reason, "WhatsApp: inbound message flagged REVIEW — passing with caution");
                 // Pass through but logged
             }
-            adversary_detector::verdict::OutpostVerdict::Clean => {
+            adversary_detector::verdict::ScanVerdict::Clean => {
                 debug!(identity = %identity.id, "WhatsApp: inbound scan clean");
             }
         }
@@ -591,16 +591,16 @@ impl WhatsAppChannel {
                     let latency_ms = dispatch_start.elapsed().as_millis() as u64;
                     self.command_handler.record_dispatch(latency_ms);
 
-                    // Outpost outbound scan
-                        adversary_detector::verdict::OutpostVerdict::Unsafe { reason } => {
-                            warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response BLOCKED by outpost");
+                    // Outbound scan (disabled - see roadmap)
+                        adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
+                            warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response BLOCKED by adversary scan");
                             format!("🚫 Agent response blocked by security scanner: {reason}")
                         }
-                        adversary_detector::verdict::OutpostVerdict::Review { reason } => {
+                        adversary_detector::verdict::ScanVerdict::Review { reason } => {
                             warn!(identity = %identity_id, reason = %reason, "WhatsApp: outbound response flagged REVIEW");
                             format!("[⚠ Security Review: {reason}]\n{response}")
                         }
-                        adversary_detector::verdict::OutpostVerdict::Clean => response,
+                        adversary_detector::verdict::ScanVerdict::Clean => response,
                     };
 
                     debug!(
@@ -992,7 +992,7 @@ mod tests {
         ));
         let context_store = ContextStore::new(20, 5);
         let security_config = adversary_detector::profiles::SecurityConfig::balanced();
-        let scanner = adversary_detector::scanner::OutpostScanner::new(security_config.scanner.clone());
+        let scanner = adversary_detector::scanner::AdversaryScanner::new(security_config.scanner.clone());
         let audit_logger = adversary_detector::audit::AuditLogger::new("test-wa");
         let channel_scanner = Arc::new(adversary_detector::middleware::ChannelScanner::new(
             scanner, audit_logger, security_config,

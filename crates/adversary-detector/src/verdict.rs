@@ -1,9 +1,9 @@
-//! Core verdict and context types for outpost scanning.
+//! Core verdict and context types for adversary scanning.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// The result of an outpost scan.
+/// The result of a security scan.
 ///
 /// Determines how tool output is handled before it reaches the model context.
 /// `Unsafe` content must never be returned to the model — the middleware returns

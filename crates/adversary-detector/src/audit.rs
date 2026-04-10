@@ -1,4 +1,4 @@
-//! Audit logging: append JSONL events to `~/.zeroclawed/logs/outpost-audit.jsonl`.
+//! Audit logging: append JSONL events to `~/.zeroclawed/logs/adversary-audit.jsonl`.
 
 use crate::verdict::{ScanVerdict, ScanContext};
 use chrono::Utc;
@@ -40,7 +40,7 @@ impl AuditEntry {
     }
 }
 
-/// Async audit logger that appends JSONL to `~/.zeroclawed/logs/outpost-audit.jsonl`.
+/// Async audit logger that appends JSONL to `~/.zeroclawed/logs/adversary-audit.jsonl`.
 pub struct AuditLogger {
     log_path: PathBuf,
     claw_id: String,
@@ -51,7 +51,7 @@ impl AuditLogger {
     pub fn new(claw_id: impl Into<String>) -> Self {
         let home = home::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
         Self {
-            log_path: home.join(".zeroclawed/logs/outpost-audit.jsonl"),
+            log_path: home.join(".zeroclawed/logs/adversary-audit.jsonl"),
             claw_id: claw_id.into(),
         }
     }
@@ -62,13 +62,13 @@ impl AuditLogger {
         let line = match serde_json::to_string(&entry) {
             Ok(l) => l + "\n",
             Err(e) => {
-                warn!("outpost audit serialize error: {e}");
+                warn!("adversary audit serialize error: {e}");
                 return;
             }
         };
         if let Some(parent) = self.log_path.parent() {
             if let Err(e) = fs::create_dir_all(parent).await {
-                warn!("outpost audit mkdir error: {e}");
+                warn!("adversary audit mkdir error: {e}");
                 return;
             }
         }
@@ -80,10 +80,10 @@ impl AuditLogger {
         {
             Ok(mut f) => {
                 if let Err(e) = f.write_all(line.as_bytes()).await {
-                    warn!("outpost audit write error: {e}");
+                    warn!("adversary audit write error: {e}");
                 }
             }
-            Err(e) => warn!("outpost audit open error: {e}"),
+            Err(e) => warn!("adversary audit open error: {e}"),
         }
     }
 }
