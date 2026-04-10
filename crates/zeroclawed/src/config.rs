@@ -209,7 +209,6 @@ pub struct ChannelConfig {
     pub scan_messages: bool,
 }
 
-
 /// `[permissions]` section.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PermissionsConfig {

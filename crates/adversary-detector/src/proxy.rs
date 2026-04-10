@@ -35,7 +35,7 @@ use crate::audit::AuditLogger;
 use crate::digest::{sha256_hex, ContentDigest, DigestStore};
 use crate::profiles::RateLimitConfig;
 use crate::scanner::{AdversaryScanner, ScannerConfig};
-use crate::verdict::{ScanVerdict, ScanContext};
+use crate::verdict::{ScanContext, ScanVerdict};
 
 // ── AdversaryFetchResult ───────────────────────────────────────────────────────
 

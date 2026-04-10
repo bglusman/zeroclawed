@@ -1,9 +1,9 @@
 // test-adversary.rs — Quick adversary-detector demo & test harness
 // Run: cd /root/projects/zeroclawed && cargo run --example test-adversary -p adversary-detector
 
-use adversary_detector::scanner::AdversaryScanner;
 use adversary_detector::profiles::{SecurityConfig, SecurityProfile};
-use adversary_detector::verdict::{ScanVerdict, ScanContext};
+use adversary_detector::scanner::AdversaryScanner;
+use adversary_detector::verdict::{ScanContext, ScanVerdict};
 
 #[tokio::main]
 async fn main() {
@@ -34,11 +34,15 @@ async fn main() {
     ];
 
     for (profile_name, profile) in &profiles {
-        let config = SecurityConfig::from_profile(profile.clone());
+        let config = SecurityConfig::from_profile(*profile);
         let scanner = AdversaryScanner::new(config.scanner.clone());
 
-        println!("┌─ Profile: {:<10} ──────────────────────────────────────", profile_name);
-        println!("│  ratio={:.1}  rate={}/min  outbound_scan={}",
+        println!(
+            "┌─ Profile: {:<10} ──────────────────────────────────────",
+            profile_name
+        );
+        println!(
+            "│  ratio={:.1}  rate={}/min  outbound_scan={}",
             config.scanner.discussion_ratio_threshold,
             config.rate_limit.max_requests_per_minute,
             config.scan_outbound,
@@ -46,7 +50,13 @@ async fn main() {
         println!("│");
 
         for (test_name, content) in &test_cases {
-            let v = scanner.scan("https://example.com/article", content, ScanContext::WebFetch).await;
+            let v = scanner
+                .scan(
+                    "https://example.com/article",
+                    content,
+                    ScanContext::WebFetch,
+                )
+                .await;
             let icon = match &v {
                 ScanVerdict::Clean => "✅",
                 ScanVerdict::Review { .. } => "⚠️",

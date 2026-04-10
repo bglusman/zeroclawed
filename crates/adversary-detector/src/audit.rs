@@ -1,6 +1,6 @@
 //! Audit logging: append JSONL events to `~/.zeroclawed/logs/adversary-audit.jsonl`.
 
-use crate::verdict::{ScanVerdict, ScanContext};
+use crate::verdict::{ScanContext, ScanVerdict};
 use chrono::Utc;
 use serde::Serialize;
 use std::path::PathBuf;

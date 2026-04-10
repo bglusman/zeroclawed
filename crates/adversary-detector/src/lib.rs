@@ -64,8 +64,8 @@ pub fn extract_host(url: &str) -> &str {
 
 pub use audit::AuditLogger;
 pub use digest::{sha256_hex, ContentDigest, DigestStore};
-pub use middleware::{HookOutcome, InterceptedToolSet, ChannelScanner, ToolHook, ToolResult};
+pub use middleware::{ChannelScanner, HookOutcome, InterceptedToolSet, ToolHook, ToolResult};
 pub use profiles::{RateLimitConfig, SecurityConfig, SecurityProfile};
 pub use proxy::{AdversaryFetchResult, AdversaryProxy};
 pub use scanner::{AdversaryScanner, ScannerConfig};
-pub use verdict::{ScanVerdict, ScanContext};
+pub use verdict::{ScanContext, ScanVerdict};

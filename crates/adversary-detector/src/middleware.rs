@@ -6,7 +6,7 @@
 use crate::audit::AuditLogger;
 use crate::profiles::SecurityConfig;
 use crate::scanner::AdversaryScanner;
-use crate::verdict::{ScanVerdict, ScanContext};
+use crate::verdict::{ScanContext, ScanVerdict};
 
 /// The set of tool names that the middleware intercepts.
 ///

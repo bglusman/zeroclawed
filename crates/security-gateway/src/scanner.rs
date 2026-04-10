@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use adversary_detector::{AdversaryScanner, ScanVerdict, ScanContext, ScannerConfig};
+use adversary_detector::{AdversaryScanner, ScanContext, ScanVerdict, ScannerConfig};
 
 use crate::config::{ExfilReport, InjectionReport, Verdict};
 

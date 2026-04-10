@@ -3,7 +3,7 @@
 use crate::extract_host;
 
 use crate::patterns::*;
-use crate::verdict::{ScanVerdict, ScanContext};
+use crate::verdict::{ScanContext, ScanVerdict};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

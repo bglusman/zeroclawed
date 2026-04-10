@@ -70,7 +70,11 @@ async fn main() -> Result<()> {
     let security_config = SecurityConfig::balanced();
     let scanner = AdversaryScanner::new(security_config.scanner.clone());
     let audit_logger = AuditLogger::new("zeroclawed");
-    let channel_scanner = Arc::new(ChannelScanner::new(scanner, audit_logger, security_config.clone()));
+    let channel_scanner = Arc::new(ChannelScanner::new(
+        scanner,
+        audit_logger,
+        security_config.clone(),
+    ));
     info!(
         profile = "balanced",
         intercepted_tools = ?security_config.intercepted_tools,

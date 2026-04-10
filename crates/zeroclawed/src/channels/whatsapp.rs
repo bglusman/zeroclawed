@@ -342,7 +342,10 @@ impl WhatsAppChannel {
 
         // ── Adversary inbound scan ────────────────────────────────────────────
 
-        let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
+        let verdict = self
+            .channel_scanner
+            .scan_text(&text, ScanContext::UserMessage)
+            .await;
         match &verdict {
             adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                 warn!(
@@ -356,7 +359,12 @@ impl WhatsAppChannel {
                 tokio::spawn(async move {
                     let reply = format!("🚫 Message blocked by security scanner: {reason_owned}");
                     if let Err(e) = channel
-                        .send_reply(&nzc_endpoint, nzc_auth_token.as_deref(), &from_owned, &reply)
+                        .send_reply(
+                            &nzc_endpoint,
+                            nzc_auth_token.as_deref(),
+                            &from_owned,
+                            &reply,
+                        )
                         .await
                     {
                         warn!(from = %from_owned, error = %e, "WhatsApp: failed to send block notice");
@@ -602,11 +610,21 @@ impl WhatsAppChannel {
                     );
 
                     // Record exchange in context buffer
-                    self.context_store
-                        .push(&chat_key, &sender_label, &text, &agent_id, &final_response);
+                    self.context_store.push(
+                        &chat_key,
+                        &sender_label,
+                        &text,
+                        &agent_id,
+                        &final_response,
+                    );
 
                     if let Err(e) = self
-                        .send_reply(&nzc_endpoint, nzc_auth_token.as_deref(), &from, &final_response)
+                        .send_reply(
+                            &nzc_endpoint,
+                            nzc_auth_token.as_deref(),
+                            &from,
+                            &final_response,
+                        )
                         .await
                     {
                         warn!(
@@ -983,10 +1001,13 @@ mod tests {
         ));
         let context_store = ContextStore::new(20, 5);
         let security_config = adversary_detector::profiles::SecurityConfig::balanced();
-        let scanner = adversary_detector::scanner::AdversaryScanner::new(security_config.scanner.clone());
+        let scanner =
+            adversary_detector::scanner::AdversaryScanner::new(security_config.scanner.clone());
         let audit_logger = adversary_detector::audit::AuditLogger::new("test-wa");
         let channel_scanner = Arc::new(adversary_detector::middleware::ChannelScanner::new(
-            scanner, audit_logger, security_config,
+            scanner,
+            audit_logger,
+            security_config,
         ));
         Arc::new(WhatsAppChannel::new(
             config,

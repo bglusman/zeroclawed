@@ -353,13 +353,16 @@ impl SignalChannel {
 
         // ── Adversary inbound scan ────────────────────────────────────────────
 
-        let verdict = self.channel_scanner.scan_text(&text, ScanContext::UserMessage).await;
+        let verdict = self
+            .channel_scanner
+            .scan_text(&text, ScanContext::UserMessage)
+            .await;
         match &verdict {
             adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                 warn!(
                     identity = %identity.id,
                     reason = %reason,
-"Signal: inbound message BLOCKED by adversary scan"
+                "Signal: inbound message BLOCKED by adversary scan"
                 );
                 let channel = self.clone();
                 let from_owned = from.clone();
@@ -367,7 +370,12 @@ impl SignalChannel {
                 tokio::spawn(async move {
                     let reply = format!("🚫 Message blocked by security scanner: {reason_owned}");
                     if let Err(e) = channel
-                        .send_reply(&nzc_endpoint, nzc_auth_token.as_deref(), &from_owned, &reply)
+                        .send_reply(
+                            &nzc_endpoint,
+                            nzc_auth_token.as_deref(),
+                            &from_owned,
+                            &reply,
+                        )
                         .await
                     {
                         warn!(from = %from_owned, error = %e, "Signal: failed to send block notice");
@@ -612,11 +620,21 @@ impl SignalChannel {
                     );
 
                     // Record exchange in context buffer
-                    self.context_store
-                        .push(&chat_key, &sender_label, &text, &agent_id, &final_response);
+                    self.context_store.push(
+                        &chat_key,
+                        &sender_label,
+                        &text,
+                        &agent_id,
+                        &final_response,
+                    );
 
                     if let Err(e) = self
-                        .send_reply(&nzc_endpoint, nzc_auth_token.as_deref(), &from, &final_response)
+                        .send_reply(
+                            &nzc_endpoint,
+                            nzc_auth_token.as_deref(),
+                            &from,
+                            &final_response,
+                        )
                         .await
                     {
                         warn!(
