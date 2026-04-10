@@ -126,7 +126,7 @@ pub enum HookOutcome {
 pub trait ToolHook: Send + Sync {
     /// Hook for inbound tool results (tool → agent).
     async fn on_tool_result(&self, result: ToolResult) -> HookOutcome;
-    
+
     /// Hook for outbound messages (agent → user).
     /// Scans agent-generated content before sending to the user.
     /// Default implementation passes through unchanged.
@@ -211,8 +211,11 @@ impl ToolHook for OutpostMiddleware {
             OutpostVerdict::Clean => HookOutcome::PassThrough(content.to_owned()),
             OutpostVerdict::Review { reason } => {
                 // For outbound, just annotate rather than block (don't silence the agent)
-                let annotated = format!("[⚠ OUTPOST REVIEW (outbound): {reason}]
-{}", content);
+                let annotated = format!(
+                    "[⚠ OUTPOST REVIEW (outbound): {reason}]
+{}",
+                    content
+                );
                 HookOutcome::Annotated(annotated)
             }
             OutpostVerdict::Unsafe { reason } => {

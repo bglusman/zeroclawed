@@ -201,7 +201,11 @@ impl OutpostProxy {
 
     /// Construct from a [`ScannerConfig`] and logger, opening the digest store
     /// at the configured path (or the default `~/.outpost/digests.json`).
-    pub async fn from_config(config: ScannerConfig, logger: AuditLogger, rate_limit: RateLimitConfig) -> Self {
+    pub async fn from_config(
+        config: ScannerConfig,
+        logger: AuditLogger,
+        rate_limit: RateLimitConfig,
+    ) -> Self {
         let override_on_review = config.override_on_review;
         let store_path = config.digest_store_path.clone().unwrap_or_else(|| {
             let home = home::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
@@ -226,12 +230,13 @@ impl OutpostProxy {
             // Use the URL host as the rate limit source
             let source = crate::extract_host(url);
             if !source.is_empty() && !limiter.check(source) {
-                let cooldown = limiter.cooldown_remaining(source)
+                let cooldown = limiter
+                    .cooldown_remaining(source)
                     .map(|d| format!(" Try again in {:?}.", d))
                     .unwrap_or_default();
                 warn!(url, "outpost: rate limit exceeded");
                 return OutpostFetchResult::Blocked {
-                    reason: format!("Rate limit exceeded.{}" , cooldown),
+                    reason: format!("Rate limit exceeded.{}", cooldown),
                     digest: String::new(),
                     url: url.to_owned(),
                 };
@@ -405,7 +410,12 @@ mod tests {
             digest_store_path: Some(store_path),
             ..Default::default()
         };
-        OutpostProxy::from_config(config, AuditLogger::new("test-proxy"), RateLimitConfig::default()).await
+        OutpostProxy::from_config(
+            config,
+            AuditLogger::new("test-proxy"),
+            RateLimitConfig::default(),
+        )
+        .await
     }
 
     // ── digest cache hit ──────────────────────────────────────────────────────

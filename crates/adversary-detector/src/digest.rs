@@ -60,19 +60,19 @@ impl DigestStore {
     }
 
     /// Look up a URL by exact match. Returns `None` if not found or expired.
-    /// 
+    ///
     /// If `max_age_secs` is provided and the entry is older than that, returns `None`
     /// (treats it as a cache miss, forcing a rescan).
     pub fn get(&self, url: &str, max_age_secs: Option<u64>) -> Option<&ContentDigest> {
         let entry = self.entries.get(url)?;
-        
+
         if let Some(max_age) = max_age_secs {
             let age = Utc::now().signed_duration_since(entry.timestamp);
             if age.num_seconds() > max_age as i64 {
                 return None; // Expired - force rescan
             }
         }
-        
+
         Some(entry)
     }
 
@@ -262,7 +262,12 @@ mod tests {
         store
             .mark_override("https://example.com", &sha256_hex("content b"))
             .await;
-        assert!(!store.get("https://example.com", None).unwrap().override_approved);
+        assert!(
+            !store
+                .get("https://example.com", None)
+                .unwrap()
+                .override_approved
+        );
     }
 
     #[test]
