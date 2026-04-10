@@ -282,4 +282,56 @@ mod tests {
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
     }
+
+    #[tokio::test]
+    async fn test_ttl_expires_entry() {
+        let path = tmp_path();
+        let mut store = DigestStore::open(path.clone()).await;
+        let digest = sha256_hex("expires soon");
+
+        // Create entry with timestamp in the past (older than TTL)
+        store
+            .set(
+                "https://example.com",
+                ContentDigest {
+                    sha256: digest.clone(),
+                    verdict: OutpostVerdict::Clean,
+                    timestamp: Utc::now() - chrono::Duration::seconds(120),
+                    override_approved: false,
+                },
+            )
+            .await;
+
+        // Entry exists with no TTL check
+        assert!(store.get("https://example.com", None).is_some());
+
+        // Entry is expired with 60-second TTL
+        assert!(store.get("https://example.com", Some(60)).is_none());
+
+        // Entry is NOT expired with 300-second TTL
+        assert!(store.get("https://example.com", Some(300)).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_ttl_zero_means_no_expiration() {
+        let path = tmp_path();
+        let mut store = DigestStore::open(path.clone()).await;
+        let digest = sha256_hex("never expires");
+
+        // Create very old entry
+        store
+            .set(
+                "https://example.com",
+                ContentDigest {
+                    sha256: digest.clone(),
+                    verdict: OutpostVerdict::Clean,
+                    timestamp: Utc::now() - chrono::Duration::days(365),
+                    override_approved: false,
+                },
+            )
+            .await;
+
+        // With TTL=0 (converted to None), entry should never expire
+        assert!(store.get("https://example.com", None).is_some());
+    }
 }

@@ -584,4 +584,82 @@ mod tests {
             other => panic!("unexpected result: {other:?}"),
         }
     }
+
+    // ── rate limiting tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_rate_limiter_burst_allowance() {
+        use crate::profiles::RateLimitConfig;
+
+        let config = RateLimitConfig {
+            max_requests_per_minute: 60,
+            burst_size: 5,
+            cooldown_seconds: 10,
+        };
+        let mut limiter = RateLimiter::new(config);
+
+        // Should allow burst_size requests immediately
+        for i in 0..5 {
+            assert!(
+                limiter.check("test-source"),
+                "request {} should be allowed",
+                i + 1
+            );
+        }
+
+        // 6th request should be blocked
+        assert!(
+            !limiter.check("test-source"),
+            "6th request should be blocked"
+        );
+    }
+
+    #[test]
+    fn test_rate_limiter_per_source_isolation() {
+        use crate::profiles::RateLimitConfig;
+
+        let config = RateLimitConfig {
+            max_requests_per_minute: 60,
+            burst_size: 3,
+            cooldown_seconds: 10,
+        };
+        let mut limiter = RateLimiter::new(config);
+
+        // Exhaust burst for source-a
+        for _ in 0..3 {
+            assert!(limiter.check("source-a"));
+        }
+        assert!(!limiter.check("source-a"));
+
+        // source-b should still have full burst allowance
+        for _ in 0..3 {
+            assert!(
+                limiter.check("source-b"),
+                "source-b should have independent quota"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_cooldown_calculation() {
+        use crate::profiles::RateLimitConfig;
+
+        let config = RateLimitConfig {
+            max_requests_per_minute: 60, // 1 per second
+            burst_size: 1,
+            cooldown_seconds: 10,
+        };
+        let mut limiter = RateLimiter::new(config);
+
+        // Use the only token
+        assert!(limiter.check("test"));
+
+        // Check cooldown is calculated
+        let cooldown = limiter.cooldown_remaining("test");
+        assert!(cooldown.is_some(), "cooldown should be calculated");
+        assert!(
+            cooldown.unwrap().as_secs() > 0,
+            "cooldown should be positive"
+        );
+    }
 }
