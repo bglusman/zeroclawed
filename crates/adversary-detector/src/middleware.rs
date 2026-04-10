@@ -124,7 +124,15 @@ pub enum HookOutcome {
 /// Hook trait — matches ZeroClaw's `HookHandler` interface for tool results.
 #[async_trait::async_trait]
 pub trait ToolHook: Send + Sync {
+    /// Hook for inbound tool results (tool → agent).
     async fn on_tool_result(&self, result: ToolResult) -> HookOutcome;
+    
+    /// Hook for outbound messages (agent → user).
+    /// Scans agent-generated content before sending to the user.
+    /// Default implementation passes through unchanged.
+    async fn on_outbound_message(&self, _content: &str, _context: &str) -> HookOutcome {
+        HookOutcome::PassThrough(_content.to_owned())
+    }
 }
 
 /// The outpost middleware hook.
@@ -177,6 +185,42 @@ impl ToolHook for OutpostMiddleware {
             OutpostVerdict::Unsafe { reason } => HookOutcome::Blocked(format!(
                 "[OUTPOST BLOCKED: {reason}. Content withheld to prevent injection.]"
             )),
+        }
+    }
+
+    /// Scan outbound messages (agent → user) for injection attempts.
+    /// Only runs when `scan_outbound` is enabled in the security config.
+    async fn on_outbound_message(&self, content: &str, context: &str) -> HookOutcome {
+        if !self.config.scan_outbound {
+            return HookOutcome::PassThrough(content.to_owned());
+        }
+
+        // Scan with Outbound context
+        let verdict = self
+            .scanner
+            .scan(context, content, ScanContext::Outbound)
+            .await;
+
+        if self.config.audit_logging {
+            self.logger
+                .log(ScanContext::Outbound, context, &verdict, false)
+                .await;
+        }
+
+        match &verdict {
+            OutpostVerdict::Clean => HookOutcome::PassThrough(content.to_owned()),
+            OutpostVerdict::Review { reason } => {
+                // For outbound, just annotate rather than block (don't silence the agent)
+                let annotated = format!("[⚠ OUTPOST REVIEW (outbound): {reason}]
+{}", content);
+                HookOutcome::Annotated(annotated)
+            }
+            OutpostVerdict::Unsafe { reason } => {
+                // For outbound unsafe, block with explanation
+                HookOutcome::Blocked(format!(
+                    "[OUTPOST BLOCKED (outbound): {reason}. Message withheld.]"
+                ))
+            }
         }
     }
 }

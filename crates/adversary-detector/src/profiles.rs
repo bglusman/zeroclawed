@@ -199,76 +199,84 @@ impl SecurityConfig {
     }
 
     pub fn open() -> Self {
+        let digest_cache_ttl_secs = 86400; // 24h
         Self {
             profile: SecurityProfile::Open,
             scanner: ScannerConfig {
                 discussion_ratio_threshold: 0.5,
                 min_signals_for_ratio: 2,
                 override_on_review: true,
+                digest_cache_ttl_secs,
                 ..Default::default()
             },
             intercepted_tools: InterceptedToolSet::web_only(),
             rate_limit: RateLimitConfig::open(),
             log_verbosity: LogVerbosity::Minimal,
             enable_digest_cache: true,
-            digest_cache_ttl_secs: 86400, // 24h
+            digest_cache_ttl_secs,
             scan_outbound: false,
             audit_logging: false,
         }
     }
 
     pub fn balanced() -> Self {
+        let digest_cache_ttl_secs = 3600; // 1h
         Self {
             profile: SecurityProfile::Balanced,
             scanner: ScannerConfig {
                 discussion_ratio_threshold: 0.3,
                 min_signals_for_ratio: 3,
                 override_on_review: false,
+                digest_cache_ttl_secs,
                 ..Default::default()
             },
             intercepted_tools: InterceptedToolSet::web_and_search(),
             rate_limit: RateLimitConfig::balanced(),
             log_verbosity: LogVerbosity::Standard,
             enable_digest_cache: true,
-            digest_cache_ttl_secs: 3600, // 1h
+            digest_cache_ttl_secs,
             scan_outbound: false,
             audit_logging: true,
         }
     }
 
     pub fn hardened() -> Self {
+        let digest_cache_ttl_secs = 300; // 5min
         Self {
             profile: SecurityProfile::Hardened,
             scanner: ScannerConfig {
                 discussion_ratio_threshold: 0.15,
                 min_signals_for_ratio: 5,
                 override_on_review: false,
+                digest_cache_ttl_secs,
                 ..Default::default()
             },
             intercepted_tools: InterceptedToolSet::all_tools(),
             rate_limit: RateLimitConfig::hardened(),
             log_verbosity: LogVerbosity::Verbose,
             enable_digest_cache: true,
-            digest_cache_ttl_secs: 300, // 5min
+            digest_cache_ttl_secs,
             scan_outbound: true,
             audit_logging: true,
         }
     }
 
     pub fn paranoid() -> Self {
+        let digest_cache_ttl_secs = 0;
         Self {
             profile: SecurityProfile::Paranoid,
             scanner: ScannerConfig {
                 discussion_ratio_threshold: 0.0,
                 min_signals_for_ratio: 0,
                 override_on_review: false,
+                digest_cache_ttl_secs,
                 ..Default::default()
             },
             intercepted_tools: InterceptedToolSet::all_including_exec(),
             rate_limit: RateLimitConfig::paranoid(),
             log_verbosity: LogVerbosity::Trace,
             enable_digest_cache: false,
-            digest_cache_ttl_secs: 0,
+            digest_cache_ttl_secs,
             scan_outbound: true,
             audit_logging: true,
         }

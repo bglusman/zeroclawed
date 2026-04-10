@@ -40,6 +40,11 @@ pub struct ScannerConfig {
     /// or CI/CD pipelines where you need deterministic behavior.
     #[serde(default)]
     pub skip_protection_domains: Vec<String>,
+    
+    /// Maximum age of a digest cache entry before forcing a rescan (seconds).
+    /// `0` = never expires (only content-hash invalidates). Default: `0`.
+    #[serde(default)]
+    pub digest_cache_ttl_secs: u64,
 }
 
 impl ScannerConfig {

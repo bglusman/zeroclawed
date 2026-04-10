@@ -59,9 +59,21 @@ impl DigestStore {
         Self::open(home.join(".outpost/digests.json")).await
     }
 
-    /// Look up a URL by exact match. Returns `None` if not found.
-    pub fn get(&self, url: &str) -> Option<&ContentDigest> {
-        self.entries.get(url)
+    /// Look up a URL by exact match. Returns `None` if not found or expired.
+    /// 
+    /// If `max_age_secs` is provided and the entry is older than that, returns `None`
+    /// (treats it as a cache miss, forcing a rescan).
+    pub fn get(&self, url: &str, max_age_secs: Option<u64>) -> Option<&ContentDigest> {
+        let entry = self.entries.get(url)?;
+        
+        if let Some(max_age) = max_age_secs {
+            let age = Utc::now().signed_duration_since(entry.timestamp);
+            if age.num_seconds() > max_age as i64 {
+                return None; // Expired - force rescan
+            }
+        }
+        
+        Some(entry)
     }
 
     /// Insert or replace the entry for `url` and flush to disk.
@@ -162,7 +174,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_store_returns_none() {
         let store = DigestStore::open(tmp_path()).await;
-        assert!(store.get("https://example.com").is_none());
+        assert!(store.get("https://example.com", None).is_none());
     }
 
     #[tokio::test]
@@ -185,7 +197,7 @@ mod tests {
         // Reload from disk to verify persistence
         let store2 = DigestStore::open(path).await;
         let entry = store2
-            .get("https://example.com")
+            .get("https://example.com", None)
             .expect("entry should persist");
         assert_eq!(entry.sha256, digest);
         assert!(entry.verdict.is_clean());
@@ -212,7 +224,7 @@ mod tests {
 
         assert!(
             !store
-                .get("https://example.com/page")
+                .get("https://example.com/page", None)
                 .unwrap()
                 .override_approved
         );
@@ -221,7 +233,7 @@ mod tests {
             .await;
         assert!(
             store
-                .get("https://example.com/page")
+                .get("https://example.com/page", None)
                 .unwrap()
                 .override_approved
         );
@@ -250,7 +262,7 @@ mod tests {
         store
             .mark_override("https://example.com", &sha256_hex("content b"))
             .await;
-        assert!(!store.get("https://example.com").unwrap().override_approved);
+        assert!(!store.get("https://example.com", None).unwrap().override_approved);
     }
 
     #[test]
