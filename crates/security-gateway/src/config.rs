@@ -1,7 +1,79 @@
+use serde::{Deserialize, Serialize};
+
+/// What action to take for a request/response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Verdict {
+    /// Allow the traffic through.
+    Allow,
+    /// Block the traffic with a reason.
+    Block { reason: String },
+    /// Allow but log the finding.
+    Log { finding: String },
+}
+
+/// Result of scanning outbound request content (exfiltration check).
+#[derive(Debug, Clone)]
+pub struct ExfilReport {
+    pub verdict: Verdict,
+    pub findings: Vec<String>,
+    pub scan_time_ms: u64,
+}
+
+/// Result of scanning inbound response content (injection check).
+#[derive(Debug, Clone)]
+pub struct InjectionReport {
+    pub verdict: Verdict,
+    pub findings: Vec<String>,
+    pub scan_time_ms: u64,
+}
+
+/// Configuration for the security gateway.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GatewayConfig {
+    /// Port to listen on (default: 8080)
+    pub port: u16,
+    /// Whether to perform MITM for HTTPS (requires CA cert trusted by clients)
+    pub mitm_enabled: bool,
+    /// Path to CA certificate PEM (for MITM)
+    pub ca_cert_path: Option<String>,
+    /// Path to CA private key PEM
+    pub ca_key_path: Option<String>,
+    /// Enable exfiltration scanning on outbound requests
+    pub scan_outbound: bool,
+    /// Enable injection scanning on inbound responses
+    pub scan_inbound: bool,
+    /// Enable credential injection from env/vault
+    pub inject_credentials: bool,
+    /// Domains that bypass the gateway entirely
+    pub bypass_domains: Vec<String>,
+    /// Log all traffic (even allowed) for audit
+    pub audit_log: bool,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            port: 8080,
+            mitm_enabled: true,
+            ca_cert_path: None,
+            ca_key_path: None,
+            scan_outbound: true,
+            scan_inbound: true,
+            inject_credentials: true,
+            bypass_domains: vec![
+                "localhost".into(),
+                "127.0.0.1".into(),
+                "192.168.1.*".into(),
+                "10.*.*.*".into(),
+            ],
+            audit_log: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{GatewayConfig, Verdict};
 
     #[test]
     fn test_default_config() {

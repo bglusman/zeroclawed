@@ -52,7 +52,9 @@ impl AuditLogger {
         let entries = self.entries.lock().unwrap();
         entries
             .iter()
-            .filter(|e| e.outbound_verdict != "allow" || e.inbound_verdict.as_deref() != Some("allow"))
+            .filter(|e| {
+                e.outbound_verdict != "allow" || e.inbound_verdict.as_deref() != Some("allow")
+            })
             .cloned()
             .collect()
     }

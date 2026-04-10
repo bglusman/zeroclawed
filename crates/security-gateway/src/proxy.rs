@@ -44,7 +44,11 @@ pub async fn proxy_handler(
             .get(header::HOST)
             .and_then(|h| h.to_str().ok())
             .unwrap_or("unknown");
-        format!("http://{}{}", host, uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/"))
+        format!(
+            "http://{}{}",
+            host,
+            uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
+        )
     };
 
     info!("{} {}", method, target_url);
@@ -127,10 +131,7 @@ async fn forward_request(
                 match &inj_report.verdict {
                     Verdict::Block { reason } => {
                         warn!("BLOCKED response from {}: {}", target_url, reason);
-                        return blocked_response(&format!(
-                            "Response blocked: {}",
-                            reason
-                        ));
+                        return blocked_response(&format!("Response blocked: {}", reason));
                     }
                     Verdict::Log { finding } => {
                         info!("REVIEW response from {}: {}", target_url, finding);
