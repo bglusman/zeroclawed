@@ -4,7 +4,6 @@ use axum::routing::get;
 use axum::Router;
 use reqwest::Client;
 use tracing::{error, info};
-use tracing_subscriber;
 
 use security_gateway::agent_config::AgentsConfig;
 use security_gateway::audit::AuditLogger;
@@ -29,8 +28,8 @@ async fn main() -> anyhow::Result<()> {
     credentials.load_from_env();
 
     // Load from agents.json config
-    let agents_config_path = std::env::var("AGENT_CONFIG")
-        .unwrap_or_else(|_| "/etc/zeroclawed/agents.json".into());
+    let agents_config_path =
+        std::env::var("AGENT_CONFIG").unwrap_or_else(|_| "/etc/zeroclawed/agents.json".into());
 
     if let Ok(agents_config) = AgentsConfig::load(&agents_config_path) {
         info!(

@@ -7,6 +7,12 @@ pub struct CredentialInjector {
     credentials: DashMap<String, String>,
 }
 
+impl Default for CredentialInjector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CredentialInjector {
     pub fn new() -> Self {
         Self {
@@ -49,14 +55,12 @@ impl CredentialInjector {
             Some("google".into())
         } else if host_lower.contains("openrouter.ai") {
             Some("openrouter".into())
-        } else if host_lower.contains("api.moonshot.cn")
-            || host_lower.contains("kimi.moonshot.cn")
+        } else if host_lower.contains("api.moonshot.cn") || host_lower.contains("kimi.moonshot.cn")
         {
             Some("kimi".into())
         } else if host_lower.contains("api.github.com") || host_lower.contains("github.com") {
             Some("github".into())
-        } else if host_lower.contains("api.cloudflare.com")
-            || host_lower.contains("cloudflare.com")
+        } else if host_lower.contains("api.cloudflare.com") || host_lower.contains("cloudflare.com")
         {
             Some("cloudflare".into())
         } else {
@@ -71,9 +75,7 @@ impl CredentialInjector {
                 ("Authorization".into(), format!("Bearer {}", api_key))
             }
             "anthropic" => ("x-api-key".into(), api_key.to_string()),
-            "google" | "cloudflare" => {
-                ("Authorization".into(), format!("Bearer {}", api_key))
-            }
+            "google" | "cloudflare" => ("Authorization".into(), format!("Bearer {}", api_key)),
             _ => ("Authorization".into(), format!("Bearer {}", api_key)),
         }
     }

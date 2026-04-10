@@ -9,6 +9,12 @@ pub struct ExfilScanner {
     scanner: OutpostScanner,
 }
 
+impl Default for ExfilScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExfilScanner {
     pub fn new() -> Self {
         let config = ScannerConfig::default();
@@ -60,6 +66,12 @@ impl ExfilScanner {
 /// Inbound traffic scanner — checks response content for prompt injection.
 pub struct InjectionScanner {
     scanner: OutpostScanner,
+}
+
+impl Default for InjectionScanner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InjectionScanner {
