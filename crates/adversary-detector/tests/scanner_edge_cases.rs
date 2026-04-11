@@ -150,11 +150,8 @@ async fn test_low_ratio_threshold_stricter() {
         .await;
 
     // Lenient (high threshold) should never be stricter than strict (low threshold)
-    match (&v_strict, &v_lenient) {
-        (ScanVerdict::Unsafe { .. }, ScanVerdict::Clean) => {
-            panic!("strict unsafe, lenient clean — impossible")
-        }
-        _ => {} // all other combos acceptable
+    if let (ScanVerdict::Unsafe { .. }, ScanVerdict::Clean) = (&v_strict, &v_lenient) {
+        panic!("strict unsafe, lenient clean — impossible")
     }
 }
 
