@@ -86,8 +86,6 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Loom concurrency tests (placeholder - no-op for now)
-  # ─────────────────────────────────────────────────────────────────────────────
   # Loom concurrency tests (exhaustive concurrency exploration)
   # ─────────────────────────────────────────────────────────────────────────────
   loom:
@@ -109,7 +107,7 @@ jobs:
           key: ${{ runner.os }}-cargo-loom-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Loom tests
-        run: cargo test -p loom-tests
+        run: cargo test -p zeroclawed --test loom
         env:
           LOOM_MAX_PREEMPTIONS: 2
           RUSTFLAGS: "--cfg loom"
