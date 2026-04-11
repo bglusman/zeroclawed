@@ -107,7 +107,7 @@ jobs:
           key: ${{ runner.os }}-cargo-loom-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run Loom tests
-        run: cargo test -p zeroclawed --test loom
+        run: cargo test -p loom-tests
         env:
           LOOM_MAX_PREEMPTIONS: 2
           RUSTFLAGS: "--cfg loom"
