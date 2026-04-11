@@ -1016,21 +1016,21 @@ mod tests {
     fn test_verify_hmac_sha256_valid() {
         let secret = "test-secret";
         let body = "test-message-body";
-        
+
         // Generate a valid signature
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
-        
+
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body.as_bytes());
         let sig_bytes = mac.finalize().into_bytes();
         let sig_hex = hex::encode(sig_bytes);
-        
+
         // Verify with sha256= prefix
         let sig_with_prefix = format!("sha256={}", sig_hex);
         assert!(verify_hmac_sha256(secret, body, &sig_with_prefix));
-        
+
         // Verify without prefix
         assert!(verify_hmac_sha256(secret, body, &sig_hex));
     }
@@ -1038,17 +1038,17 @@ mod tests {
     #[test]
     fn test_verify_hmac_sha256_invalid_secret() {
         let body = "test-message-body";
-        
+
         // Generate signature with one secret
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
-        
+
         let mut mac = HmacSha256::new_from_slice("correct-secret".as_bytes()).unwrap();
         mac.update(body.as_bytes());
         let sig_bytes = mac.finalize().into_bytes();
         let sig_hex = hex::encode(sig_bytes);
-        
+
         // Verify with different secret
         assert!(!verify_hmac_sha256("wrong-secret", body, &sig_hex));
     }
@@ -1063,17 +1063,17 @@ mod tests {
     fn test_verify_hmac_sha256_tampered_body() {
         let secret = "test-secret";
         let body = "original-body";
-        
+
         // Generate signature for original body
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
-        
+
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body.as_bytes());
         let sig_bytes = mac.finalize().into_bytes();
         let sig_hex = hex::encode(sig_bytes);
-        
+
         // Verify against tampered body
         assert!(!verify_hmac_sha256(secret, "tampered-body", &sig_hex));
     }

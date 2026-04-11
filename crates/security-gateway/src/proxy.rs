@@ -139,10 +139,23 @@ impl SecurityProxy {
             .iter()
             .filter_map(|(k, v)| {
                 let key_str = k.as_str().to_lowercase();
-                if matches!(key_str.as_str(), "host" | "connection" | "keep-alive" | "proxy-authenticate" | "proxy-authorization" | "te" | "trailers" | "transfer-encoding" | "upgrade") {
+                if matches!(
+                    key_str.as_str(),
+                    "host"
+                        | "connection"
+                        | "keep-alive"
+                        | "proxy-authenticate"
+                        | "proxy-authorization"
+                        | "te"
+                        | "trailers"
+                        | "transfer-encoding"
+                        | "upgrade"
+                ) {
                     None
                 } else {
-                    v.to_str().ok().map(|val| (k.as_str().to_string(), val.to_string()))
+                    v.to_str()
+                        .ok()
+                        .map(|val| (k.as_str().to_string(), val.to_string()))
                 }
             })
             .collect();
@@ -207,7 +220,8 @@ impl SecurityProxy {
             Ok(resp) => {
                 let status = resp.status();
                 // Preserve upstream content-type; default to application/octet-stream if missing
-                let content_type = resp.headers()
+                let content_type = resp
+                    .headers()
                     .get(header::CONTENT_TYPE)
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("application/octet-stream")
@@ -224,7 +238,10 @@ impl SecurityProxy {
                         match &verdict {
                             adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                                 warn!("BLOCKED response from {}: {}", target_url, reason);
-                                return Ok(blocked_response(&format!("Response blocked: {}", reason)));
+                                return Ok(blocked_response(&format!(
+                                    "Response blocked: {}",
+                                    reason
+                                )));
                             }
                             adversary_detector::verdict::ScanVerdict::Review { reason } => {
                                 info!("REVIEW response from {}: {}", target_url, reason);
