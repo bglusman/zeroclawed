@@ -53,7 +53,9 @@ async fn main() -> Result<()> {
     info!("ZeroClawed starting");
 
     // Load config (from CLI arg or default path)
-    let config_path = args.config.unwrap_or_else(|| config::config_path().expect("Failed to determine default config path"));
+    let config_path = args
+        .config
+        .unwrap_or_else(|| config::config_path().expect("Failed to determine default config path"));
     info!(path = %config_path.display(), "loading config");
     let config = config::load_config_from(&config_path).with_context(|| {
         format!(

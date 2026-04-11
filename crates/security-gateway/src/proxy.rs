@@ -65,7 +65,7 @@ impl SecurityProxy {
     ) -> Self {
         let audit = AuditLogger::new("security-gateway");
         let scanner = AdversaryScanner::new(scanner_config.clone());
-        
+
         // Create a separate logger for the fetch proxy to avoid cloning
         let fetch_audit = AuditLogger::new("security-gateway-fetch");
         let fetch_proxy =
@@ -105,10 +105,7 @@ impl SecurityProxy {
     ///
     /// Pipeline: scan outbound → inject creds → forward upstream → scan
     /// inbound → return response.
-    pub async fn intercept(
-        self: &Arc<Self>,
-        req: Request<Body>,
-    ) -> Result<Response, Infallible> {
+    pub async fn intercept(self: &Arc<Self>, req: Request<Body>) -> Result<Response, Infallible> {
         let method = req.method().clone();
         let uri = req.uri().clone();
 
@@ -201,10 +198,7 @@ impl SecurityProxy {
                     match &verdict {
                         adversary_detector::verdict::ScanVerdict::Unsafe { reason } => {
                             warn!("BLOCKED response from {}: {}", target_url, reason);
-                            return Ok(blocked_response(&format!(
-                                "Response blocked: {}",
-                                reason
-                            )));
+                            return Ok(blocked_response(&format!("Response blocked: {}", reason)));
                         }
                         adversary_detector::verdict::ScanVerdict::Review { reason } => {
                             info!("REVIEW response from {}: {}", target_url, reason);
@@ -214,10 +208,7 @@ impl SecurityProxy {
                 }
 
                 let elapsed_ms = 0u64; // TODO: track actual timing
-                info!(
-                    "{} {} -> {} ({}ms)",
-                    method, target_url, status, elapsed_ms
-                );
+                info!("{} {} -> {} ({}ms)", method, target_url, status, elapsed_ms);
 
                 Response::builder()
                     .status(status.as_u16())
@@ -286,9 +277,7 @@ impl SecurityProxy {
         }
         // Convert wildcard pattern to regex-like matching
         // Escape special regex chars, then replace \* with .*
-        let regex_pattern = pattern
-            .replace('.', r"\.")
-            .replace('*', ".*");
+        let regex_pattern = pattern.replace('.', r"\.").replace('*', ".*");
         if let Ok(re) = regex::Regex::new(&regex_pattern) {
             re.is_match(url)
         } else {
@@ -341,17 +330,12 @@ fn blocked_response(reason: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::matchers::{method, path, header as wm_header};
+    use wiremock::matchers::{header as wm_header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn test_proxy(config: GatewayConfig) -> Arc<SecurityProxy> {
         Arc::new(
-            SecurityProxy::new(
-                config,
-                ScannerConfig::default(),
-                RateLimitConfig::default(),
-            )
-            .await,
+            SecurityProxy::new(config, ScannerConfig::default(), RateLimitConfig::default()).await,
         )
     }
 
@@ -441,7 +425,11 @@ mod tests {
             .unwrap();
 
         let resp = proxy.intercept(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "response with injection should be blocked");
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "response with injection should be blocked"
+        );
 
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let body_str = String::from_utf8(body.to_vec()).unwrap();
@@ -585,7 +573,9 @@ mod tests {
             .method("POST")
             .uri(format!("{}/submit", mock_server.uri()))
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"name": "test user", "message": "hello world"}"#))
+            .body(Body::from(
+                r#"{"name": "test user", "message": "hello world"}"#,
+            ))
             .unwrap();
 
         let resp = proxy.intercept(req).await.unwrap();
