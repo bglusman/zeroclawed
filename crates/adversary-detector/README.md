@@ -4,7 +4,7 @@ Adversary external content scanning for ZeroClawed. Protects agents from prompt 
 
 ## How It Works
 
-All external content access goes through `AdversaryProxy::fetch()`:
+All external content access goes through `AdversaryDetector::fetch()`:
 
 ```
 URL → fetch → SHA-256 digest → cache check → verdict
@@ -17,7 +17,7 @@ URL → fetch → SHA-256 digest → cache check → verdict
 
 ### Digest-Based Caching
 
-The proxy stores `(URL → SHA-256(content)) → verdict` entries. This protects against:
+The detector stores `(URL → SHA-256(content)) → verdict` entries. This protects against:
 
 - **Gist/CDN poisoning:** Server serves clean content first, then swaps to malicious. Digest changes → rescan triggered.
 - **Cache poisoning attacks:** Same URL, different content = different hash = fresh scan.
@@ -25,10 +25,10 @@ The proxy stores `(URL → SHA-256(content)) → verdict` entries. This protects
 
 ```rust
 // First fetch: full scan, verdict persisted
-let result = proxy.fetch("https://example.com/article").await;
+let result = detector.fetch("https://example.com/article").await;
 
 // Second fetch, same content: cache hit, no rescan
-let result = proxy.fetch("https://example.com/article").await;
+let result = detector.fetch("https://example.com/article").await;
 
 // Server changes content: different digest → rescanned
 // (happens automatically, no caller action needed)
@@ -38,7 +38,7 @@ let result = proxy.fetch("https://example.com/article").await;
 
 ```rust
 // Mark a URL+digest as human-approved
-proxy.mark_override(url, &digest).await;
+detector.mark_override(url, &digest).await;
 
 // Future fetches with same digest bypass Blocked verdicts
 // If content changes (different digest), override does NOT apply
@@ -101,7 +101,7 @@ Four named presets for installation:
 use adversary_detector::{SecurityConfig, SecurityProfile};
 
 let config = SecurityConfig::from_profile(SecurityProfile::Balanced);
-let proxy = AdversaryProxy::with_config(config.scanner, logger).await;
+let detector = AdversaryDetector::from_config(config.scanner, logger, rate_limit).await;
 ```
 
 ## Verdicts
