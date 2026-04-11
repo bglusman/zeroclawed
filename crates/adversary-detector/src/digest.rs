@@ -136,6 +136,10 @@ impl DigestStore {
             Ok(mut f) => {
                 if let Err(e) = f.write_all(data.as_bytes()).await {
                     warn!("digest store: write error: {e}");
+                    return;
+                }
+                if let Err(e) = f.sync_all().await {
+                    warn!("digest store: fsync error: {e}");
                 }
             }
             Err(e) => warn!("digest store: open error: {e}"),

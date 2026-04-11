@@ -303,12 +303,6 @@ impl Default for ContextConfig {
 // Loading
 // ---------------------------------------------------------------------------
 
-/// Load the PolyConfig from `~/.zeroclawed/config.toml`.
-pub fn load_config() -> Result<PolyConfig> {
-    let path = config_path()?;
-    load_config_from(&path)
-}
-
 /// Load the PolyConfig from an explicit path.
 pub fn load_config_from(path: &PathBuf) -> Result<PolyConfig> {
     let raw = std::fs::read_to_string(path)

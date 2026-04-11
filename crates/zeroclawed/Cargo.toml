@@ -55,6 +55,9 @@ teloxide = { version = "0.13", features = ["macros", "ctrlc_handler"] }
 anyhow = "1"
 thiserror = "1"
 
+# CLI parsing
+clap = { version = "4", features = ["derive"] }
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

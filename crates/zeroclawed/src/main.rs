@@ -18,6 +18,8 @@ mod install;
 mod router;
 
 use anyhow::{Context, Result};
+use clap::Parser;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
@@ -27,10 +29,22 @@ use adversary_detector::middleware::ChannelScanner;
 use adversary_detector::profiles::{SecurityConfig, SecurityProfile};
 use adversary_detector::scanner::AdversaryScanner;
 
-use crate::{commands::CommandHandler, config::load_config, context::ContextStore, router::Router};
+use crate::{commands::CommandHandler, context::ContextStore, router::Router};
+
+/// ZeroClawed — Rust agent gateway
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    /// Path to config file (default: ~/.zeroclawed/config.toml)
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse CLI args
+    let args = Args::parse();
+
     // Initialize tracing — respects RUST_LOG env var
     fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("zeroclawed=info".parse()?))
@@ -38,10 +52,10 @@ async fn main() -> Result<()> {
 
     info!("ZeroClawed starting");
 
-    // Load config
-    let config_path = config::config_path()?;
+    // Load config (from CLI arg or default path)
+    let config_path = args.config.unwrap_or_else(|| config::config_path().expect("Failed to determine default config path"));
     info!(path = %config_path.display(), "loading config");
-    let config = load_config().with_context(|| {
+    let config = config::load_config_from(&config_path).with_context(|| {
         format!(
             "Failed to load config from {}. Create it first (see README).",
             config_path.display()

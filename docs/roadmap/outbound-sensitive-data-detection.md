@@ -77,7 +77,7 @@ security:
     alerts:
       on_detection: true
       channel: "signal"
-      to: "+12154609585"
+      to: "<<PHOPHONE_NUMBER>"
 ```
 
 ### Integration Points
