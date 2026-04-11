@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Pre-push checks for zeroclawed. Run before every push.
+# Usage: bash scripts/pre-push.sh [--quick] [--loom-only]
+#
+# --quick   Skip loom and slow tests
+# --loom-only  Only run loom tests
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+pass() { echo -e "${GREEN}✓ $1${NC}"; }
+fail() { echo -e "${RED}✗ $1${NC}"; FAILURES=$((FAILURES+1)); }
+warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
+
+FAILURES=0
+QUICK=false
+LOOM_ONLY=false
+
+for arg in "$@"; do
+  case $arg in
+    --quick) QUICK=true ;;
+    --loom-only) LOOM_ONLY=true ;;
+  esac
+done
+
+# ─── Format check ───────────────────────────────────────────────
+if [ "$LOOM_ONLY" = false ]; then
+  echo "── Formatting ─────────────────────────────────────────"
+  if cargo fmt --all -- --check 2>&1; then
+    pass "fmt clean"
+  else
+    fail "fmt issues — run: cargo fmt --all"
+  fi
+fi
+
+# ─── Clippy ─────────────────────────────────────────────────────
+if [ "$LOOM_ONLY" = false ]; then
+  echo "── Clippy ─────────────────────────────────────────────"
+  if cargo clippy --workspace --all-targets -- -D warnings 2>&1; then
+    pass "clippy clean"
+  else
+    fail "clippy warnings"
+  fi
+fi
+
+# ─── Unit tests ─────────────────────────────────────────────────
+if [ "$QUICK" = false ] && [ "$LOOM_ONLY" = false ]; then
+  echo "── Unit tests ─────────────────────────────────────────"
+  if cargo test --workspace --exclude loom-tests 2>&1; then
+    pass "unit tests"
+  else
+    fail "unit tests"
+  fi
+fi
+
+# ─── Loom tests (isolated crate) ───────────────────────────────
+if [ "$QUICK" = false ]; then
+  echo "── Loom tests ─────────────────────────────────────────"
+  # CRITICAL: --cfg loom breaks tokio/hyper in other crates.
+  # Always test ONLY the loom-tests crate.
+  if LOOM_MAX_PREEMPTIONS=2 RUSTFLAGS="--cfg loom" cargo test -p loom-tests 2>&1; then
+    pass "loom tests (6 tests)"
+  else
+    fail "loom tests"
+  fi
+fi
+
+# ─── Workspace integrity ───────────────────────────────────────
+if [ "$LOOM_ONLY" = false ]; then
+  echo "── Workspace check ────────────────────────────────────"
+  # Verify loom-tests is in workspace members
+  if grep -q '"crates/loom-tests"' Cargo.toml; then
+    pass "loom-tests in workspace members"
+  else
+    fail "loom-tests missing from Cargo.toml [workspace] members"
+  fi
+  # Verify no cfg(loom) in main crate (breaks tokio::net)
+  if grep -rl '#\[cfg(loom)\]' crates/zeroclawed/src/ 2>/dev/null; then
+    warn "cfg(loom) found in zeroclawed/src — inert but ideally move to crates/loom-tests/"
+  fi
+fi
+
+# ─── Summary ────────────────────────────────────────────────────
+echo ""
+if [ $FAILURES -eq 0 ]; then
+  pass "All checks passed — safe to push"
+  exit 0
+else
+  fail "$FAILURES check(s) failed — fix before pushing"
+  exit 1
+fi
