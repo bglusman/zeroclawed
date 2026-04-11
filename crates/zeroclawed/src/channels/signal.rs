@@ -894,10 +894,11 @@ pub async fn run(
 /// Normalise a phone number to E.164 format (with leading +).
 fn normalise_phone(num: &str) -> String {
     let trimmed = num.trim();
-    if trimmed.starts_with('+') {
-        trimmed.to_string()
+    let cleaned = trimmed.replace([' ', '-'], "");
+    if cleaned.starts_with('+') {
+        cleaned
     } else {
-        format!("+{trimmed}")
+        format!("+{cleaned}")
     }
 }
 
@@ -974,10 +975,10 @@ mod tests {
 
     #[test]
     fn test_normalise_phone_preserves_formatting() {
-        // Function preserves dashes and internal spaces (only adds leading +)
-        assert_eq!(normalise_phone("+1-215-460-9585"), "+1-215-460-9585");
-        assert_eq!(normalise_phone("215-460-9585"), "+215-460-9585");
-        assert_eq!(normalise_phone("+1 215 460 9585"), "+1 215 460 9585");
+        // Function strips dashes and internal spaces, ensuring E.164 format
+        assert_eq!(normalise_phone("+1-215-460-9585"), "+12154609585");
+        assert_eq!(normalise_phone("215-460-9585"), "+2154609585");
+        assert_eq!(normalise_phone("+1 215 460 9585"), "+12154609585");
     }
 
     #[test]
