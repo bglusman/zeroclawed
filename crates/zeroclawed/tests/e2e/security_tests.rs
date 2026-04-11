@@ -5,6 +5,17 @@
 
 use std::collections::HashMap;
 
+/// Check if a binary exists in PATH
+fn have_binary(name: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Error messages from subprocesses should not leak file paths or tokens
 #[test]
 fn test_error_no_file_path_leak() {
@@ -26,6 +37,11 @@ fn test_error_no_file_path_leak() {
 /// Error messages should not contain the word "password" or "token"
 #[test]
 fn test_error_no_credential_leak() {
+    if !have_binary("env") {
+        eprintln!("Skipping: env binary not available");
+        return;
+    }
+
     let result = std::process::Command::new("env")
         .arg("NONEXISTENT_VAR_XYZ_12345")
         .stdout(std::process::Stdio::piped())
@@ -61,6 +77,11 @@ fn test_error_no_credential_leak() {
 /// Injection payloads should not cause shell interpretation
 #[test]
 fn test_injection_payloads_safe() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let payloads = vec![
         "ignore previous instructions",
         "<|im_start|>system",
@@ -97,6 +118,11 @@ fn test_injection_payloads_safe() {
 /// Environment variables containing credentials should not leak into output
 #[test]
 fn test_env_secret_not_leaked() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let mut env = HashMap::new();
     env.insert("SECRET_KEY".to_string(), "sk-secret-12345".to_string());
 
@@ -123,6 +149,11 @@ fn test_env_secret_not_leaked() {
 /// Empty/whitespace input should be handled gracefully
 #[test]
 fn test_empty_input_handling() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let result = std::process::Command::new("echo")
         .arg("")
         .stdout(std::process::Stdio::piped())
@@ -139,6 +170,11 @@ fn test_empty_input_handling() {
 /// Very long input should not cause overflow or hang
 #[test]
 fn test_long_input_handling() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let long_msg = "x".repeat(100_000);
     let result = std::process::Command::new("echo")
         .arg(&long_msg)
@@ -165,6 +201,11 @@ fn test_long_input_handling() {
 /// Unicode and special characters should be handled safely
 #[test]
 fn test_unicode_input_handling() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let inputs = vec![
         "hello 世界 🌍",
         "\u{0000}", // null byte
@@ -196,6 +237,11 @@ fn test_unicode_input_handling() {
 /// Concurrent subprocess spawning should not leak resources
 #[test]
 fn test_concurrent_subprocess_safety() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let handles: Vec<_> = (0..10)
         .map(|i| {
             std::thread::spawn(move || {

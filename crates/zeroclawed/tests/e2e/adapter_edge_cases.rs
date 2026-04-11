@@ -5,6 +5,17 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+/// Check if a binary exists in PATH
+fn have_binary(name: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Helper: spawn a command with optional env and timeout, return stdout+stderr
 fn run_cmd(
     cmd: &str,
@@ -38,6 +49,7 @@ fn run_cmd(
             Ok(None) => {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
+                    let _ = child.wait(); // Reap zombie
                     return Err(format!("timeout after {timeout_ms}ms"));
                 }
                 std::thread::sleep(Duration::from_millis(50));
@@ -60,7 +72,15 @@ fn test_binary_not_found() {
 
 #[test]
 fn test_timeout_produces_clear_error() {
-    let result = run_cmd("sleep", &["10"], None, 500);
+    // Skip on CI if sleep not available (unlikely but possible in minimal containers)
+    if !have_binary("sleep") {
+        eprintln!("Skipping: sleep binary not available");
+        return;
+    }
+
+    // Use a generous timeout to avoid flakiness on slow CI runners
+    // The exact timing isn't important — just that it times out eventually
+    let result = run_cmd("sleep", &["10"], None, 1000);
     assert!(result.is_err(), "Should fail on timeout");
     let err = result.unwrap_err();
     assert!(
@@ -71,6 +91,11 @@ fn test_timeout_produces_clear_error() {
 
 #[test]
 fn test_echo_passes_message() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let result = run_cmd("echo", &["hello world"], None, 5000);
     assert!(result.is_ok(), "echo should succeed");
     assert!(
@@ -81,6 +106,11 @@ fn test_echo_passes_message() {
 
 #[test]
 fn test_shell_safety() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     // echo treats arguments literally — no shell interpretation
     let tricky = "hello; rm -rf / && echo pwned";
     let result = run_cmd("echo", &[tricky], None, 5000);
@@ -94,12 +124,22 @@ fn test_shell_safety() {
 
 #[test]
 fn test_empty_message() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let result = run_cmd("echo", &[""], None, 5000);
     assert!(result.is_ok(), "echo of empty string should succeed");
 }
 
 #[test]
 fn test_exit_code_propagation() {
+    if !have_binary("false") {
+        eprintln!("Skipping: false binary not available");
+        return;
+    }
+
     // false returns exit code 1
     let result = run_cmd("false", &[], None, 1000);
     assert!(result.is_err(), "Non-zero exit should be error");
@@ -107,6 +147,11 @@ fn test_exit_code_propagation() {
 
 #[test]
 fn test_stderr_capture() {
+    if !have_binary("sh") {
+        eprintln!("Skipping: sh binary not available");
+        return;
+    }
+
     // sh -c writes to stderr
     let result = run_cmd("sh", &["-c", "echo oops >&2; exit 1"], None, 5000);
     assert!(result.is_err(), "Should fail");
@@ -116,6 +161,11 @@ fn test_stderr_capture() {
 
 #[test]
 fn test_env_passthrough() {
+    if !have_binary("sh") {
+        eprintln!("Skipping: sh binary not available");
+        return;
+    }
+
     let mut env = HashMap::new();
     env.insert("TEST_ADAPTER_VAR".to_string(), "from_env".to_string());
     let result = run_cmd("sh", &["-c", "echo $TEST_ADAPTER_VAR"], Some(env), 5000);
@@ -128,6 +178,11 @@ fn test_env_passthrough() {
 
 #[test]
 fn test_path_not_injected() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     // Verify we can't inject PATH to change binary behavior
     // (This tests that the command is resolved before PATH changes take effect)
     let result = run_cmd("echo", &["safe"], None, 5000);
@@ -137,6 +192,11 @@ fn test_path_not_injected() {
 
 #[test]
 fn test_two_instances_isolated() {
+    if !have_binary("echo") {
+        eprintln!("Skipping: echo binary not available");
+        return;
+    }
+
     let r1 = run_cmd("echo", &["agent-1"], None, 5000);
     let r2 = run_cmd("echo", &["agent-2"], None, 5000);
     assert!(r1.unwrap().contains("agent-1"));
@@ -145,6 +205,11 @@ fn test_two_instances_isolated() {
 
 #[test]
 fn test_invalid_utf8_handled() {
+    if !have_binary("printf") {
+        eprintln!("Skipping: printf binary not available");
+        return;
+    }
+
     // printf with raw bytes
     let result = run_cmd("printf", &["\\xff\\xfe"], None, 5000);
     // Should not panic — lossy conversion
