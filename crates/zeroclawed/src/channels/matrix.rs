@@ -841,6 +841,94 @@ mod inner {
 
         Ok(())
     }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_encode_path_segment_safe_chars() {
+            let safe = "ABC-xyz_123.~";
+            assert_eq!(encode_path_segment(safe), safe);
+        }
+
+        #[test]
+        fn test_encode_path_segment_special_chars() {
+            assert_eq!(encode_path_segment("hello world"), "hello%20world");
+            assert_eq!(encode_path_segment("foo@bar"), "foo%40bar");
+            assert_eq!(encode_path_segment("test#hash"), "test%23hash");
+        }
+
+        #[test]
+        fn test_encode_path_segment_unicode() {
+            assert_eq!(encode_path_segment("café"), "caf%C3%A9");
+        }
+
+        #[test]
+        fn test_is_sender_allowed_exact_match() {
+            let allowed = vec!["@alice:matrix.org".to_string()];
+            assert!(is_sender_allowed(&allowed, "@alice:matrix.org"));
+        }
+
+        #[test]
+        fn test_is_sender_allowed_case_insensitive() {
+            let allowed = vec!["@ALICE:MATRIX.ORG".to_string()];
+            assert!(is_sender_allowed(&allowed, "@alice:matrix.org"));
+            assert!(is_sender_allowed(&allowed, "@Alice:Matrix.org"));
+        }
+
+        #[test]
+        fn test_is_sender_allowed_wildcard() {
+            let allowed = vec!["*".to_string()];
+            assert!(is_sender_allowed(&allowed, "@anyone:anywhere"));
+            assert!(is_sender_allowed(&allowed, ""));
+        }
+
+        #[test]
+        fn test_is_sender_allowed_not_in_list() {
+            let allowed = vec!["@alice:matrix.org".to_string()];
+            assert!(!is_sender_allowed(&allowed, "@bob:matrix.org"));
+            assert!(!is_sender_allowed(&allowed, ""));
+        }
+
+        #[test]
+        fn test_is_sender_allowed_empty_list() {
+            let allowed: Vec<String> = vec![];
+            assert!(!is_sender_allowed(&allowed, "@alice:matrix.org"));
+        }
+
+        #[test]
+        fn test_cache_event_id_new_event() {
+            let mut order = std::collections::VecDeque::new();
+            let mut lookup = std::collections::HashSet::new();
+            let is_dup = cache_event_id("event123", &mut order, &mut lookup);
+            assert!(!is_dup);
+            assert!(lookup.contains("event123"));
+            assert_eq!(order.len(), 1);
+        }
+
+        #[test]
+        fn test_cache_event_id_duplicate() {
+            let mut order = std::collections::VecDeque::new();
+            let mut lookup = std::collections::HashSet::new();
+            cache_event_id("event123", &mut order, &mut lookup);
+            let is_dup = cache_event_id("event123", &mut order, &mut lookup);
+            assert!(is_dup);
+            assert_eq!(order.len(), 1);
+        }
+
+        #[test]
+        fn test_cache_event_id_eviction() {
+            let mut order = std::collections::VecDeque::new();
+            let mut lookup = std::collections::HashSet::new();
+            for i in 0..2050 {
+                cache_event_id(&format!("event{}", i), &mut order, &mut lookup);
+            }
+            assert_eq!(order.len(), 2048);
+            assert!(!lookup.contains("event0"));
+            assert!(!lookup.contains("event1"));
+            assert!(lookup.contains("event2049"));
+        }
+    }
 }
 
 #[cfg(feature = "channel-matrix")]

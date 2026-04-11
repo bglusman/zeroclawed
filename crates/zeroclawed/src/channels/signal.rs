@@ -945,3 +945,133 @@ async fn send_http_response(
     stream.write_all(response.as_bytes()).await?;
     stream.flush().await
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Test normalise_phone helper
+    #[test]
+    fn test_normalise_phone_with_plus() {
+        assert_eq!(normalise_phone("+12154609585"), "+12154609585");
+    }
+
+    #[test]
+    fn test_normalise_phone_without_plus() {
+        assert_eq!(normalise_phone("12154609585"), "+12154609585");
+    }
+
+    #[test]
+    fn test_normalise_phone_with_spaces() {
+        assert_eq!(normalise_phone("+1 215 460 9585"), "+12154609585");
+        assert_eq!(normalise_phone("1 215 460 9585"), "+12154609585");
+    }
+
+    #[test]
+    fn test_normalise_phone_with_dashes() {
+        assert_eq!(normalise_phone("+1-215-460-9585"), "+12154609585");
+        assert_eq!(normalise_phone("215-460-9585"), "+2154609585");
+    }
+
+    #[test]
+    fn test_normalise_phone_empty() {
+        assert_eq!(normalise_phone(""), "+");
+    }
+
+    // Test is_number_allowed helper
+    #[test]
+    fn test_is_number_allowed_exact_match() {
+        let allowed = vec!["+12154609585".to_string()];
+        assert!(is_number_allowed("+12154609585", &allowed));
+    }
+
+    #[test]
+    fn test_is_number_allowed_wildcard() {
+        let allowed = vec!["*".to_string()];
+        assert!(is_number_allowed("+12154609585", &allowed));
+        assert!(is_number_allowed("any-number", &allowed));
+    }
+
+    #[test]
+    fn test_is_number_allowed_not_in_list() {
+        let allowed = vec!["+12154609585".to_string()];
+        assert!(!is_number_allowed("+12157385500", &allowed));
+    }
+
+    #[test]
+    fn test_is_number_allowed_empty_list() {
+        let allowed: Vec<String> = vec![];
+        assert!(!is_number_allowed("+12154609585", &allowed));
+    }
+
+    // Test verify_hmac_sha256 helper
+    #[test]
+    fn test_verify_hmac_sha256_valid() {
+        let secret = "test-secret";
+        let body = "test-message-body";
+        
+        // Generate a valid signature
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+        
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body.as_bytes());
+        let sig_bytes = mac.finalize().into_bytes();
+        let sig_hex = hex::encode(sig_bytes);
+        
+        // Verify with sha256= prefix
+        let sig_with_prefix = format!("sha256={}", sig_hex);
+        assert!(verify_hmac_sha256(secret, body, &sig_with_prefix));
+        
+        // Verify without prefix
+        assert!(verify_hmac_sha256(secret, body, &sig_hex));
+    }
+
+    #[test]
+    fn test_verify_hmac_sha256_invalid_secret() {
+        let body = "test-message-body";
+        
+        // Generate signature with one secret
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+        
+        let mut mac = HmacSha256::new_from_slice("correct-secret".as_bytes()).unwrap();
+        mac.update(body.as_bytes());
+        let sig_bytes = mac.finalize().into_bytes();
+        let sig_hex = hex::encode(sig_bytes);
+        
+        // Verify with different secret
+        assert!(!verify_hmac_sha256("wrong-secret", body, &sig_hex));
+    }
+
+    #[test]
+    fn test_verify_hmac_sha256_invalid_signature_format() {
+        assert!(!verify_hmac_sha256("secret", "body", "not-hex"));
+        assert!(!verify_hmac_sha256("secret", "body", ""));
+    }
+
+    #[test]
+    fn test_verify_hmac_sha256_tampered_body() {
+        let secret = "test-secret";
+        let body = "original-body";
+        
+        // Generate signature for original body
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        type HmacSha256 = Hmac<Sha256>;
+        
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body.as_bytes());
+        let sig_bytes = mac.finalize().into_bytes();
+        let sig_hex = hex::encode(sig_bytes);
+        
+        // Verify against tampered body
+        assert!(!verify_hmac_sha256(secret, "tampered-body", &sig_hex));
+    }
+}
