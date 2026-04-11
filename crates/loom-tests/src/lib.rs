@@ -3,6 +3,10 @@
 //! These tests use Loom to exhaustively explore all possible thread interleavings
 //! to detect data races, deadlocks, and memory ordering bugs.
 //!
+//! See [docs/concurrency-testing.md](docs/concurrency-testing.md) for:
+//! - When to use loom vs runtime mutexes
+//! - Surelock as a potential future async mutex option
+//! - Running instructions
 //! # Running Loom Tests
 //!
 //! ```bash
